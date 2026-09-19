@@ -1,0 +1,19 @@
+services:
+  acg:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: project-protoss-acg:cu128
+    platform: linux/amd64
+    gpus: all
+    shm_size: 16gb
+    stdin_open: true
+    tty: true
+    command: ["sleep", "infinity"]
+    environment:
+      MUJOCO_GL: egl
+    volumes:
+      - ./ACG:/workspace/ACG
+      - ./datasets:/root/datasets/robot
+      - ./outputs:/workspace/ACG/outputs
+    working_dir: /workspace/ACG

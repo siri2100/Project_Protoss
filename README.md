@@ -137,3 +137,7 @@ The project aims to evolve over multiple generations, gradually expanding the ca
 🚧 Early development (Version 1)
 
 Contributions, discussions, and ideas are always welcome.
+
+## ACG
+
+See [Docker setup](DOCKER.md) for the ACG GPU environment.
