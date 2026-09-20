@@ -54,10 +54,6 @@ def get_embeddings(
     input_embeds = input_embeds.reshape(B * N, C)
 
     input_ids = input_ids.reshape(B * N)
-    print(input_ids)
-    import sys
-    sys.exit()
-    
     selected = input_ids == self.img_context_token_id
     assert selected.sum() != 0
 
@@ -71,7 +67,6 @@ def get_embeddings(
         attention_mask=attention_mask,
         output_hidden_states=True,
     )
-    
     embeddings = embeddings.hidden_states[-1]
 
     if reproject_vision:
