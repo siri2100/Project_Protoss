@@ -1,0 +1,3 @@
+[submodule "GR00T-N1.7"]
+	path = GR00T-N1.7
+	url = https://github.com/NVIDIA/Isaac-GR00T.git
