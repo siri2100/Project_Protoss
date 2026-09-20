@@ -32,7 +32,6 @@ Pod의 Web Terminal 또는 SSH 터미널에서 실행합니다.
 ```bash
 cd /workspace
 git clone https://github.com/siri2100/Project_Protoss.git
-cd Project_Protoss/ACG
 ```
 
 ### 3. 가상환경 및 Python 패키지 설치
@@ -51,12 +50,13 @@ conda tos accept --override-channels \
 
 conda tos accept --override-channels \
   --channel https://repo.anaconda.com/pkgs/r
+```
 
+#### 3.2. Build environment for ACG (ICRA 2026)
+```bash
 conda create -n acg python=3.10 -y
 conda activate acg
-```
-#### 3.2. ACG requirements.txt 설치
-```bash
+cd ACG
 pip install torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 --index-url https://download.pytorch.org/whl/cu128
 
 # Install core dependencies
@@ -76,10 +76,7 @@ pip install -e libs/dexmimicgen/ --no-dependencies
 
 # Remaining requirements
 pip install -r requirements.txt
-```
 
-#### 3.3. 추가 설치
-```bash
 python -m pip install --force-reinstall --no-deps \
   numpy==1.23.5 \
   tianshou==0.5.1 \
@@ -87,18 +84,17 @@ python -m pip install --force-reinstall --no-deps \
 python -m pip install -e libs/robomimic/ --no-deps
 ```
 
-### Pod 재시작 후
-
-`/workspace` Volume에 설치된 소스와 데이터는 유지됩니다. Python 패키지는
-사용한 RunPod 템플릿과 저장 방식에 따라 사라질 수 있으므로 Pod를 종료하기
-전 현재 환경을 저장해 두는 것이 좋습니다.
-
+#### 3.3. Download Dataset (RoboCasa)
 ```bash
-cd /workspace/Project_Protoss/ACG
-python -m pip freeze > /workspace/acg-requirements.lock.txt
-```
+# bucket name : p5v8a9zcuo
+# Endpoint URL : https://s3api-us-ca-2.runpod.io
+# aws s3 ls --region us-ca-2 --endpoint-url https://s3api-us-ca-2.runpod.io s3://p5v8a9zcuo/
 
-환경까지 반복해서 재사용하려면 루트의 `Dockerfile`을 외부 Docker 환경에서
-빌드해 컨테이너 레지스트리에 push한 뒤, 그 이미지를 RunPod Custom Image로
-지정합니다. 일반 RunPod Pod 내부에서 Docker 이미지를 다시 빌드하는 방식은
-사용하지 않습니다.
+mkdir -p /workspace/datasets/robocasa
+cat > libs/robocasa/robocasa/macros_private.py <<'PY'
+DATASET_BASE_PATH = "/workspace/datasets/robocasa"
+PY
+python libs/robocasa/robocasa/scripts/download_kitchen_assets.py
+
+printf 'y\n' | python -m robocasa.scripts.download_datasets --ds_types mg_im
+```
