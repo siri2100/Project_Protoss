@@ -1,7 +1,0 @@
-jsonlines
-protobuf==3.20.3
-qpsolvers[quadprog]
-git+http://github.com/pmh9960/tools_mpark
-av==12.3.0
-imageio
-imageio-ffmpeg
