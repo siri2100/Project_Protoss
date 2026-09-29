@@ -27,8 +27,16 @@ echo "[1/4] Installing Git LFS..."
 "${SUDO[@]}" apt-get install -y --no-install-recommends git-lfs
 git lfs install
 
-echo "[2/4] Downloading the bundled DROID demo data..."
-git -C "$REPO_DIR" lfs pull --include="demo_data/droid_sample/**"
+echo "[2/4] Downloading required Git LFS files..."
+git -C "$REPO_DIR" lfs pull \
+    --include="demo_data/droid_sample/**,scripts/deployment/dgpu/wheels/**"
+
+TORCHCODEC_WHEEL="$REPO_DIR/scripts/deployment/dgpu/wheels/torchcodec-0.8.0-cp312-cp312-linux_aarch64.whl"
+if head -n 1 "$TORCHCODEC_WHEEL" | grep -q "git-lfs.github.com"; then
+    echo "Git LFS did not download the torchcodec wheel." >&2
+    echo "Run: git -C '$REPO_DIR' lfs pull --include='scripts/deployment/dgpu/wheels/**'" >&2
+    exit 1
+fi
 
 echo "[3/4] Preparing persistent caches in $WORKSPACE_DIR..."
 mkdir -p "$WORKSPACE_DIR/.cache/huggingface" "$WORKSPACE_DIR/.cache/uv" "$WORKSPACE_DIR/gr00t-output"

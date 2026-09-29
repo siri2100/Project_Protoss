@@ -1,0 +1,121 @@
+task_name	instruction	difficulty
+AnimalsInBinTask	Put the lizards in the bin	simple
+AppleAndYogurtInBowlTask	Put the apple and yogurt in the bowl	moderate
+BagelsOnPlateTask	Put the bagels on the plate	simple
+BananaInBowlTask	Pick up the banana and place it in the bowl	simple
+BananaOnPlateTask	Pick up the banana and put it on the plate	simple
+BananasInBinOneMoreTask	Put one (1) more bananas in the grey bin.	moderate
+BananasInBinThreeTotalTask	Make sure there are 3 (three) bananas in the grey bin.	moderate
+BananasInCrateTask	Put 2 bananas in the crate	moderate
+BananasOutOfBinTask	Take the bananas out	moderate
+BananaThenRubiksCubeTask	put the banana then the cube in the bowl	simple
+BBQSauceInBinTask	Put the red BBQ sauce bottles in the grey bin	simple
+BigPumpkinInBinTask	Put the bigger pumpkin in the bin	simple
+BlackItemsInBinTask	Put the black items in the grey bin	complex
+BlocksInBinTask	Sort all colored blocks into the bin	complex
+BlockStackingOrderAgnosticTask	Stack the blocks into a tower	complex
+BlockStackingSpecifiedOrderTask	Stack the blocks in the order from bottom to top: red, blue, green, yellow	complex
+BowlInBinTask	put the bowl in the grey bin	simple
+BowlStackingLeftOnRightTask	Stack the left bowl on the right bowl	simple
+BowlStackingRightOnLeftTask	Stack the right bowl on the left bowl	simple
+ButterAboveRaisinTask	Pick up the butter box and place it on top of the raisin box	simple
+CannedFoodInBinTask	Put the canned food in the grey bin	simple
+ClampInRightBinTask	Put the spring clamp in the right bin	simple
+CleanUpToysTask	Clean up all the smaller toys and leave the birdhouse on the table	complex
+ClearOrganicObjectsTask	Clear away the organic objects	complex
+ClutterPlasticTask	Put all plastic bottles away in the bin	moderate
+ClutterPumpkinTask	Put all the pumpkins away in the bin	simple
+CoffeePotInBinTask	Put the coffee pot in the grey bin	simple
+CondimentsInBinTask	Sort the sauce condiments into the grey bin	complex
+CookingClearPlateTask	Put the two measuring cups outside of the plate	moderate
+CookingPickPastaToolTask	Move the pink tool from this utensil container to the other utensil holder	simple
+CubesAndBlocksInBinTask	Put all the cubes and blocks in the bin	complex
+DishesInBinTask	Put the dishware in the grey bin	moderate
+ElectronicsInBinTask	Put the electronic devices in the grey bin	complex
+FoodPacking1BoxesTask	Pack boxed foods into the bin	simple
+FoodPacking1CansTask	Pack canned foods into the bin	simple
+FoodPacking2BoxesTask	Pack boxed foods into the bin	simple
+FoodPacking2CansTask	Pack canned foods into the bin	simple
+FoodPacking3BoxesTask	Pack boxed foods into the bin	moderate
+FoodPacking3CansTask	Pack canned foods into the bin	moderate
+FoodPackingByColorTask	Pack yellow objects in right container and blue object in the left container	moderate
+FruitsGreenLimesOnPlateTask	Put all the green fruit on the plate	simple
+FruitsMovingOrangeOrLimeTask	Move an orange or a lime to the wood bowl	simple
+FruitsMovingTask	Move an orange to the white bowl	simple
+FruitsOnionTask	Put the onion in the wood bowl	simple
+FruitsOnionToPlateTask	Put the onion on the plate	simple
+FruitsOnPlate3Task	Put three (3) fruits on the plate	complex
+FruitsOnPlateTask	Put all the fruits on the plate	complex
+FruitsOrangesOnPlateTask	Put all the oranges on the plate	moderate
+GrabABagelTask	Grab a bagel	simple
+GrabAFruitTask	Pick up a fruit	simple
+GreenSpoonsInPotTask	Put the green spoons in the pot	complex
+HammersInLeftBinTask	Put the red hammer and black hammer in the left bin	moderate
+JugsOnShelfTask	Put all the jugs on the shelf	simple
+KeyboardOutOfBinTask	Take the keyboard out of the bin and put it on the table	simple
+LargerObjectRaisinBoxInBinTask	Place the larger object in the grey bin.	simple
+MarkerInMugTask	Put the whiteboard marker in the mug	moderate
+MouseOnKeyboardTask	Put the computer mouse on the keyboard	simple
+MoveBananaToBagelPlateTask	Move the bananas to the bagel plate	simple
+MustardAboveRaisinTask	Place the mustard on the raisin box. 	simple
+MustardInLeftBinTask	Put the mustard in the left bin	simple
+MustardInRightBinTask	Put the mustard in the right bin	simple
+NonHammerToolsInRightBinTask	Put the non-hammer tools in the right bin	moderate
+OneBottleInSquarePailTask	Put any white plastic bottle in the square pail	simple
+OneBottleOnShelfTask	Put any white plastic bottle on the shelf	simple
+PhoneOrRemoteInBinTask	Put the phone or the remote in the grey bin	simple
+PickDrillTask	Pick up the cordless drill.	simple
+PickGlassesTask	Pick up the eye glasses	simple
+PickOrangeObjectTask	Pick up the orange measuring cup	simple
+PickUpBluePitcherTask	Pick up the large blue pitcher	moderate
+PickUpGreenObjectTask	Pick up the green vegetable block	simple
+PinkSpoonInPotTask	Put the pink spaghetti spoon in the pot	moderate
+PlasticBottlesInSquarePailTask	Put all the small plastic bottles in the square pail	complex
+PutBowlOnShelfTopTask	Put the serving bowl anywhere on the shelf in front of you	simple
+PutMugsOnShelfTask	Put the two mugs on the shelf	moderate
+PutTwoMugsOnShelfTask	Put two (2) mugs on the wire shelf	moderate
+RecycleCartonsOnBoxTask	Put the cartons that can be recycled on the box	simple
+RecycleCartonsVerticalCrateTask	Put the cartons that can be recycled in the vertical crate	moderate
+RecycleCartonTask	Put the recyclable cartons in the grey bin	simple
+RedDishesInBinTask	Put the red dishware in the grey bin	simple
+RedItemsInBinTask	Put all the red things in the grey bin	moderate
+ReorientAllMugsTask	Reorient all the mugs upright so that the opening is facing upwards.	complex
+ReorientJugTask	Stand the jug upright	moderate
+ReorientRedMugTask	Put the red mug upright so that the opening is facing upwards.	moderate
+ReorientWhiteMugsTask	Make sure all the white mugs are upright so that the opening is facing upwards.	moderate
+RubiksCubeAndBananaTask	Put the cube and the banana in the bowl	simple
+RubiksCubeBehindBowlTask	Put the rubiks cube behind the bowl	moderate
+RubiksCubeInFrontOfBowlTask	Put the rubiks cube in front of the bowl	moderate
+RubiksCubeLeftOfBowlTask	Put the rubiks cube to the left of the bowl	moderate
+RubiksCubeOrBananaTask	Put the cube or the banana in the bowl	simple
+RubiksCubeRightOfBowlTask	Put the rubiks cube to the right of the bowl	moderate
+RubiksCubesInBinTask	Sort all rubiks cubes into the bin	complex
+RubiksCubeTask	Put the cube in the bowl	simple
+RubiksCubeThenBananaTask	Put the cube then the banana in the bowl	simple
+SauceBottlesCrateTask	Put the red bbq sauce bottle in the crate	simple
+SmallerObjectButterInBinTask	Place the smaller object in the grey bin.	simple
+SmallPumpkinInBinTask	Put the small pumpkin in the bin	simple
+SmartphoneInBinTask	Put the smartphone in the grey bin	simple
+SpoonInMugTask	Put the metal spoon that's in the wooden bowl in the mug	moderate
+SpoonsInPotTask	Put all of the serving spoons with no holes in the pot	complex
+Stack3RubiksCubeTask	Stack the rubiks cubes in a tower	moderate
+StackWhiteMugsTask	Stack the white mugs on top of each other.	moderate
+StackYellowOnRedTask	Stack the yellow block on the red block	moderate
+TakeMeasuringSpoonOutTask	Take the white colored measuring spoon out of the red bowl and put it on the table.	simple
+TakeMugsOffOfShelfTask	Take the mugs off the shelf	moderate
+TakeSpatulaOffShelfTask	Take the spatula off the shelf and put it on the table	moderate
+ThrowAwayAppleTask	Throw away the apple	simple
+ThrowAwaySnacksTask	Put away the snacks in the bin	simple
+ToolOrganizationBothTask	Put hammers in the right bin and do not touch anything else	moderate
+ToolOrganizationTask	Put the red hammer and black hammer in the left bin	moderate
+ToolsPickingAllHammersTask	Take out all the hammers and put them on the table	complex
+ToolsPickingDrillTask	Select the cordless drill and put it on the table	simple
+ToolsPickingHammerTask	Select the blue hammer and put it on the table	simple
+ToyInBinTask	Put the lizard away in the bin	simple
+UnstackRubiksCubeTask	Unstack the rubiks cube tower	moderate
+UtensilsInMugTask	Put the fork and spoon in the ceramicmug	moderate
+WhiteMugInCenterOfTableTask	Put the white mug in the center of the table.	moderate
+WhiteMugsInBinTask	Clean up the white mugs	simple
+WoodSpatulaToBowlTask	Put the wooden spatula in the bowl	simple
+YellowAndWhiteObjectsInBinTask	Put all white objects and yellow objects in the grey bin	simple
+YogurtInBowlTask	Put the small red yogurt in the red bowl	simple

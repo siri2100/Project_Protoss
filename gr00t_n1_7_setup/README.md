@@ -35,3 +35,14 @@ cd ..
 ```
 
 모델 및 uv 캐시는 `/workspace/.cache`에 저장되어 영구 Volume에서 재사용됩니다.
+
+## Git LFS wheel 오류
+
+`torchcodec` wheel에서 `Invalid zip file structure`가 발생하면 wheel이 실제 파일이
+아니라 Git LFS 포인터로 남아 있는 것입니다. 다음 명령 후 설치를 다시 실행합니다.
+
+```bash
+git -C GR00T-N1.7 lfs pull --include="scripts/deployment/dgpu/wheels/**"
+cd GR00T-N1.7
+uv sync --python 3.12
+```
