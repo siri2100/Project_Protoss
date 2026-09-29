@@ -29,7 +29,6 @@ uv run hf download nvidia/GR00T-N1.7-LIBERO \
 unset HF_TOKEN
 uv run hf auth logout
 uv run hf auth login # input my huggingface access token
-# huggingface access token : YOUR_HF_TOKEN
 ```
 
 # GR00T-N1.7 inference (RoboLab)
