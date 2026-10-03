@@ -127,27 +127,62 @@ uv run python -c "import gr00t, torch; print(gr00t.__file__); print('CUDA:', tor
 로그인은 CLI 프롬프트에 토큰을 입력하며 README나 소스 파일에 토큰을 저장하지 않는다.
 
 ```bash
+(
+set -e
 export PROTOSS_ROOT=/workspace/Project_Protoss
 export HF_HOME=/workspace/.cache/huggingface
+export HF_HUB_ENABLE_HF_TRANSFER=0
+export PATH="$HOME/.local/bin:$PATH"
 unset HF_TOKEN HUGGING_FACE_HUB_TOKEN HF_HUB_DISABLE_IMPLICIT_TOKEN
+unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
+
+for model_dir in Issac-GR00T-N17 Isaac-GR00T-N16; do
+  test -f "$PROTOSS_ROOT/$model_dir/pyproject.toml" || {
+    echo "모델 소스 폴더를 확인하세요: $PROTOSS_ROOT/$model_dir (README 2·3단계 설치 필요)"
+    exit 1
+  }
+done
 
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 uv run hf auth login
 uv run hf auth whoami
-uv run hf download nvidia/Cosmos-Reason2-2B config.json \
+HF_HUB_ENABLE_HF_TRANSFER=0 uv run hf download nvidia/Cosmos-Reason2-2B config.json \
   --local-dir "$PROTOSS_ROOT/Protoss/access-check/cosmos"
-uv run hf download nvidia/GR00T-N1.7-DROID \
+HF_HUB_ENABLE_HF_TRANSFER=0 uv run hf download nvidia/GR00T-N1.7-DROID \
   --local-dir "$PROTOSS_ROOT/Protoss/checkpoints/GR00T-N1.7-DROID"
 
 cd "$PROTOSS_ROOT/Isaac-GR00T-N16"
 uv run hf auth whoami
-uv run hf download nvidia/GR00T-N1.6-DROID \
+HF_HUB_ENABLE_HF_TRANSFER=0 uv run hf download nvidia/GR00T-N1.6-DROID \
   --local-dir "$PROTOSS_ROOT/Protoss/checkpoints/GR00T-N1.6-DROID"
+)
 ```
 
 같은 `HF_HOME`을 사용하므로 로그인은 공유된다. N1.6에서 `whoami`가 실패하면
 해당 환경에서 `uv run hf auth login`을 실행한다. 아래 실행 명령은 다운로드한 로컬 경로를
 `--model-path`에 전달한다. 처음 시작할 때 backbone 관련 파일이 추가로 다운로드될 수 있다.
+
+`hf_transfer`가 설치되지 않은 환경에서도 다운로드할 수 있도록 각 다운로드 명령에
+`HF_HUB_ENABLE_HF_TRANSFER=0`을 직접 지정했다. `Fast download using 'hf_transfer' is enabled`
+오류가 발생하면 로그인은 유지한 채 아래 블록으로 두 DROID 다운로드만 다시 실행한다.
+`git credential helper` 관련 경고는 이 다운로드 오류의 원인이 아니다.
+
+```bash
+(
+set -e
+export PROTOSS_ROOT=/workspace/Project_Protoss
+export HF_HOME=/workspace/.cache/huggingface
+unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
+
+cd "$PROTOSS_ROOT/Issac-GR00T-N17"
+HF_HUB_ENABLE_HF_TRANSFER=0 uv run hf download nvidia/GR00T-N1.7-DROID \
+  --local-dir "$PROTOSS_ROOT/Protoss/checkpoints/GR00T-N1.7-DROID"
+
+cd "$PROTOSS_ROOT/Isaac-GR00T-N16"
+HF_HUB_ENABLE_HF_TRANSFER=0 uv run hf download nvidia/GR00T-N1.6-DROID \
+  --local-dir "$PROTOSS_ROOT/Protoss/checkpoints/GR00T-N1.6-DROID"
+)
+```
 
 입력 영상의 시점도 확인한다.
 
