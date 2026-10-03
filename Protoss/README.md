@@ -1,5 +1,8 @@
 # Protoss v1.0
 
+N1.7·N1.6·RoboLab의 설치와 전체 inference 실행 순서는
+[프로젝트 README](../README.md)를 참고한다. 아래는 blending 동작과 입력 형식에 대한 설명이다.
+
 추가 학습 없이 GR00T-N1.7-DROID와 GR00T-N1.6-DROID의 최종 action을 혼합한다.
 
 ```text
@@ -28,9 +31,9 @@ GPU가 하나이면 두 모델 서버에 `cuda:0`을 지정할 수 있으나 두
 N1.7 서버:
 
 ```bash
-cd Issac-GR00T-N1.7
+cd Issac-GR00T-N17
 uv run python gr00t/eval/run_gr00t_server.py \
-  --model-path nvidia/GR00T-N1.7-DROID \
+  --model-path ../Protoss/checkpoints/GR00T-N1.7-DROID \
   --embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT \
   --device cuda:0 --host 127.0.0.1 --port 5557 --use-sim-policy-wrapper
 ```
@@ -40,7 +43,7 @@ N1.6 서버:
 ```bash
 cd Isaac-GR00T-N16
 uv run python gr00t/eval/run_gr00t_server.py \
-  --model-path nvidia/GR00T-N1.6-DROID \
+  --model-path ../Protoss/checkpoints/GR00T-N1.6-DROID \
   --embodiment-tag OXE_DROID \
   --device cuda:1 --host 127.0.0.1 --port 5556 --use-sim-policy-wrapper
 ```

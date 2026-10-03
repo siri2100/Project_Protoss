@@ -4,9 +4,9 @@ container dist : 200GB
 # GR00T-N1.7 환경세팅 방법
 ```bash
 # Step 1. Set Environment 
-cd /workspace
+cd /workspace/Project_Protoss
 git clone --recurse-submodules https://github.com/NVIDIA/Isaac-GR00T Isaac-GR00T-N17
-cd /workspace/Isaac-GR00T-N17
+cd /workspace/Project_Protoss/Isaac-GR00T-N17
 git submodule update --init --recursive
 
 apt-get update
@@ -70,7 +70,7 @@ uv run hf download nvidia/Cosmos-Reason2-2B \
 test -f /tmp/cosmos_access_test/config.json || exit 1
 echo "Cosmos access OK"
 
-cd /workspace/Isaac-GR00T-N17
+cd /workspace/Project_Protoss/Isaac-GR00T-N17
 
 uv run hf download nvidia/GR00T-N1.7-LIBERO \
   --include \
@@ -105,7 +105,7 @@ UV_PROJECT_ENVIRONMENT=.venv-51 uv run --extra isaac51 python -c \
     "import isaaclab; from isaaclab.app import AppLauncher; print('Isaac Lab OK')"
 
 # 1st terminal (GR00T-N1.7-DROID)
-cd /workspace/Isaac-GR00T-N17
+cd /workspace/Project_Protoss/Isaac-GR00T-N17
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 
@@ -145,7 +145,7 @@ apt-get install -y \
     libxkbcommon0
 ldconfig
 
-cd /workspace/RoboLab
+cd /workspace/Project_Protoss/RoboLab
 export UV_CACHE_DIR=/workspace/.cache/uv
 export UV_LINK_MODE=copy
 test -x .venv-51/bin/python || uv venv --python 3.11 .venv-51
@@ -330,7 +330,7 @@ apt-get install -y \
     libopengl0 \
     libosmesa6 \
     libglfw3
-cd /workspace/Isaac-GR00T-N17
+cd /workspace/Project_Protoss/Isaac-GR00T-N17
 bash gr00t/eval/sim/LIBERO/setup_libero.sh
 
 gr00t/eval/sim/LIBERO/libero_uv/.venv/bin/python \
@@ -342,7 +342,7 @@ gr00t/eval/sim/LIBERO/libero_uv/.venv/bin/python \
     --env-name libero_sim/KITCHEN_SCENE6_put_the_yellow_and_white_mug_in_the_microwave_and_close_it \
     --n-action-steps 8 \
     --n-envs 1 \
-    --video-dir /workspace/libero_rollouts/LIBERO10
+    --video-dir /workspace/Project_Protoss/libero_rollouts/LIBERO10
 
 # 01. libero_sim/LIVING_ROOM_SCENE2_put_both_the_alphabet_soup_and_the_tomato_sauce_in_the_basket
 # 02. libero_sim/LIVING_ROOM_SCENE2_put_both_the_cream_cheese_box_and_the_butter_in_the_basket
@@ -384,7 +384,7 @@ GR00T-N1.7 checkpoint 다운로드가 시작되더라도 VLM backbone인 `nvidia
 4. 다음 두 명령이 모두 성공한 다음 서버를 실행한다.
 
 ```bash
-cd /workspace/Isaac-GR00T-N17
+cd /workspace/Project_Protoss/Isaac-GR00T-N17
 export HF_HOME=/workspace/.cache/huggingface
 unset HF_TOKEN HUGGING_FACE_HUB_TOKEN HF_HUB_DISABLE_IMPLICIT_TOKEN
 
@@ -407,13 +407,13 @@ UV_PROJECT_ENVIRONMENT=.venv-51 uv run --extra isaac51 python -c \
     "import isaaclab; from isaaclab.app import AppLauncher; print('Isaac Lab OK')"
 ```
 
-## `VIRTUAL_ENV=/workspace/RoboLab/.venv does not match ...`
+## `VIRTUAL_ENV=/workspace/Project_Protoss/RoboLab/.venv does not match ...`
 
 RoboLab 가상환경이 활성화된 터미널에서 Isaac-GR00T 명령을 실행했을 때 나오는 경고다. `uv`는 Isaac-GR00T의 `.venv`를 사용하므로 직접적인 실패 원인은 아니지만, 환경 혼동을 피하려면 GR00T 서버 터미널에서 먼저 실행한다.
 
 ```bash
 deactivate 2>/dev/null || true
-cd /workspace/Isaac-GR00T-N17
+cd /workspace/Project_Protoss/Isaac-GR00T-N17
 ```
 
 ## CUDA 저장소의 `legacy trusted.gpg` 경고

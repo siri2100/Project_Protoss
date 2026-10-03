@@ -410,7 +410,7 @@ N1.7 LIBERO checkpoint는 N1.6 코드와 섞어 사용할 수 없다.
 ### 3.1 LIBERO 환경 설치
 
 ```bash
-cd /workspace/Isaac-GR00T-N16
+cd /workspace/Project_Protoss/Isaac-GR00T-N16
 
 export MUJOCO_GL=egl
 export PYOPENGL_PLATFORM=egl
@@ -438,7 +438,7 @@ test -x gr00t/eval/sim/LIBERO/libero_uv/.venv/bin/python && \
 이미 N1.6 LIBERO checkpoint가 있다면 이 단계는 생략한다. 공식 스크립트는 기본적으로 8 GPU와 20,000 step을 사용하므로 RTX 3090 한 장에서 그대로 실행하기에는 무겁다.
 
 ```bash
-cd /workspace/Isaac-GR00T-N16
+cd /workspace/Project_Protoss/Isaac-GR00T-N16
 
 uv run hf download IPEC-COMMUNITY/libero_10_no_noops_1.0.0_lerobot \
     --repo-type dataset \
@@ -457,12 +457,12 @@ uv run bash examples/LIBERO/finetune_libero_10.sh
 /tmp/libero_10/checkpoint-20000
 ```
 
-RunPod의 `/tmp`는 영구 저장소가 아니므로 학습 결과는 `/workspace/checkpoints`로 복사하는 편이 안전하다.
+RunPod의 `/tmp`는 영구 저장소가 아니므로 학습 결과는 `/workspace/Project_Protoss/checkpoints`로 복사하는 편이 안전하다.
 
 ```bash
-mkdir -p /workspace/checkpoints/GR00T-N1.6-LIBERO
+mkdir -p /workspace/Project_Protoss/checkpoints/GR00T-N1.6-LIBERO
 cp -a /tmp/libero_10/checkpoint-20000 \
-    /workspace/checkpoints/GR00T-N1.6-LIBERO/
+    /workspace/Project_Protoss/checkpoints/GR00T-N1.6-LIBERO/
 ```
 
 ### 3.3 Terminal 1: N1.6 LIBERO policy server
@@ -470,11 +470,11 @@ cp -a /tmp/libero_10/checkpoint-20000 \
 `LIBERO_CHECKPOINT`를 실제 checkpoint 경로로 지정한다.
 
 ```bash
-cd /workspace/Isaac-GR00T-N16
+cd /workspace/Project_Protoss/Isaac-GR00T-N16
 
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
-export LIBERO_CHECKPOINT=/workspace/checkpoints/GR00T-N1.6-LIBERO/checkpoint-20000
+export LIBERO_CHECKPOINT=/workspace/Project_Protoss/checkpoints/GR00T-N1.6-LIBERO/checkpoint-20000
 
 test -f "$LIBERO_CHECKPOINT/config.json"
 
@@ -493,7 +493,7 @@ CUDA_VISIBLE_DEVICES=0 uv run python \
 N1.6 LIBERO 스크립트는 underscore 형식의 CLI 옵션을 사용한다.
 
 ```bash
-cd /workspace/Isaac-GR00T-N16
+cd /workspace/Project_Protoss/Isaac-GR00T-N16
 
 export MUJOCO_GL=egl
 export PYOPENGL_PLATFORM=egl
@@ -507,7 +507,7 @@ gr00t/eval/sim/LIBERO/libero_uv/.venv/bin/python \
     --env_name libero_sim/KITCHEN_SCENE3_turn_on_the_stove_and_put_the_moka_pot_on_it \
     --n_action_steps 8 \
     --n_envs 1 \
-    --video_dir /workspace/libero_rollouts/GR00T-N1.6
+    --video_dir /workspace/Project_Protoss/libero_rollouts/GR00T-N1.6
 ```
 
 설치된 코드에 따라 `--video_dir`가 지원되지 않을 수 있다. 다음 명령으로 지원 옵션을 확인하고, 표시되지 않으면 `--video_dir` 줄만 제거한다.
@@ -536,7 +536,7 @@ libero_sim/KITCHEN_SCENE6_put_the_yellow_and_white_mug_in_the_microwave_and_clos
 
 ### `KeyError: 'Gr00tN1d6'`
 
-N1.7 저장소에서 N1.6 checkpoint를 불러온 경우다. 서버를 `/workspace/Isaac-GR00T-N16`에서 실행한다.
+N1.7 저장소에서 N1.6 checkpoint를 불러온 경우다. 서버를 `/workspace/Project_Protoss/Isaac-GR00T-N16`에서 실행한다.
 
 ### `Video key ... horizon must be 2. Got 1`
 
@@ -558,7 +558,7 @@ RoboLab 클라이언트도 `np.repeat(..., 2, axis=1)` 수정이 제거된 T=1 �
 LIBERO는 예시 경로를 그대로 사용하지 말고 실제 checkpoint 위치를 확인한다.
 
 ```bash
-find /workspace/checkpoints -type f -name config.json -print
+find /workspace/Project_Protoss/checkpoints -type f -name config.json -print
 ```
 
 ### Port 5555가 이미 사용 중인 경우
