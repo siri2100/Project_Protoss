@@ -269,7 +269,7 @@ export PROTOSS_ROOT=/workspace/Project_Protoss
 export HF_HOME=/workspace/.cache/huggingface
 export PATH="$HOME/.local/bin:$PATH"
 cd "$PROTOSS_ROOT/Isaac-GR00T-N16"
-CUDA_VISIBLE_DEVICES=1 uv run python gr00t/eval/run_gr00t_server.py \
+CUDA_VISIBLE_DEVICES=0 uv run python gr00t/eval/run_gr00t_server.py \
   --model-path "$PROTOSS_ROOT/Protoss/checkpoints/GR00T-N1.6-DROID" \
   --embodiment-tag OXE_DROID \
   --device cuda:0 --host 127.0.0.1 --port 5556 --use-sim-policy-wrapper
@@ -303,7 +303,7 @@ export UV_CACHE_DIR=/workspace/.cache/uv
 export UV_LINK_MODE=copy
 cd /workspace/RoboLab
 
-CUDA_VISIBLE_DEVICES=2 UV_PROJECT_ENVIRONMENT=.venv-51 \
+CUDA_VISIBLE_DEVICES=0 UV_PROJECT_ENVIRONMENT=.venv-51 \
 uv run --extra isaac51 python policies/gr00t/run.py \
   --headless --device cuda:0 \
   --remote-host 127.0.0.1 --remote-port 5555 \
