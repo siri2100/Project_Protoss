@@ -67,17 +67,24 @@ cd "$PROTOSS_ROOT"
 기존 폴더가 있으면 clone/checkout을 생략하므로 로컬 수정은 유지된다.
 
 ```bash
+(
+set -e
+export PROTOSS_ROOT=/workspace/Project_Protoss
+export PATH="$HOME/.local/bin:$PATH"
+unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT"
 if [ ! -d Issac-GR00T-N17 ]; then
   git clone --no-checkout https://github.com/NVIDIA/Isaac-GR00T.git Issac-GR00T-N17
   git -C Issac-GR00T-N17 checkout 51d4c89f72fda44cbf77285c6a8114b52676b8a1
 fi
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
+test -f pyproject.toml || { echo "N1.7 소스 폴더에 pyproject.toml이 없습니다: $PWD"; exit 1; }
 git submodule update --init --recursive
 git lfs pull --include="scripts/deployment/dgpu/wheels/**"
 uv sync --python 3.12
 
 uv run python -c "import gr00t, torch; print(gr00t.__file__); print('CUDA:', torch.cuda.is_available())"
+)
 ```
 
 FFmpeg는 4~7 버전을 사용한다. N1.7의 torchcodec은 FFmpeg 8을 지원하지 않는다.
@@ -86,19 +93,29 @@ GPU 의존성 설치가 실패하면 해당 저장소의 [설치 안내](https:/
 ## 3. GR00T-N1.6 설치
 
 N1.6은 `n1.6.1-release`와 별도 Python 환경을 사용한다.
+아래 블록은 새 Bash 터미널에서도 독립적으로 실행할 수 있다. 프로젝트 위치가 다르면
+`PROTOSS_ROOT`를 실제 경로로 바꾼다. 괄호 안의 `set -e`는 경로 이동이나 설치가 실패하면
+나머지 명령을 중단하며, 터미널 자체는 종료하지 않는다.
 
 ```bash
+(
+set -e
+export PROTOSS_ROOT=/workspace/Project_Protoss
+export PATH="$HOME/.local/bin:$PATH"
+unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT"
 if [ ! -d Isaac-GR00T-N16 ]; then
   git clone --recurse-submodules --branch n1.6.1-release \
     https://github.com/NVIDIA/Isaac-GR00T.git Isaac-GR00T-N16
 fi
 cd "$PROTOSS_ROOT/Isaac-GR00T-N16"
+test -f pyproject.toml || { echo "N1.6 소스 폴더에 pyproject.toml이 없습니다: $PWD"; exit 1; }
 git submodule update --init --recursive
 uv sync --python 3.10
 uv pip install --python .venv/bin/python -e .
 
 uv run python -c "import gr00t, torch; print(gr00t.__file__); print('CUDA:', torch.cuda.is_available())"
+)
 ```
 
 두 버전의 `gr00t` 패키지를 하나의 가상환경에 함께 설치하지 않는다.
@@ -110,6 +127,7 @@ uv run python -c "import gr00t, torch; print(gr00t.__file__); print('CUDA:', tor
 로그인은 CLI 프롬프트에 토큰을 입력하며 README나 소스 파일에 토큰을 저장하지 않는다.
 
 ```bash
+export PROTOSS_ROOT=/workspace/Project_Protoss
 export HF_HOME=/workspace/.cache/huggingface
 unset HF_TOKEN HUGGING_FACE_HUB_TOKEN HF_HUB_DISABLE_IMPLICIT_TOKEN
 
@@ -181,6 +199,7 @@ Protoss가 N1.6 서버 통신을 변환하므로 여기서는 N1.6용 패치를 
 ## 6. Protoss 설치
 
 ```bash
+export PROTOSS_ROOT=/workspace/Project_Protoss
 cd "$PROTOSS_ROOT"
 uv venv --python 3.12 Protoss/.venv
 uv pip install --python Protoss/.venv/bin/python -r Protoss/requirements.txt
