@@ -254,9 +254,10 @@ Protoss 자체에는 PyTorch나 CUDA가 필요하지 않다. 각 upstream 서버
 ```bash
 export PROTOSS_ROOT=/workspace/Project_Protoss
 export HF_HOME=/workspace/.cache/huggingface
+export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-CUDA_VISIBLE_DEVICES=0 uv run python gr00t/eval/run_gr00t_server.py \
+HF_HUB_ENABLE_HF_TRANSFER=0 CUDA_VISIBLE_DEVICES=0 uv run python gr00t/eval/run_gr00t_server.py \
   --model-path "$PROTOSS_ROOT/Protoss/checkpoints/GR00T-N1.7-DROID" \
   --embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT \
   --device cuda:0 --host 127.0.0.1 --port 5557 --use-sim-policy-wrapper
@@ -267,13 +268,37 @@ CUDA_VISIBLE_DEVICES=0 uv run python gr00t/eval/run_gr00t_server.py \
 ```bash
 export PROTOSS_ROOT=/workspace/Project_Protoss
 export HF_HOME=/workspace/.cache/huggingface
+export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
 cd "$PROTOSS_ROOT/Isaac-GR00T-N16"
-CUDA_VISIBLE_DEVICES=0 uv run python gr00t/eval/run_gr00t_server.py \
+HF_HUB_ENABLE_HF_TRANSFER=0 CUDA_VISIBLE_DEVICES=0 uv run python gr00t/eval/run_gr00t_server.py \
   --model-path "$PROTOSS_ROOT/Protoss/checkpoints/GR00T-N1.6-DROID" \
   --embodiment-tag OXE_DROID \
   --device cuda:0 --host 127.0.0.1 --port 5556 --use-sim-policy-wrapper
 ```
+
+### `hf_transfer`가 없다는 오류가 발생하는 경우
+
+로컬 DROID checkpoint를 지정해도 N1.7은 `nvidia/Cosmos-Reason2-2B` backbone을
+Hugging Face cache에서 찾거나 추가로 다운로드한다. 셸에
+`HF_HUB_ENABLE_HF_TRANSFER=1`이 남아 있고 GR00T 환경에 `hf_transfer`가 없으면
+서버가 시작되지 않는다. 다음 명령으로 fast transfer를 끄고 인증 및 gated model
+접근 권한을 확인한 뒤 터미널 1 명령을 다시 실행한다.
+
+```bash
+cd /workspace/Project_Protoss/Issac-GR00T-N17
+export HF_HOME=/workspace/.cache/huggingface
+unset HF_HUB_ENABLE_HF_TRANSFER
+export HF_HUB_ENABLE_HF_TRANSFER=0
+
+uv run hf auth whoami
+HF_HUB_ENABLE_HF_TRANSFER=0 uv run hf download nvidia/Cosmos-Reason2-2B \
+  config.json \
+  --local-dir /tmp/cosmos_access_test
+```
+
+`albumentations` 업데이트 알림과 `` `torch_dtype` is deprecated `` 메시지는 이 오류의
+원인이 아니므로 패키지를 변경하지 않아도 된다.
 
 `CUDA_VISIBLE_DEVICES=1`로 제한한 프로세스 안에서는 실제 GPU 1이 `cuda:0`으로 보인다.
 GPU 1개 구성에서는 위 값을 `CUDA_VISIBLE_DEVICES=0`으로 바꾼다.
