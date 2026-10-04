@@ -404,8 +404,8 @@ cd "$PROTOSS_ROOT"
 Protoss/.venv/bin/python Protoss/main_v1.1.py \
   --n17-endpoint tcp://127.0.0.1:5557 \
   --pi-uri ws://127.0.0.1:8000 \
-  --alpha 0.5 --horizon 8 --pi-horizon 15 --timeout-ms 120000 \
-  --host 127.0.0.1 --port 5555
+  --horizon 8 --pi-horizon 15 --timeout-ms 120000 \
+  --host 127.0.0.1 --port 5555 --alpha 0.5 
 )
 ```
 
@@ -433,7 +433,7 @@ UV_PROJECT_ENVIRONMENT=.venv-51 uv run --no-sync --extra isaac51 \
   --task BananaOnPlateTask \
   --num-envs 1 --num-runs 1 --open-loop-horizon 8 \
   --instruction-type default --video-mode none \
-  --output-folder-name protoss_v11_alpha05_smoke
+  --output-folder-name protoss_v11_alpha05
 )
 ```
 
