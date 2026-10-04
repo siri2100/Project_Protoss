@@ -57,7 +57,8 @@ RoboLab은 `/workspace/RoboLab`에 별도로 설치한다.
 | RoboLab / Isaac Sim 5.1 | 3.11 | client |
 
 명령은 기본적으로 GPU 0을 사용한다. 충분한 VRAM이 있어야 함께 실행할 수 있다.
-GPU가 여러 개면 아래의 `PI_GPU`, `SIM_GPU`를 각각 1, 2 등 실제 번호로 바꿔 분산한다.
+모델 서버는 GPU가 여러 개면 아래의 `PI_GPU`를 실제 번호로 바꿔 분산한다.
+Isaac Sim은 기본 단일 GPU 설정으로 시작하며, 여러 GPU 사용 시 CUDA/Vulkan 장치 매핑을 별도로 확인한다.
 `nvidia-smi -L`에 없는 번호를 지정하면 CUDA가 보이지 않아 FlashAttention 오류 등이 발생한다.
 괄호 안의 `set -e`는 오류 발생 시 작업만 중단하며 부모 터미널을 종료하지 않는다.
 
@@ -423,8 +424,8 @@ unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 export OMNI_KIT_ACCEPT_EULA=Y
 export UV_CACHE_DIR=/workspace/.cache/uv
 export UV_LINK_MODE=copy
-export SIM_GPU=0
-export CUDA_VISIBLE_DEVICES="$SIM_GPU"
+# 단일 GPU에서는 Omniverse의 CUDA/Vulkan 장치 열거를 그대로 사용한다.
+unset CUDA_VISIBLE_DEVICES
 cd /workspace/RoboLab
 UV_PROJECT_ENVIRONMENT=.venv-51 uv run --no-sync --extra isaac51 \
   python policies/gr00t/run.py \
@@ -437,9 +438,96 @@ UV_PROJECT_ENVIRONMENT=.venv-51 uv run --no-sync --extra isaac51 \
 )
 ```
 
-GPU가 여러 개면 `SIM_GPU=2` 등으로 바꾼다. 처음에는 환경 1개로 확인한 뒤 `--num-envs 10`으로 늘린다.
+터미널 4에서는 `CUDA_VISIBLE_DEVICES`를 설정하지 않는다. 여러 GPU 서버는 컨테이너에
+노출된 장치와 Isaac Sim의 CUDA/Vulkan 장치 매핑을 먼저 확인한다.
+처음에는 환경 1개로 확인한 뒤 메모리 사용량을 보면서 `--num-envs`를 늘린다.
 각 alpha 실험은 output 이름을 바꾼다. RoboLab은 이전 완료 episode를 재사용할 수 있다.
 RoboLab은 5557이나 8000이 아닌 **Protoss 5555**로 연결한다.
+
+### π WebSocket keepalive ping timeout
+
+`sent 1011 (internal error) keepalive ping timeout`은 π WebSocket의 heartbeat 오류다.
+첫 JAX 컴파일 등으로 서버의 이벤트 처리가 늦어질 수 있다. Protoss 클라이언트는
+`connect(..., ping_interval=None)`으로 자체 heartbeat를 끄고 `recv(timeout=...)`의
+`--timeout-ms` 제한은 유지한다. 코드 업데이트 후 터미널 3을 재시작한다.
+계속 발생하면 터미널 2에서 서버 측 종료·OOM·컴파일 오류를 확인한다.
+[WebSocket keepalive 안내](https://websockets.readthedocs.io/en/stable/topics/keepalive.html).
+
+### 첫 action에서 GR00T CUDA out of memory가 발생한 경우
+
+`Server error: tcp://127.0.0.1:5557: CUDA error: out of memory`는 N1.7 upstream의
+추론 메모리 할당 실패다. 모델 로딩 성공과 proxy 연결 성공은 실제 추론 peak까지
+감당한다는 뜻이 아니다. 같은 GPU에서는 두 모델의 상주 메모리와 Isaac Sim 렌더링,
+첫 추론의 임시 메모리가 함께 필요하다. 이전 단계의 여유 메모리로 peak를 판단하지 않는다.
+
+다른 터미널에서 실행 전부터 아래 명령으로 메모리를 관찰하고 중복 서버가 없는지 확인한다.
+
+```bash
+nvidia-smi --query-gpu=index,name,memory.total,memory.used,memory.free --format=csv -l 1
+```
+
+실패 후에는 관련 서버·평가 프로세스를 각 터미널의 Ctrl+C로 종료하고, 메모리가 회수됐는지
+확인한 뒤 환경 1개로 재시작한다. 계속 부족하면 모델 서버와 Isaac Sim을 서로 다른
+GPU/호스트에 배치하거나 측정한 peak와 여유분을 감당할 GPU를 사용한다.
+`--alpha 0/1`도 두 서버를 호출하므로 메모리를 줄이는 설정이 아니다.
+
+현재 π 서버는 `XLA_PYTHON_CLIENT_PREALLOCATE=false`로 시작한다. 이 설정에서는
+`XLA_PYTHON_CLIENT_MEM_FRACTION=0.35`를 GPU 사용량의 강제 상한으로 해석하지 않는다.
+[JAX GPU 메모리 안내](https://docs.jax.dev/en/latest/gpu_memory_allocation.html).
+HDF5 truncated 경고는 이전 비정상 종료로 남은 결과 파일과 관련되며 CUDA OOM과 구분한다.
+재시도는 새로운 `--output-folder-name`을 사용해 이전 결과를 보존한다.
+
+### 터미널 4에서 RTX / Hydra native crash가 발생한 경우
+
+`librtx.scenedb.plugin.so`, `libcarb.scenerenderer-rtx.plugin.so`,
+`createHydraEngine`의 Fatal backtrace는 Isaac Sim 렌더러의 native crash다.
+backtrace만으로 VRAM 부족, 드라이버 문제, GPU 비호환 중 어느 것인지 확정하지 않는다.
+`--headless`와 `--video-mode none`이어도 정책 입력용 카메라 렌더링은 필요하다.
+
+Isaac Sim 5.1은 RT 코어가 없는 A100/H100을 공식 지원하지 않는다.
+또한 `nvidia-smi`의 CUDA 접근 성공은 Vulkan 접근 성공을 보장하지 않는다.
+컨테이너에서 Vulkan에는 NVIDIA `graphics` driver capability가 필요하며,
+실행 중인 셸에서 환경변수만 바꿔도 누락된 호스트 드라이버 라이브러리가 추가되지는 않는다.
+[Isaac Sim 5.1 요구사항](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/requirements.html),
+[Vulkan/GPU 진단](https://docs.omniverse.nvidia.com/dev-guide/latest/linux-troubleshooting.html),
+[컨테이너 graphics 설정](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/docker-specialized.html).
+
+**드라이버 595.x와 Isaac Sim 5.1 조합은 먼저 확인한다.** Linux 검증 버전은
+`580.65.06`이며, NVIDIA 지원 포럼에는 595.x에서 RTX scene database 초기화 중
+동일한 crash가 발생한 사례와 R580으로 변경하는 안내가 있다.
+[동일 렌더러 crash에 대한 NVIDIA 안내](https://forums.developer.nvidia.com/t/enable-cameras-casues-unknown-failure-on-headless-server/366918/2).
+현재 환경에서 원인을 확정하려면 검증된 드라이버 호스트에서 재실행해 비교한다.
+RunPod 등 관리형 컨테이너의 드라이버는 호스트에서 제공하므로 컨테이너 안의
+`apt install`이나 CUDA 이미지 변경으로 교체하지 않는다. 호환 드라이버가 있는
+호스트로 이동하거나 제공자에게 호스트 드라이버 변경을 요청한다.
+
+로그에 `Setting CUDA_VISIBLE_DEVICES can lead to undesired behavior or crashes`가
+있고 단일 GPU라면, 터미널 4의 `unset CUDA_VISIBLE_DEVICES`와 환경 1개 설정으로
+먼저 재실행한다. 이는 원인을 분리하는 첫 조치이며 crash 해결을 보장하지 않는다.
+
+먼저 같은 서버에서 아래 진단을 실행한다. `vulkaninfo`의 headless DISPLAY 경고와
+실제 NVIDIA GPU 열거 실패를 구분하고, crash 직전의 최초 Error도 함께 확인한다.
+
+```bash
+(
+set -u
+cd /workspace/RoboLab
+nvidia-smi --query-gpu=index,name,driver_version,memory.total,memory.used,memory.free --format=csv
+printf 'NVIDIA_VISIBLE_DEVICES=%s\n' "${NVIDIA_VISIBLE_DEVICES:-<unset>}"
+printf 'NVIDIA_DRIVER_CAPABILITIES=%s\n' "${NVIDIA_DRIVER_CAPABILITIES:-<unset>}"
+vulkaninfo --summary 2>&1 | tee protoss_v11_vulkan.log
+)
+```
+
+전체 평가 로그를 보관하려면 터미널 4의 subshell에서 `set -e`를 `set -eo pipefail`로
+바꾸고 마지막 줄을 다음과 같이 지정한다. 원래 종료 상태를 유지하면서 로그를 저장한다.
+
+```bash
+  --output-folder-name protoss_v11_alpha05_smoke 2>&1 | tee protoss_v11_terminal4.log
+```
+
+원인 분리에 필요하면 모델 서버를 잠시 종료한 상태에서 Isaac Sim 기동을 확인한다.
+이때 Protoss 연결 실패는 예상되는 결과이며, 렌더러가 같은 위치에서 crash하는지 확인한다.
 
 ## 8. NPZ 관측으로 단일 inference
 

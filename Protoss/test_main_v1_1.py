@@ -178,8 +178,9 @@ class V11Tests(unittest.TestCase):
 
     def test_websocket_real_codec_metadata_and_request(self):
         socket = FakeSocket([pi_codec.packb({"model": "test"}), pi_codec.packb({"actions": np.ones((15, 8))})])
-        with patch("websockets.sync.client.connect", return_value=socket):
+        with patch("websockets.sync.client.connect", return_value=socket) as connect:
             client = protoss.OpenPiClient(timeout_ms=1500)
+            self.assertIsNone(connect.call_args.kwargs["ping_interval"])
             response = client.infer({"prompt": "pick", "state": np.arange(7)})
             self.assertEqual(client.metadata, {"model": "test"})
             np.testing.assert_array_equal(pi_codec.unpackb(socket.sent[0])["state"], np.arange(7))

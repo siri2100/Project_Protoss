@@ -48,7 +48,10 @@ class OpenPiClient:
     def _connect(self):
         try:
             self.socket = self.connect(
-                self.uri, compression=None, max_size=None, open_timeout=self.timeout
+                self.uri, compression=None, max_size=None, open_timeout=self.timeout,
+                # OpenPI can block its event loop during the first JAX compile.
+                # Bound inference with recv(timeout=...) instead of heartbeat.
+                ping_interval=None,
             )
             # OpenPI sends server metadata immediately after connecting.
             self.metadata = self._receive()
