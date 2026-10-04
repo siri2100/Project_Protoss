@@ -91,7 +91,7 @@ set -e
 export PROTOSS_ROOT=/workspace/Project_Protoss
 mkdir -p "$(dirname "$PROTOSS_ROOT")"
 if [ ! -d "$PROTOSS_ROOT" ]; then
-  GIT_TERMINAL_PROMPT=0 git clone https://github.com/siri2100/Project_Protoss.git "$PROTOSS_ROOT"
+  git clone https://github.com/siri2100/Project_Protoss.git "$PROTOSS_ROOT"
 fi
 test -f "$PROTOSS_ROOT/Protoss/main_v1.1.py"
 test -f "$PROTOSS_ROOT/Protoss/main_v1.0.py"
@@ -111,11 +111,24 @@ export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
+# 이 블록 안에서만 시스템·사용자 Git 설정과 주입된 인증 설정을 격리한다.
+export GIT_CONFIG_NOSYSTEM=1
+export GIT_CONFIG_GLOBAL=/dev/null
+unset GIT_CONFIG GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS GIT_ASKPASS SSH_ASKPASS GIT_TERMINAL_PROMPT
 cd "$PROTOSS_ROOT"
-if [ ! -d Issac-GR00T-N17 ]; then
-  GIT_TERMINAL_PROMPT=0 git clone --no-checkout \
-    https://github.com/NVIDIA/Isaac-GR00T.git Issac-GR00T-N17
-  git -C Issac-GR00T-N17 checkout 51d4c89f72fda44cbf77285c6a8114b52676b8a1
+if [ -e Issac-GR00T-N17 ] && [ ! -d Issac-GR00T-N17/.git ]; then
+  backup=$(mktemp -d "$PROTOSS_ROOT/Issac-GR00T-N17.incomplete.XXXXXX")
+  mv Issac-GR00T-N17 "$backup/source"
+  echo "불완전한 기존 폴더 보관: $backup/source"
+fi
+if [ ! -d Issac-GR00T-N17/.git ]; then
+  staging=$(mktemp -d "$PROTOSS_ROOT/.n17-clone.XXXXXX")
+  GIT_LFS_SKIP_SMUDGE=1 git -c credential.helper= -c http.extraHeader= \
+    clone --no-checkout https://github.com/NVIDIA/Isaac-GR00T.git "$staging/source"
+  git -C "$staging/source" lfs install --local
+  GIT_LFS_SKIP_SMUDGE=1 git -C "$staging/source" checkout 51d4c89f72fda44cbf77285c6a8114b52676b8a1
+  mv "$staging/source" Issac-GR00T-N17
+  rmdir "$staging"
 fi
 test "$(git -C Issac-GR00T-N17 rev-parse HEAD)" = 51d4c89f72fda44cbf77285c6a8114b52676b8a1 || {
   echo "N1.7 소스 버전이 다릅니다. 기존 폴더를 백업하고 지정 커밋으로 설치하세요." >&2
@@ -123,8 +136,8 @@ test "$(git -C Issac-GR00T-N17 rev-parse HEAD)" = 51d4c89f72fda44cbf77285c6a8114
 }
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 test -f pyproject.toml
-GIT_TERMINAL_PROMPT=0 git submodule update --init --recursive
-git lfs pull --include="scripts/deployment/dgpu/wheels/**"
+git -c credential.helper= -c http.extraHeader= submodule update --init --recursive
+git -c credential.helper= -c http.extraHeader= lfs pull --include="scripts/deployment/dgpu/wheels/**"
 uv sync --locked --python 3.12
 uv run --no-sync hf auth whoami || uv run --no-sync hf auth login
 HF_HUB_ENABLE_HF_TRANSFER=0 uv run --no-sync hf download nvidia/Cosmos-Reason2-2B config.json \
@@ -137,6 +150,20 @@ HF_HUB_ENABLE_HF_TRANSFER=0 uv run --no-sync hf download nvidia/GR00T-N1.7-DROID
 기존 N1.7 폴더가 `Isaac-GR00T-N17`이라면 위 경로를 실제 이름으로 바꾼다.
 이 문서의 기본 이름은 프로젝트의 실제 로컬 폴더명인 `Issac-GR00T-N17`이다.
 FFmpeg는 N1.7 torchcodec이 지원하는 4~7 버전을 사용한다.
+
+### GitHub clone에서 Username 오류가 발생한 경우
+
+Isaac-GR00T 소스는 공개 저장소다. `could not read Username`은 GitHub 모델 접근 승인과
+별개인 Git HTTPS 인증 실패다. 사용자·시스템 Git의 URL 변환, 인증 헤더, credential 설정이나
+프록시의 인증 응답 등이 원인일 수 있으며, 이 메시지만으로 원인을 확정할 수 없다.
+위 설치 블록은 subshell에서 해당 Git 설정을 격리하고 임시 경로에서 clone·checkout을
+완료한 뒤 설치 폴더로 옮긴다. `.git`이 없는 기존 폴더는 삭제하지 않고 백업한다.
+
+설정 격리 후에도 GitHub Username을 요구하면 입력을 취소한다. 공개 저장소에 GitHub 비밀번호를
+입력해서 해결하는 절차가 아니다. 서버의 프록시·네트워크 접근과 실제 오류 응답을 확인해야 한다.
+실패한 임시 clone 폴더는 남을 수 있지만 다음 실행의 설치 경로와 충돌하지 않는다.
+[Git 환경변수 문서](https://git-scm.com/docs/git),
+[공개 upstream 저장소](https://github.com/NVIDIA/Isaac-GR00T).
 
 ### Cosmos 접근 확인에서 401 / GatedRepoError가 발생한 경우
 
@@ -187,7 +214,7 @@ export PATH="$HOME/.local/bin:$PATH"
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT"
 if [ ! -d openpi ]; then
-  GIT_LFS_SKIP_SMUDGE=1 GIT_TERMINAL_PROMPT=0 git clone --recurse-submodules \
+  GIT_LFS_SKIP_SMUDGE=1 git clone --recurse-submodules \
     https://github.com/xuningy/openpi.git openpi
   git -C openpi checkout aa6420561529593114160d05e5ad155792b272f3
 fi
@@ -195,7 +222,7 @@ test "$(git -C openpi rev-parse HEAD)" = aa6420561529593114160d05e5ad155792b272f
   echo "OpenPI 소스 버전이 다릅니다. 기존 폴더를 백업하고 지정 커밋으로 설치하세요." >&2
   exit 1
 }
-GIT_LFS_SKIP_SMUDGE=1 GIT_TERMINAL_PROMPT=0 git -C openpi submodule update --init --recursive
+GIT_LFS_SKIP_SMUDGE=1 git -C openpi submodule update --init --recursive
 cd "$PROTOSS_ROOT/openpi"
 test -f pyproject.toml
 GIT_LFS_SKIP_SMUDGE=1 uv sync --locked --python 3.11
@@ -306,7 +333,7 @@ export UV_CACHE_DIR=/workspace/.cache/uv
 export UV_LINK_MODE=copy
 cd /workspace
 if [ ! -d RoboLab ]; then
-  GIT_TERMINAL_PROMPT=0 git clone https://github.com/NVlabs/RoboLab.git RoboLab
+  git clone https://github.com/NVlabs/RoboLab.git RoboLab
 fi
 cd /workspace/RoboLab
 git rev-parse HEAD
