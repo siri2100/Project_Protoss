@@ -35,6 +35,7 @@ Project_Protoss/
 ├── openpi/                          # π0.5 소스와 전용 환경
 ├── openpi-assets-simeval/
 │   └── pi05_droid_jointpos/          # π0.5 실제 weight와 normalization assets
+├── big_vision/                      # PaliGemma tokenizer cache
 ├── pi05_droid_jointpos/              # 위 checkpoint를 가리키는 링크
 ├── Protoss/
 │   ├── main_v1.0.py                  # v1.1에서도 GR00T 통신 함수를 재사용
@@ -63,16 +64,37 @@ GPU가 여러 개면 아래의 `PI_GPU`, `SIM_GPU`를 각각 1, 2 등 실제 번
 ```bash
 (
 set -e
+test "$(uname -s)" = Linux
+test "$(uname -m)" = x86_64
 nvidia-smi -L
 apt-get update
 apt-get install -y git git-lfs curl build-essential ffmpeg \
   vulkan-tools libvulkan1 libglvnd0 libgl1 libegl1 libglu1-mesa \
   libxt6 libx11-6 libxext6 libxrender1 libxrandr2 libxinerama1 \
-  libxcursor1 libxi6 libxkbcommon0
+  libxcursor1 libxi6 libxkbcommon0 libgomp1 libsm6 libice6
 ldconfig
 curl -LsSf https://astral.sh/uv/install.sh | sh
 export PATH="$HOME/.local/bin:$PATH"
 git lfs install
+)
+```
+
+### 프로젝트 받기
+
+시스템 도구 설치 후 이 블록으로 프로젝트를 받는다.
+이미 받은 프로젝트는 새로 clone하지 않고 실제 경로를 사용한다. 이후 모든 블록의
+`PROTOSS_ROOT`를 같은 경로로 지정한다. 설치 블록은 **Bash** 터미널에서 순서대로 실행한다.
+
+```bash
+(
+set -e
+export PROTOSS_ROOT=/workspace/Project_Protoss
+mkdir -p "$(dirname "$PROTOSS_ROOT")"
+if [ ! -d "$PROTOSS_ROOT" ]; then
+  GIT_TERMINAL_PROMPT=0 git clone https://github.com/siri2100/Project_Protoss.git "$PROTOSS_ROOT"
+fi
+test -f "$PROTOSS_ROOT/Protoss/main_v1.1.py"
+test -f "$PROTOSS_ROOT/Protoss/main_v1.0.py"
 )
 ```
 
@@ -95,15 +117,19 @@ if [ ! -d Issac-GR00T-N17 ]; then
     https://github.com/NVIDIA/Isaac-GR00T.git Issac-GR00T-N17
   git -C Issac-GR00T-N17 checkout 51d4c89f72fda44cbf77285c6a8114b52676b8a1
 fi
+test "$(git -C Issac-GR00T-N17 rev-parse HEAD)" = 51d4c89f72fda44cbf77285c6a8114b52676b8a1 || {
+  echo "N1.7 소스 버전이 다릅니다. 기존 폴더를 백업하고 지정 커밋으로 설치하세요." >&2
+  exit 1
+}
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 test -f pyproject.toml
 GIT_TERMINAL_PROMPT=0 git submodule update --init --recursive
 git lfs pull --include="scripts/deployment/dgpu/wheels/**"
-uv sync --python 3.12
-uv run hf auth whoami || uv run hf auth login
-HF_HUB_ENABLE_HF_TRANSFER=0 uv run hf download nvidia/Cosmos-Reason2-2B config.json \
+uv sync --locked --python 3.12
+uv run --no-sync hf auth whoami || uv run --no-sync hf auth login
+HF_HUB_ENABLE_HF_TRANSFER=0 uv run --no-sync hf download nvidia/Cosmos-Reason2-2B config.json \
   --local-dir "$PROTOSS_ROOT/Protoss/access-check/cosmos"
-HF_HUB_ENABLE_HF_TRANSFER=0 uv run hf download nvidia/GR00T-N1.7-DROID \
+HF_HUB_ENABLE_HF_TRANSFER=0 uv run --no-sync hf download nvidia/GR00T-N1.7-DROID \
   --local-dir "$PROTOSS_ROOT/Protoss/checkpoints/GR00T-N1.7-DROID"
 )
 ```
@@ -129,11 +155,16 @@ if [ ! -d openpi ]; then
     https://github.com/xuningy/openpi.git openpi
   git -C openpi checkout aa6420561529593114160d05e5ad155792b272f3
 fi
+test "$(git -C openpi rev-parse HEAD)" = aa6420561529593114160d05e5ad155792b272f3 || {
+  echo "OpenPI 소스 버전이 다릅니다. 기존 폴더를 백업하고 지정 커밋으로 설치하세요." >&2
+  exit 1
+}
+GIT_LFS_SKIP_SMUDGE=1 GIT_TERMINAL_PROMPT=0 git -C openpi submodule update --init --recursive
 cd "$PROTOSS_ROOT/openpi"
 test -f pyproject.toml
-GIT_LFS_SKIP_SMUDGE=1 uv sync --python 3.11
+GIT_LFS_SKIP_SMUDGE=1 uv sync --locked --python 3.11
 GIT_LFS_SKIP_SMUDGE=1 uv pip install --python .venv/bin/python -e .
-uv run python - <<'PY'
+uv run --no-sync python - <<'PY'
 from openpi.training import config
 
 cfg = config.get_config("pi05_droid_jointpos")
@@ -157,27 +188,41 @@ export OPENPI_DATA_HOME="$PROTOSS_ROOT"
 export PATH="$HOME/.local/bin:$PATH"
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/openpi"
-uv run python - <<'PY'
+uv run --no-sync python - <<'PY'
 import os
 from pathlib import Path
 from openpi.shared import download
 
-root = Path(os.environ["PROTOSS_ROOT"])
+root = Path(os.environ["PROTOSS_ROOT"]).resolve()
+# checkpoint와 tokenizer의 다운로드·lock 파일 상위 경로를 준비한다.
+cache = download.get_cache_dir()
+for bucket in ("openpi-assets-simeval", "big_vision"):
+    (cache / bucket).mkdir(parents=True, exist_ok=True)
 checkpoint = download.maybe_download(
-    "gs://openpi-assets-simeval/pi05_droid_jointpos", token="anon"
+    "gs://openpi-assets-simeval/pi05_droid_jointpos", gs={"token": "anon"}
 )
 assert (checkpoint / "params").is_dir(), "Checkpoint params 폴더가 없습니다"
-assert (checkpoint / "assets").is_dir(), "Normalization assets 폴더가 없습니다"
+assert any((checkpoint / "assets").rglob("norm_stats.json")), "Normalization 통계가 없습니다"
 alias = root / "pi05_droid_jointpos"
 if alias.exists() or alias.is_symlink():
     assert alias.resolve() == checkpoint.resolve(), f"다른 경로가 이미 존재합니다: {alias}"
 else:
     alias.symlink_to(checkpoint, target_is_directory=True)
+tokenizer = download.maybe_download(
+    "gs://big_vision/paligemma_tokenizer.model", gs={"token": "anon"}
+)
+assert tokenizer.is_file() and tokenizer.stat().st_size > 0, "Tokenizer 다운로드 실패"
+print("Tokenizer:", tokenizer)
 print("Downloaded checkpoint:", checkpoint)
 print("Server checkpoint path:", alias)
 PY
 )
 ```
+
+checkpoint와 PaliGemma tokenizer를 함께 받는다. `mkdir`는 첫 설치에서
+다운로드·잠금 파일의 상위 경로를 준비한다.
+[고정 버전 다운로드 구현](https://github.com/xuningy/openpi/blob/aa6420561529593114160d05e5ad155792b272f3/src/openpi/shared/download.py),
+[tokenizer 구현](https://github.com/xuningy/openpi/blob/aa6420561529593114160d05e5ad155792b272f3/src/openpi/models/tokenizer.py)을 기준으로 한다.
 
 실제 weight는 `$PROTOSS_ROOT/openpi-assets-simeval/pi05_droid_jointpos`에 저장되고,
 서버에는 `$PROTOSS_ROOT/pi05_droid_jointpos`를 전달한다. 재실행하면 완성된 cache를 재사용한다.
@@ -193,7 +238,9 @@ OpenPI 모델 전체가 아니라 가벼운 `openpi-client`만 Protoss 환경에
 set -e
 export PROTOSS_ROOT=/workspace/Project_Protoss
 export PATH="$HOME/.local/bin:$PATH"
+unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT"
+test -f openpi/packages/openpi-client/pyproject.toml
 if [ ! -x Protoss/.venv/bin/python ]; then
   uv venv --python 3.12 Protoss/.venv
 fi
@@ -208,7 +255,8 @@ Protoss/.venv/bin/python -m unittest discover -s Protoss -p 'test_main_v1_*.py' 
 
 ## 6. RoboLab 설치
 
-이미 `.venv-51` 환경을 준비했다면 생략한다.
+이미 `.venv-51` 환경을 준비했다면 생략한다. RoboLab은 현재 upstream `main`을 사용하므로
+N1.7/OpenPI처럼 커밋을 고정한 설치가 아니다. 설치 후 `git rev-parse HEAD`를 기록한다.
 Protoss에는 GR00T 형식으로 연결하므로 기존 `policies/gr00t/client.py`를 그대로 사용한다.
 RoboLab 환경에 OpenPI 모델이나 OpenPI client를 추가 설치할 필요는 없다.
 
@@ -216,6 +264,7 @@ RoboLab 환경에 OpenPI 모델이나 OpenPI client를 추가 설치할 필요�
 (
 set -e
 export PATH="$HOME/.local/bin:$PATH"
+unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 export OMNI_KIT_ACCEPT_EULA=Y
 export UV_CACHE_DIR=/workspace/.cache/uv
 export UV_LINK_MODE=copy
@@ -224,8 +273,9 @@ if [ ! -d RoboLab ]; then
   GIT_TERMINAL_PROMPT=0 git clone https://github.com/NVlabs/RoboLab.git RoboLab
 fi
 cd /workspace/RoboLab
+git rev-parse HEAD
 UV_PROJECT_ENVIRONMENT=.venv-51 uv sync --python 3.11 --extra isaac51
-UV_PROJECT_ENVIRONMENT=.venv-51 uv run --extra isaac51 python -c \
+UV_PROJECT_ENVIRONMENT=.venv-51 uv run --no-sync --extra isaac51 python -c \
   "import isaaclab; from isaaclab.app import AppLauncher; print('Isaac Lab import OK')"
 )
 ```
@@ -246,8 +296,8 @@ export PATH="$HOME/.local/bin:$PATH"
 export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-uv run python -c "import torch; assert torch.cuda.is_available(), 'CUDA가 보이지 않습니다'; print(torch.cuda.get_device_name(0))"
-uv run python gr00t/eval/run_gr00t_server.py \
+uv run --no-sync python -c "import torch; assert torch.cuda.is_available(), 'CUDA가 보이지 않습니다'; print(torch.cuda.get_device_name(0))"
+uv run --no-sync python gr00t/eval/run_gr00t_server.py \
   --model-path "$PROTOSS_ROOT/Protoss/checkpoints/GR00T-N1.7-DROID" \
   --embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT \
   --device cuda:0 --host 127.0.0.1 --port 5557 --use-sim-policy-wrapper
@@ -269,8 +319,10 @@ export XLA_PYTHON_CLIENT_PREALLOCATE=false
 export XLA_PYTHON_CLIENT_MEM_FRACTION=0.35
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/openpi"
-uv run python -c "import jax; print(jax.devices()); assert any(d.platform == 'gpu' for d in jax.devices()), 'JAX에서 GPU가 보이지 않습니다'"
-uv run scripts/serve_policy.py --port 8000 policy:checkpoint \
+uv run --no-sync python -c "import jax; print(jax.devices()); assert any(d.platform == 'gpu' for d in jax.devices()), 'JAX에서 GPU가 보이지 않습니다'"
+test -d "$PROTOSS_ROOT/pi05_droid_jointpos/params"
+test -d "$PROTOSS_ROOT/pi05_droid_jointpos/assets"
+uv run --no-sync scripts/serve_policy.py --port 8000 policy:checkpoint \
   --policy.config=pi05_droid_jointpos \
   --policy.dir="$PROTOSS_ROOT/pi05_droid_jointpos"
 )
@@ -304,13 +356,14 @@ Protoss/.venv/bin/python Protoss/main_v1.1.py \
 (
 set -e
 export PATH="$HOME/.local/bin:$PATH"
+unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 export OMNI_KIT_ACCEPT_EULA=Y
 export UV_CACHE_DIR=/workspace/.cache/uv
 export UV_LINK_MODE=copy
 export SIM_GPU=0
 export CUDA_VISIBLE_DEVICES="$SIM_GPU"
 cd /workspace/RoboLab
-UV_PROJECT_ENVIRONMENT=.venv-51 uv run --extra isaac51 \
+UV_PROJECT_ENVIRONMENT=.venv-51 uv run --no-sync --extra isaac51 \
   python policies/gr00t/run.py \
   --headless --device cuda:0 \
   --remote-host 127.0.0.1 --remote-port 5555 \
@@ -361,6 +414,9 @@ Protoss/.venv/bin/python Protoss/main_v1.1.py \
 
 ## 9. 검증 범위와 오류 확인
 
+- `uv sync --locked` 실패: 소스 커밋과 `uv.lock` 변경 여부를 확인한다.
+- `.venv`가 없거나 `--no-sync` 실행 실패: 해당 설치 단계를 먼저 완료한다.
+- tokenizer/asset 다운로드 오류: 4단계를 다시 실행하고 동일한 `OPENPI_DATA_HOME`을 사용한다.
 - `ModuleNotFoundError: openpi_client`: 5단계에서 local client package까지 함께 설치한다.
 - `Flash Attention 2 is not available on CPU`: `nvidia-smi -L`에 있는 GPU 번호와 Torch CUDA 접근을 확인한다.
 - `JAX에서 GPU가 보이지 않습니다`: OpenPI 전용 환경과 CUDA/driver 접근을 확인한다.
