@@ -419,6 +419,10 @@ Protoss/.venv/bin/python Protoss/main_v1.1.py \
 ```bash
 (
 set -e
+export PROTOSS_ROOT=/workspace/Project_Protoss
+export ROBO_NUMBER=1
+export ALPHA=0.5  # 터미널 3의 --alpha와 같은 값
+export RESULT_FOLDER="protoss_v11_RoboLab${ROBO_NUMBER}_alpha${ALPHA}"
 export PATH="$HOME/.local/bin:$PATH"
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 export OMNI_KIT_ACCEPT_EULA=Y
@@ -432,9 +436,13 @@ UV_PROJECT_ENVIRONMENT=.venv-51 uv run --no-sync --extra isaac51 \
   --headless --device cuda:0 \
   --remote-host 127.0.0.1 --remote-port 5555 \
   --task BananaOnPlateTask \
-  --num-envs 1 --num-runs 1 --open-loop-horizon 8 \
+  --num-envs 2 --num-runs 5 --open-loop-horizon 8 \
   --instruction-type default --video-mode none \
-  --output-folder-name protoss_v11_alpha05
+  --output-folder-name "$RESULT_FOLDER"
+"$PROTOSS_ROOT/Protoss/.venv/bin/python" \
+  "$PROTOSS_ROOT/Protoss/rename_episode_results.py" \
+  --results-dir "/workspace/RoboLab/output/$RESULT_FOLDER" \
+  --number "$ROBO_NUMBER" --alpha "$ALPHA"
 )
 ```
 
@@ -443,6 +451,25 @@ UV_PROJECT_ENVIRONMENT=.venv-51 uv run --no-sync --extra isaac51 \
 처음에는 환경 1개로 확인한 뒤 메모리 사용량을 보면서 `--num-envs`를 늘린다.
 각 alpha 실험은 output 이름을 바꾼다. RoboLab은 이전 완료 episode를 재사용할 수 있다.
 RoboLab은 5557이나 8000이 아닌 **Protoss 5555**로 연결한다.
+
+### 결과 JSONL 파일명
+
+평가 종료 후 각 결과 폴더의 `episode_results.jsonl`을
+`RoboLab{실험 번호}_alpha{값}.jsonl`로 변경한다. 예: `RoboLab1_alpha0.5.jsonl`.
+`ROBO_NUMBER`는 실험 번호이며 task 번호나 episode 번호가 아니다.
+JSONL 내용과 저장 폴더는 유지하고 기존 이름의 파일은 남기지 않는다.
+이미 같은 이름이 있으면 덮어쓰지 않고 중단한다.
+이름 변경 후 RoboLab이 JSONL을 이용하는 재개·분석 작업은 원래 파일명을 요구할 수 있으므로,
+이 명령은 해당 평가가 끝난 뒤 실행한다. 재실험은 번호를 올려 새 output 폴더를 사용한다.
+
+기존 실험에도 다음 명령을 사용할 수 있다.
+
+```bash
+/workspace/Project_Protoss/Protoss/.venv/bin/python \
+  /workspace/Project_Protoss/Protoss/rename_episode_results.py \
+  --results-dir /workspace/RoboLab/output/protoss_v11_alpha05 \
+  --number 1 --alpha 0.5
+```
 
 ### π WebSocket keepalive ping timeout
 
