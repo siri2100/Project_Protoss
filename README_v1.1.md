@@ -138,6 +138,42 @@ HF_HUB_ENABLE_HF_TRANSFER=0 uv run --no-sync hf download nvidia/GR00T-N1.7-DROID
 이 문서의 기본 이름은 프로젝트의 실제 로컬 폴더명인 `Issac-GR00T-N17`이다.
 FFmpeg는 N1.7 torchcodec이 지원하는 4~7 버전을 사용한다.
 
+### Cosmos 접근 확인에서 401 / GatedRepoError가 발생한 경우
+
+`Cosmos-Reason2-2B/resolve/main/config.json`의 401은 Cosmos 접근 확인 실패다.
+`hf auth whoami` 성공은 로그인 확인이며 gated 모델 접근 승인을 확인하지 않는다.
+
+1. 브라우저에서 [Cosmos 모델 페이지](https://huggingface.co/nvidia/Cosmos-Reason2-2B)에 로그인하고 약관 동의·접근 신청을 완료한다. 승인 대기 상태라면 승인 후 진행한다.
+2. **승인받은 동일 계정**의 [읽기 토큰](https://huggingface.co/settings/tokens)을 준비한다. Fine-grained 토큰은 해당 gated 모델을 읽을 권한도 허용해야 한다.
+3. 아래 블록으로 서버에서 다시 로그인하고 실패한 단계부터 실행한다. 토큰은 `hf auth login`의 입력 프롬프트에 붙여넣는다.
+
+`HF_TOKEN` 환경변수는 저장된 로그인 토큰보다 우선한다. 아래 복구 블록은 subshell 안에서만
+기존 토큰 환경변수를 해제하며, `HF_HOME`을 설치·서버 실행과 동일하게 사용한다.
+[Hugging Face gated 모델 안내](https://huggingface.co/docs/hub/models-gated),
+[인증 환경변수 안내](https://huggingface.co/docs/huggingface_hub/package_reference/environment_variables).
+
+```bash
+(
+set -e
+export PROTOSS_ROOT=/workspace/Project_Protoss
+export HF_HOME=/workspace/.cache/huggingface
+export HF_HUB_ENABLE_HF_TRANSFER=0
+export PATH="$HOME/.local/bin:$PATH"
+unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV HF_TOKEN HUGGING_FACE_HUB_TOKEN HF_HUB_DISABLE_IMPLICIT_TOKEN
+cd "$PROTOSS_ROOT/Issac-GR00T-N17"
+uv run --no-sync hf auth login
+uv run --no-sync hf auth whoami
+uv run --no-sync hf download nvidia/Cosmos-Reason2-2B config.json \
+  --local-dir "$PROTOSS_ROOT/Protoss/access-check/cosmos"
+uv run --no-sync hf download nvidia/GR00T-N1.7-DROID \
+  --local-dir "$PROTOSS_ROOT/Protoss/checkpoints/GR00T-N1.7-DROID"
+)
+```
+
+계속 실패하면 `whoami` 계정과 웹에서 승인받은 계정, 토큰의 읽기 권한을 다시 확인한다.
+Cosmos 접근 확인을 생략해도 N1.7 모델 로딩에서 같은 권한 오류가 발생할 수 있다.
+새 서버 터미널에도 오래된 `HF_TOKEN`이 설정되어 있다면 해제하거나 승인된 토큰으로 교체한다.
+
 ## 3. OpenPI 설치 — 프로젝트 루트의 openpi/
 
 RoboLab에서 안내하는 **`xuningy/openpi` fork**를 사용한다. 이 fork에 `pi05_droid_jointpos`가 있다.
