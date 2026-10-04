@@ -1,0 +1,5 @@
+-r requirements.txt
+websockets>=14,<17
+Pillow>=10
+# Install the matching openpi-client from openpi/packages/openpi-client;
+# README_v1.1.md includes the command. No JAX/PyTorch is needed in this env.

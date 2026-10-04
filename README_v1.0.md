@@ -333,9 +333,9 @@ uv run --extra isaac51 python policies/gr00t/run.py \
   --headless --device cuda:0 \
   --remote-host 127.0.0.1 --remote-port 5555 \
   --task BananaOnPlateTask \
-  --num-envs 1 --num-runs 1 --open-loop-horizon 8 \
+  --num-envs 5 --num-runs 2 --open-loop-horizon 8 \
   --instruction-type default --video-mode none \
-  --output-folder-name protoss_v1_alpha05_smoke
+  --output-folder-name protoss_v1_alpha09_smoke
 ```
 
 RoboLab은 모델 서버의 5556/5557이 아닌 **Protoss의 5555**로 연결한다.

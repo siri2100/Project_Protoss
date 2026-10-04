@@ -1,7 +1,10 @@
 # Protoss v1.0
 
 N1.7·N1.6·RoboLab의 설치와 전체 inference 실행 순서는
-[프로젝트 README](../README.md)를 참고한다. 아래는 blending 동작과 입력 형식에 대한 설명이다.
+[v1.0 설치 README](../README_v1.0.md)를 참고한다. 아래는 blending 동작과 입력 형식에 대한 설명이다.
+
+GR00T N1.7과 π0.5-DROID를 혼합하는 v1.1은
+[README_v1.1.md](../README_v1.1.md)와 [main_v1.1.py](main_v1.1.py)를 참고한다.
 
 추가 학습 없이 GR00T-N1.7-DROID와 GR00T-N1.6-DROID의 최종 action을 혼합한다.
 
