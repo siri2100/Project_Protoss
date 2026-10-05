@@ -297,6 +297,8 @@ checkpoint와 PaliGemma tokenizer를 함께 받는다. `mkdir`는 첫 설치에�
 
 OpenPI 모델 전체가 아니라 가벼운 `openpi-client`만 Protoss 환경에 설치한다.
 추가 MLP 학습을 위한 PyTorch와 DROID 준비를 위한 PyArrow/Pandas/SciPy도 설치한다.
+Linux의 PyTorch는 `2.9.1+cu128`로 고정한다. 드라이버 570 환경에서 CUDA 13 wheel이
+설치되는 것을 방지하기 위해 아래 명령의 CUDA 12.8 index를 반드시 함께 사용한다.
 
 ```bash
 (
@@ -310,7 +312,14 @@ if [ ! -x Protoss/.venv-v12/bin/python ]; then
   uv venv --python 3.12 Protoss/.venv-v12
 fi
 uv pip install --python Protoss/.venv-v12/bin/python \
+  --index https://download.pytorch.org/whl/cu128 \
   -r Protoss/requirements_v1.2.txt -e "$PROTOSS_ROOT/openpi/packages/openpi-client"
+Protoss/.venv-v12/bin/python - <<'PY'
+import torch
+print("PyTorch:", torch.__version__, "wheel CUDA:", torch.version.cuda)
+assert torch.version.cuda == "12.8", "CUDA 12.8 PyTorch wheel이 필요합니다"
+print(torch.ones(1, device="cuda"), torch.cuda.get_device_name(0))
+PY
 Protoss/.venv-v12/bin/python Protoss/main_v1.2.py --help
 Protoss/.venv-v12/bin/python -m unittest discover -s Protoss -p 'test_main_v1_*.py' -v
 )
@@ -578,6 +587,40 @@ Protoss/.venv-v12/bin/python Protoss/main_v1.1.py \
 터미널 D의 동일 평가 명령을 다시 실행하되 `--output-folder-name protoss_v11_run01_alpha05`로 바꾼다. Task 목록, num-envs, num-runs, horizon, instruction과 RoboLab revision은 유지한다. 두 output의 task별 success rate와 전체 success rate를 비교한다. Simulator randomization과 VLA sampling 때문에 단일 run 차이를 개선으로 단정하지 않고 여러 run으로 반복한다. DROID에서 학습한 residual이 RoboLab으로 전이된다는 보장은 없으며, 성공률이 떨어지면 baseline과 offline action metric을 함께 확인한다.
 
 ## 13. 실행 중 막히는 경우
+
+### 학습 시작 시 NVIDIA driver is too old (found version 12080)
+
+`12080`은 드라이버가 제공하는 CUDA API 버전 12.8이며 NVIDIA 드라이버의
+`570.xxx` 문자열 자체가 아니다. 드라이버가 너무 오래되었다는 오류가 여기서 발생하면
+v1.2 환경의 PyTorch wheel이 더 높은 CUDA 버전을 요구할 수 있다.
+기존 설치 안내의 `torch>=2.2,<3`만으로는 CUDA wheel 버전이 고정되지 않았다.
+현재 안내는 Linux에서 `torch==2.9.1+cu128`을 설치하도록 수정했다.
+[PyTorch 공식 설치 명령](https://pytorch.org/get-started/previous-versions/),
+[CUDA 13 드라이버 요구사항](https://docs.nvidia.com/cuda/archive/13.0.0/cuda-toolkit-release-notes/index.html).
+
+캐시를 다시 만들 필요 없이 **v1.2 환경만** 아래 명령으로 복구한 뒤 9절을 다시 실행한다.
+
+```bash
+(
+set -e
+export PROTOSS_ROOT=/workspace/Project_Protoss
+export PATH="$HOME/.local/bin:$PATH"
+cd "$PROTOSS_ROOT"
+Protoss/.venv-v12/bin/python -c 'import torch; print("before:", torch.__version__, torch.version.cuda)'
+uv pip install --python Protoss/.venv-v12/bin/python \
+  --reinstall-package torch --index https://download.pytorch.org/whl/cu128 \
+  'torch==2.9.1+cu128'
+Protoss/.venv-v12/bin/python - <<'PY'
+import torch
+print("after:", torch.__version__, "wheel CUDA:", torch.version.cuda)
+assert torch.version.cuda == "12.8"
+print(torch.ones(1, device="cuda"), torch.cuda.get_device_name(0))
+PY
+)
+```
+
+CUDA tensor 생성까지 성공하면 9절의 `--device cuda` 학습 명령으로 진행한다.
+GPU 사용 없이 먼저 학습을 시작하려면 9절에서 `--device cpu`로 변경해도 된다.
 
 - **다운로드 401 / 403:** GR00T/Cosmos는 승인받은 Hugging Face 계정으로 2절 로그인. 공개 DROID asset이나 π checkpoint가 접근 불가하면 원격 오류를 확인하고 임의의 action checkpoint로 대체하지 않는다.
 - **영상 디코딩 실패:** `ffmpeg -version` 확인. Export는 AV1을 FFmpeg로 디코딩하므로 OS의 FFmpeg에 AV1 decoder가 있어야 한다. 메타데이터 length/timestamp나 데이터 schema가 다르면 명시적 오류로 중단한다.
