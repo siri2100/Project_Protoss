@@ -420,9 +420,10 @@ Protoss/.venv/bin/python Protoss/main_v1.1.py \
 (
 set -e
 export PROTOSS_ROOT=/workspace/Project_Protoss
-export ROBO_NUMBER=1
-export ALPHA=0.5  # 터미널 3의 --alpha와 같은 값
-export RESULT_FOLDER="protoss_v11_RoboLab${ROBO_NUMBER}_alpha${ALPHA}"
+export ROBO_NUMBER=05
+export ALPHA=0.75 # 터미널 3도 --alpha 1.00으로 실행
+printf -v RESULT_FOLDER 'protoss_v11_RoboLab%02d_alpha%.2f' "$ROBO_NUMBER" "$ALPHA"
+export RESULT_FOLDER
 export PATH="$HOME/.local/bin:$PATH"
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 export OMNI_KIT_ACCEPT_EULA=Y
@@ -435,7 +436,10 @@ UV_PROJECT_ENVIRONMENT=.venv-51 uv run --no-sync --extra isaac51 \
   python policies/gr00t/run.py \
   --headless --device cuda:0 \
   --remote-host 127.0.0.1 --remote-port 5555 \
-  --task BananaOnPlateTask \
+  --task \
+    BananasInBinOneMoreTask \
+    BananasInBinThreeTotalTask \
+    BananasInCrateTask \
   --num-envs 2 --num-runs 5 --open-loop-horizon 8 \
   --instruction-type default --video-mode none \
   --output-folder-name "$RESULT_FOLDER"
@@ -455,7 +459,10 @@ RoboLab은 5557이나 8000이 아닌 **Protoss 5555**로 연결한다.
 ### 결과 JSONL 파일명
 
 평가 종료 후 각 결과 폴더의 `episode_results.jsonl`을
-`RoboLab{실험 번호}_alpha{값}.jsonl`로 변경한다. 예: `RoboLab1_alpha0.5.jsonl`.
+`RoboLab{실험 번호}_alpha{값}.jsonl`로 변경한다. 예: `RoboLab05_alpha1.00.jsonl`.
+실험 번호는 두 자리 이상, alpha는 소수점 두 자리로 표시한다.
+번호 5, alpha 1.00의 폴더는 `protoss_v11_RoboLab05_alpha1.00`이다.
+파일명에 입력한 alpha는 서버 설정을 바꾸지 않으므로 터미널 3의 `--alpha`도 맞춘다.
 `ROBO_NUMBER`는 실험 번호이며 task 번호나 episode 번호가 아니다.
 JSONL 내용과 저장 폴더는 유지하고 기존 이름의 파일은 남기지 않는다.
 이미 같은 이름이 있으면 덮어쓰지 않고 중단한다.

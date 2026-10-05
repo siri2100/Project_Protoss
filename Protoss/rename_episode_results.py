@@ -21,8 +21,8 @@ def main():
         parser.error("number must be 1 or greater")
     if not args.results_dir.is_dir():
         parser.error(f"results directory does not exist: {args.results_dir}")
-    label = "0" if alpha == 0 else format(alpha.normalize(), "f")
-    filename = f"RoboLab{args.number}_alpha{label}.jsonl"
+    label = format(abs(alpha), ".2f")
+    filename = f"RoboLab{args.number:02d}_alpha{label}.jsonl"
     sources = sorted(args.results_dir.rglob("episode_results.jsonl"))
     if not sources:
         parser.error("no episode_results.jsonl found; check the evaluation output directory")

@@ -10,16 +10,14 @@ import argparse
 import copy
 import importlib.util
 import math
-from pathlib import Path
 import time
+from pathlib import Path
 
 import numpy as np
 
 
 # Share the existing GR00T transport/server without modifying the v1.0 script.
-_spec = importlib.util.spec_from_file_location(
-    "protoss_v10_transport", Path(__file__).with_name("main_v1.0.py")
-)
+_spec = importlib.util.spec_from_file_location("protoss_v10_transport", Path(__file__).with_name("main_v1.0.py"))
 _v10 = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_v10)
 ModelClient = _v10.ModelClient
@@ -172,8 +170,13 @@ def blend_actions(actions17, actions_pi, alpha=0.5, horizon=8):
                 raise ValueError(f"{label} {key}: expected finite numeric actions")
             chunks.append(arr[:, :horizon].astype(np.float32))
         a17, api = chunks
-        result[key] = (a17.copy() if alpha == 1 else api.copy() if alpha == 0
-                       else alpha * a17 + (1 - alpha) * api)
+        if alpha == 1:
+            result[key] = a17.copy()
+        elif alpha == 0:
+            result[key] = api.copy()
+        else:
+            result[key] = alpha * a17 + (1 - alpha) * api
+
         if not np.isfinite(result[key]).all():
             raise ValueError(f"{key}: blending overflow")
     return result
