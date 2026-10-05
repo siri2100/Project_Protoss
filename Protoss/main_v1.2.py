@@ -9,6 +9,8 @@ See ../README_v1.2.md for installation, model download and inference.
 import argparse
 import copy
 import importlib.util
+import hashlib
+import json
 import math
 import time
 from pathlib import Path
@@ -320,26 +322,41 @@ def load_refiner(path, alpha, horizon, device, steps):
     return model.eval()
 
 
-def cache_samples(policy, input_dir, output_dir):
+def cache_samples(policy, input_dir, output_dir, resume=False):
     """Each source NPZ is one observation plus a demonstrated target chunk."""
     paths = sorted(input_dir.rglob("*.npz"))
     if not paths:
         raise ValueError("No source NPZ samples")
     if input_dir.resolve() == output_dir.resolve() or input_dir.resolve() in output_dir.resolve().parents:
         raise ValueError("Cache directory must be outside input directory")
-    for path in paths:
+    if getattr(policy, "refiner", None) is not None:
+        raise ValueError("Training cache requires unrefined pretrained blending")
+    for index, path in enumerate(paths):
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        dest = output_dir / path.relative_to(input_dir)
+        if dest.exists():
+            if not resume:
+                raise ValueError(f"Cache exists: {dest}; use --resume-cache or a new directory")
+            with np.load(dest, allow_pickle=False) as existing:
+                if (str(existing["source_sha256"]) != digest or
+                    float(existing["alpha"]) != policy.alpha or int(existing["horizon"]) != policy.horizon):
+                    raise ValueError(f"Existing cache does not match input/settings: {dest}")
+            continue
         with np.load(path, allow_pickle=False) as data:
             observation = {k: data[k] for k in data.files if not k.startswith("target.") and k not in ("mask", "episode_id")}
             target = np.concatenate([data["target.joint_position"], data["target.gripper_position"]], axis=-1)
             mask = data["mask"]
             episode = data["episode_id"]
         blend, _ = policy.get_action(observation)
-        dest = output_dir / path.relative_to(input_dir)
         dest.parent.mkdir(parents=True, exist_ok=True)
-        np.savez_compressed(dest, blend=pack_actions(blend),
+        temporary = dest.with_suffix(".partial")
+        with temporary.open("wb") as stream:
+            np.savez_compressed(stream, blend=pack_actions(blend),
                             state=current_state(observation, policy.config_gr00t),
                             target=target, mask=mask, episode_id=episode,
-                            alpha=policy.alpha, horizon=policy.horizon)
+                            alpha=policy.alpha, horizon=policy.horizon, source_sha256=digest)
+        temporary.replace(dest)
+        print(f"cache {index + 1}/{len(paths)}: {dest}", flush=True)
     print(f"Cached {len(paths)} files in {output_dir}")
 
 
@@ -390,9 +407,11 @@ def train_refiner(args):
         torch.utils.data.TensorDataset(*(val[k] for k in ("blend", "state", "target", "mask"))),
         batch_size=args.batch_size)
     best = float("inf")
+    history = []
     args.checkpoint.parent.mkdir(parents=True, exist_ok=True)
     for epoch in range(args.epochs):
         model.train()
+        train_score, train_count = 0., 0.
         for batch in loader:
             optimizer.zero_grad()
             loss = model.loss(*(x.to(args.device) for x in batch))
@@ -401,6 +420,9 @@ def train_refiner(args):
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
+            weight = float(batch[-1].sum())
+            train_score += float(loss.detach()) * weight
+            train_count += weight
         model.eval()
         # Fixed validation noise/time across epochs, without disturbing training RNG.
         with torch.random.fork_rng(devices=[torch.device(args.device).index or 0] if torch.device(args.device).type == "cuda" else []):
@@ -412,13 +434,77 @@ def train_refiner(args):
                     score += float(model.loss(*(x.to(args.device) for x in batch))) * weight
                     count += weight
                 score /= count
+        if not math.isfinite(score):
+            raise ValueError("Nonfinite validation loss")
         print(f"epoch={epoch + 1} val_flow_mse={score:.6f}")
+        history.append({"epoch": epoch + 1, "train_flow_mse": train_score / train_count,
+                        "val_flow_mse": score})
+        args.checkpoint.with_suffix(".history.json").write_text(json.dumps(history, indent=2) + "\n")
         if score < best:
             best = score
             torch.save({"format": "protoss_residual_flow_v1.2", "model": model.state_dict(),
                         "alpha": args.alpha, "horizon": args.horizon, "hidden": args.hidden,
-                        "val_flow_mse": best, "seed": args.seed}, args.checkpoint)
+                        "val_flow_mse": best, "seed": args.seed,
+                        "train_episode_ids": sorted(train_ids), "val_episode_ids": sorted(val_ids)}, args.checkpoint)
     print(f"Saved best checkpoint: {args.checkpoint}")
+
+
+def action_metrics(prediction, target, mask, scale):
+    """Mask padding; report joint radians separately from continuous gripper."""
+    error = prediction - target
+    valid = mask.bool()
+    joint_error = error[..., :7][valid]
+    gripper_error = error[..., 7][valid]
+    normalized_error = (error / scale)[valid]
+    return {"joint_mae_rad": float(joint_error.abs().mean()),
+            "joint_rmse_rad": float(joint_error.square().mean().sqrt()),
+            "gripper_mae": float(gripper_error.abs().mean()),
+            "gripper_rmse": float(gripper_error.square().mean().sqrt()),
+            "normalized_action_mse": float(normalized_error.square().mean())}
+
+
+def evaluate_refiner(args):
+    if not args.test_cache:
+        raise ValueError("Evaluation needs --test-cache (held-out episodes)")
+    data, test_ids = read_cache(args.test_cache, args.alpha, args.horizon)
+    checkpoint = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
+    if "train_episode_ids" not in checkpoint or "val_episode_ids" not in checkpoint:
+        raise ValueError("Checkpoint lacks split provenance; retrain with the current v1.2 trainer")
+    seen = set(checkpoint["train_episode_ids"]) | set(checkpoint["val_episode_ids"])
+    if test_ids & seen:
+        raise ValueError("Test episodes overlap training/validation episodes")
+    model = load_refiner(args.checkpoint, args.alpha, args.horizon, args.device, args.flow_steps)
+    baseline = action_metrics(data["blend"], data["target"], data["mask"], model.scale.cpu())
+    runs = []
+    for seed in args.eval_seeds:
+        torch.manual_seed(seed)
+        predictions = []
+        started = time.perf_counter()
+        for start in range(0, len(data["blend"]), args.batch_size):
+            blend = data["blend"][start:start + args.batch_size].numpy()
+            state = data["state"][start:start + args.batch_size].numpy()
+            actions = {"action.joint_position": blend[..., :7],
+                       "action.gripper_position": blend[..., 7:]}
+            predictions.append(torch.from_numpy(pack_actions(model.refine(actions, state))))
+        metrics = action_metrics(torch.cat(predictions), data["target"], data["mask"], model.scale.cpu())
+        metrics["refinement_seconds_per_chunk"] = (time.perf_counter() - started) / len(data["blend"])
+        runs.append({"seed": seed, **metrics})
+    summary = {key: {"mean": float(np.mean([run[key] for run in runs])),
+                     "std": float(np.std([run[key] for run in runs]))}
+               for key in runs[0] if key != "seed"}
+    report = {"evaluation": "held_out_demonstration_action_error",
+              "checkpoint": str(args.checkpoint), "test_cache": str(args.test_cache),
+              "alpha": args.alpha, "horizon": args.horizon, "flow_steps": args.flow_steps,
+              "device": args.device, "batch_size": args.batch_size,
+              "episodes": len(test_ids), "chunks": len(data["blend"]),
+              "valid_timesteps": int(data["mask"].sum()), "test_episode_ids": sorted(test_ids),
+              "v1.1_blend": baseline, "v1.2_refined": summary, "per_seed": runs,
+              "note": "Action error on recorded observations; not closed-loop task success."}
+    args.metrics_output.parent.mkdir(parents=True, exist_ok=True)
+    args.metrics_output.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
+    print(json.dumps(report, indent=2, allow_nan=False))
+    print(f"Saved evaluation: {args.metrics_output}")
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -432,14 +518,18 @@ def main():
     parser.add_argument("--port", type=int, default=5555)
     parser.add_argument("--observation", type=Path, help="Single flat observation NPZ instead of proxy server")
     parser.add_argument("--output", type=Path, default=Path("refined_actions_v1.2.npz"))
-    parser.add_argument("--mode", choices=["infer", "cache", "train"], default="infer")
+    parser.add_argument("--mode", choices=["infer", "cache", "train", "eval"], default="infer")
     parser.add_argument("--checkpoint", type=Path, default=Path("checkpoints/refiner_v1.2.pt"))
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--flow-steps", type=int, default=10)
     parser.add_argument("--input-dir", type=Path)
     parser.add_argument("--cache-dir", type=Path)
+    parser.add_argument("--resume-cache", action="store_true", help="Reuse caches with matching source hashes/settings")
     parser.add_argument("--train-cache", type=Path)
     parser.add_argument("--val-cache", type=Path)
+    parser.add_argument("--test-cache", type=Path)
+    parser.add_argument("--eval-seeds", type=int, nargs="+", default=[42, 43, 44])
+    parser.add_argument("--metrics-output", type=Path, default=Path("results/v1.2/offline_test.json"))
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--hidden", type=int, default=256)
@@ -455,10 +545,14 @@ def main():
     if args.mode == "train":
         train_refiner(args)
         return
+    if args.mode == "eval":
+        evaluate_refiner(args)
+        return
     if args.mode == "cache" and (not args.input_dir or not args.cache_dir):
         parser.error("cache needs --input-dir and --cache-dir")
     refiner = None
     if args.mode == "infer":
+        torch.manual_seed(args.seed)
         refiner = load_refiner(args.checkpoint, args.alpha, args.horizon, args.device, args.flow_steps)
     client_gr00t = ModelClient(args.n17_endpoint, timeout_ms=args.timeout_ms)
     client_pi = None
@@ -467,11 +561,12 @@ def main():
         policy = BlendedPolicy(client_gr00t, client_pi, args.alpha, args.horizon, args.pi_horizon)
         policy.refiner = refiner
         if args.mode == "cache":
-            cache_samples(policy, args.input_dir, args.cache_dir)
+            cache_samples(policy, args.input_dir, args.cache_dir, args.resume_cache)
         elif args.observation:
             with np.load(args.observation, allow_pickle=False) as archive:
                 observation = {key: archive[key] for key in archive.files}
             actions, info = policy.get_action(observation)
+            args.output.parent.mkdir(parents=True, exist_ok=True)
             np.savez(args.output, **actions)
             print(f"Saved {args.output}: {info}")
         else:

@@ -1,2 +1,7 @@
 -r requirements_v1.1.txt
 torch>=2.2,<3
+# Public DROID LeRobot v3 subset download/export (no full LeRobot install).
+huggingface-hub>=0.34,<2
+pyarrow>=18,<24
+pandas>=2.2,<3
+scipy>=1.13,<2

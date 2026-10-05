@@ -10,3 +10,10 @@
 /openpi-assets-simeval/
 /openpi-assets/
 /big_vision/
+
+# v1.2 local datasets, metrics, environment and learned checkpoints
+/data/
+/results/
+/Protoss/.venv-v12/
+/Protoss/checkpoints/refiner*.pt
+/Protoss/checkpoints/refiner*.history.json
