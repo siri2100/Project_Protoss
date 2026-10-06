@@ -42,6 +42,19 @@ class StyleTests(unittest.TestCase):
             self.assertLess(np.mean([r["speed_rms_rad_s"] for r in a]),
                             np.mean([r["speed_rms_rad_s"] for r in b]))
 
+    def test_retiming_needs_no_repeated_instruction(self):
+        records = [{"source_episode": i, "task": f"unique instruction {i}"} for i in range(300)]
+        splits = styles.retimed_splits(records, 42)
+        self.assertEqual(splits, styles.retimed_splits(records, 42))
+        self.assertEqual([len(splits[k]) for k in ("a", "b", "test")], [240, 240, 60])
+        train_ids = {r["source_episode"] for r in splits["a"]}
+        test_ids = {r["source_episode"] for r in splits["test"]}
+        self.assertEqual(train_ids, {r["source_episode"] for r in splits["b"]})
+        self.assertFalse(train_ids & test_ids)
+        # Editing A's transform metadata cannot silently modify B's record.
+        splits["a"][0]["speed_factor"] = .75
+        self.assertNotIn("speed_factor", splits["b"][0])
+
     def test_insufficient_or_indistinguishable_styles_fail(self):
         with self.assertRaises(ValueError):
             styles.select_styles(self.records()[:4], 42)
@@ -91,7 +104,7 @@ class StyleTests(unittest.TestCase):
                     frames.append(frame)
             pd.DataFrame(frames).to_parquet(path, index=False)
             (source / "subset.json").write_text(json.dumps({"fps": 15, "revision": "fixture", "episodes": rows}))
-            args = argparse.Namespace(dataset_dir=source, output_dir=root / "out", seed=42)
+            args = argparse.Namespace(dataset_dir=source, output_dir=root / "out", seed=42, style_method="select")
             def encode(command, **kwargs):
                 Path(command[-1]).write_bytes(b"mock-video")
             with patch.dict(sys.modules, modules), patch.object(styles, "decode_episode", return_value=np.zeros((8, 180, 320, 3), np.uint8)), patch.object(styles.subprocess, "run", side_effect=encode):
@@ -112,6 +125,55 @@ class StyleTests(unittest.TestCase):
                 self.assertTrue((folder / "meta/relative_stats.json").exists())
             with self.assertRaises(ValueError):
                 styles.prepare(args)
+            args.output_dir = root / "retimed"
+            args.style_method = "retime"
+            args.slow_factor, args.fast_factor, args.smooth_window = .75, 1.25, 5
+            video_lengths = []
+            def encode_retimed(command, **kwargs):
+                video_lengths.append(len(kwargs["input"]) // (180 * 320 * 3))
+                encode(command, **kwargs)
+            with patch.dict(sys.modules, modules), patch.object(styles, "decode_episode", return_value=np.zeros((8, 180, 320, 3), np.uint8)), patch.object(styles.subprocess, "run", side_effect=encode_retimed):
+                styles.prepare(args)
+            report = json.loads((args.output_dir / "styles.json").read_text())
+            a_ids = {r["source_episode"] for r in report["splits"]["a"]}
+            b_ids = {r["source_episode"] for r in report["splits"]["b"]}
+            test_ids = {r["source_episode"] for r in report["splits"]["test"]}
+            self.assertEqual(a_ids, b_ids)
+            self.assertFalse(a_ids & test_ids)
+            self.assertTrue(report["synthetic"])
+            expected_lengths = []
+            for split, count in (("a", 10), ("b", 7), ("test", 8)):
+                for parquet in sorted((args.output_dir / split).glob("data/*/*.parquet")):
+                    frame = pd.read_parquet(parquet)
+                    self.assertEqual(len(frame), count)
+                    np.testing.assert_allclose(frame["timestamp"], np.arange(count) / 15)
+                    np.testing.assert_array_equal(frame["frame_index"], np.arange(count))
+                    expected_lengths.extend([count, count])
+            self.assertEqual(video_lengths, expected_lengths)
+
+    def test_retime_alignment_speed_and_rotation_wrap(self):
+        n = 61
+        rows = []
+        for i in range(n):
+            row = {"language_instruction": "task"}
+            for prefix in ("observation.state", "action"):
+                row[prefix + ".joint_position"] = [i / 15] * 7
+                row[prefix + ".gripper_position"] = [float(i >= 30)]
+                row[prefix + ".cartesian_position"] = [i / 15, 0, 0, 0, 0, np.deg2rad(179 if i < 30 else -179)]
+            rows.append(row)
+        source = pd.DataFrame(rows)
+        for factor in (.75, 1.25):
+            output, nearest = styles.retime_frame(source, 15, factor, 1)
+            joints = np.stack(output["action.joint_position"])
+            self.assertAlmostEqual(styles.motion_metrics(joints, 15)["speed_rms_rad_s"], factor, places=5)
+            np.testing.assert_array_equal(joints[[0, -1]], np.stack(source["action.joint_position"])[[0, -1]])
+            np.testing.assert_array_equal(np.stack(output["action.gripper_position"])[:, 0], nearest >= 30)
+            # Rotations cross +/-pi using the short arc, rather than passing through zero.
+            self.assertTrue((np.abs(np.stack(output["action.cartesian_position"])[:, 5]) > 3).all())
+        noisy = np.sin(np.arange(101) * .1)[:, None] + .1 * (-1.) ** np.arange(101)[:, None]
+        filtered = styles.smooth_positions(noisy, 5)
+        self.assertLess(np.square(np.diff(filtered, n=2, axis=0)).mean(), np.square(np.diff(noisy, n=2, axis=0)).mean())
+        np.testing.assert_allclose(filtered[[0, -1]], noisy[[0, -1]])
 
     def test_independent_training_uses_original_base_and_exact_output(self):
         captured = []

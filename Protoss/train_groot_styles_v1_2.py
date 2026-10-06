@@ -1,4 +1,4 @@
-"""Prepare task-matched DROID styles and independently fine-tune GR00T A/B.
+"""Prepare retimed DROID styles and independently fine-tune GR00T A/B.
 
 Run with the GR00T N1.7 Python environment, not .venv-v12.
 Style is learned from demonstrations using the unmodified GR00T flow loss.
@@ -16,6 +16,73 @@ from prepare_droid_v1_2 import (
 )
 
 TAG = "OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT"
+
+
+def retimed_splits(records, seed):
+    """Split source IDs first; both training styles use the same sources."""
+    if len(records) < 3:
+        raise ValueError("At least 3 source episodes required")
+    order = np.random.default_rng(seed).permutation(len(records))
+    n_test = max(1, int(np.ceil(len(records) * .2)))
+    test = [dict(records[i]) for i in order[:n_test]]
+    train = [dict(records[i]) for i in order[n_test:]]
+    return {"a": [dict(r) for r in train], "b": [dict(r) for r in train], "test": test}
+
+
+def smooth_positions(values, window):
+    """Centered moving average with a linear correction preserving endpoints."""
+    if window == 1:
+        return values.copy()
+    pad = window // 2
+    padded = np.pad(values, ((pad, pad), (0, 0)), mode="edge")
+    smoothed = np.stack([np.convolve(padded[:, i], np.ones(window) / window, mode="valid")
+                         for i in range(values.shape[1])], axis=1)
+    fraction = np.linspace(0, 1, len(values))[:, None]
+    return smoothed + (1 - fraction) * (values[0] - smoothed[0]) + fraction * (values[-1] - smoothed[-1])
+
+
+def retime_frame(frame, fps, speed_factor, smooth_window=1):
+    """Return synthesized 15Hz lowdim data and shared source indices for RGB.
+
+    Images and gripper use nearest samples; continuous state/action interpolate.
+    Only action joint/EEF targets are smoothed, retaining observed state.
+    """
+    from scipy.spatial.transform import Rotation, Slerp
+    if not np.isfinite(speed_factor) or speed_factor <= 0 or smooth_window < 1 or smooth_window % 2 != 1:
+        raise ValueError("Speed must be positive and smoothing window a positive odd integer")
+    count = len(frame)
+    if count < 4 or not np.isfinite(fps) or fps <= 0:
+        raise ValueError("At least 4 source frames and a positive fps are required")
+    # linspace includes both endpoints and avoids an artificial short last step.
+    output_count = max(4, int(round((count - 1) / speed_factor)) + 1)
+    timeline = np.linspace(0, count - 1, output_count)
+    nearest = np.floor(timeline + .5).astype(int)
+    # Keep only supported low-dimensional fields; do not copy stale velocities.
+    result = frame.iloc[nearest][["language_instruction"]].copy().reset_index(drop=True)
+    for prefix in ("observation.state", "action"):
+        joints = vector_column(frame, prefix + ".joint_position", 7)
+        cart = vector_column(frame, prefix + ".cartesian_position", 6)
+        rotations = Rotation.from_euler("XYZ", cart[:, 3:])
+        if prefix == "action" and smooth_window > 1:
+            joints = smooth_positions(joints, smooth_window)
+            cart[:, :3] = smooth_positions(cart[:, :3], smooth_window)
+            pad = smooth_window // 2
+            filtered = [rotations[max(0, i - pad):min(count, i + pad + 1)].mean().as_quat()
+                        for i in range(count)]
+            filtered[0], filtered[-1] = rotations[0].as_quat(), rotations[-1].as_quat()
+            rotations = Rotation.from_quat(filtered)
+        def interpolate(values):
+            return np.stack([np.interp(timeline, np.arange(count), values[:, i])
+                             for i in range(values.shape[1])], axis=1).astype(np.float32)
+        result[prefix + ".joint_position"] = list(interpolate(joints))
+        xyz = interpolate(cart[:, :3])
+        euler = Slerp(np.arange(count), rotations)(timeline).as_euler("XYZ")
+        result[prefix + ".cartesian_position"] = list(np.concatenate([xyz, euler], axis=-1).astype(np.float32))
+        grip = vector_column(frame, prefix + ".gripper_position", 1)
+        result[prefix + ".gripper_position"] = list(grip[nearest])
+    result["frame_index"] = np.arange(output_count)
+    result["timestamp"] = np.arange(output_count) / fps
+    return result, nearest
 
 
 def motion_metrics(joints, fps):
@@ -116,7 +183,11 @@ def prepare(args):
             raise ValueError(f"Episode {ep} must have one nonempty instruction")
         records.append({"source_episode": ep, "task": tasks[0],
                         **motion_metrics(vector_column(frame, "action.joint_position", 7), fps)})
-    splits, skipped = select_styles(records, args.seed, allow_empty=True)
+    method = getattr(args, "style_method", "retime")
+    if method == "retime":
+        splits, skipped = retimed_splits(records, args.seed), []
+    else:
+        splits, skipped = select_styles(records, args.seed, allow_empty=True)
     counts = {}
     for record in records:
         counts[record["task"]] = counts.get(record["task"], 0) + 1
@@ -132,6 +203,8 @@ def prepare(args):
     for task, count in sorted(counts.items(), key=lambda item: -item[1])[:10]:
         print(f"  {count:4d} episodes: {task}", flush=True)
     print(f"Saved inspection: {inspection_path}", flush=True)
+    print(f"Style method: {method}; selected A={len(splits['a'])}, "
+          f"B={len(splits['b'])}, test={len(splits['test'])}", flush=True)
     if getattr(args, "inspect_only", False):
         return
     if not splits["a"]:
@@ -143,7 +216,7 @@ def prepare(args):
     from gr00t.data.embodiment_tags import EmbodimentTag
     rows_by_id = {int(r["episode_index"]): r for r in manifest["episodes"]}
     tasks = sorted({r["task"] for split in splits.values() for r in split})
-    # Materialize genuine, synchronized episodes; no action-only retiming.
+    # Use one time map for both cameras and all state/action fields.
     for name, selected in splits.items():
         root = output / name
         meta = root / "meta"
@@ -158,6 +231,17 @@ def prepare(args):
                 shard_cache = pq.read_table(path).to_pandas()
                 last_path = path
             frame = shard_cache[shard_cache["episode_index"] == record["source_episode"]].sort_values("frame_index").copy()
+            source_count = len(frame)
+            nearest = np.arange(source_count)
+            if method == "retime" and name in ("a", "b"):
+                factor = args.slow_factor if name == "a" else args.fast_factor
+                window = args.smooth_window if name == "a" else 1
+                record["source_metrics"] = {key: record[key] for key in
+                    ("speed_rms_rad_s", "accel_rms_rad_s2", "jerk_rms_rad_s3", "duration_s")}
+                frame, nearest = retime_frame(frame, fps, factor, window)
+                record["speed_factor"] = factor
+                record["smooth_window"] = window
+                record.update(motion_metrics(vector_column(frame, "action.joint_position", 7), fps))
             count = len(frame)
             for prefix in ("observation.state", "action"):
                 eef = compute_eef_9d(vector_column(frame, prefix + ".cartesian_position", 6))
@@ -176,9 +260,9 @@ def prepare(args):
             for key in CAMERAS.values():
                 start = float(row[f"videos/{key}/from_timestamp"])
                 duration = float(row[f"videos/{key}/to_timestamp"]) - start
-                if abs(duration * fps - count) > .1:
+                if abs(duration * fps - source_count) > .1:
                     raise ValueError("Video duration does not match episode frames")
-                rgb = decode_episode(source / video_filename(row, key), start, count, fps)
+                rgb = decode_episode(source / video_filename(row, key), start, source_count, fps)[nearest]
                 target = root / f"videos/chunk-{index // 1000:03d}/{key}/episode_{index:06d}.mp4"
                 target.parent.mkdir(parents=True, exist_ok=True)
                 subprocess.run(["ffmpeg", "-v", "error", "-f", "rawvideo", "-pix_fmt", "rgb24",
@@ -208,6 +292,8 @@ def prepare(args):
         generate_rel_stats(root, EmbodimentTag.resolve(TAG))
     write_json(output / "styles.json", {"source": str(source), "revision": manifest["revision"],
                "seed": args.seed, "fps": fps, "splits": splits, "skipped_tasks": skipped,
+               "style_method": method,
+               "synthetic": method == "retime",
                "metrics": "finite differences of absolute joint COMMANDS, not measured robot motion"})
     print(f"Prepared A={len(splits['a'])}, B={len(splits['b'])}, test={len(splits['test'])}: {output}")
 
@@ -271,6 +357,10 @@ def main():
     prep.add_argument("--dataset-dir", type=Path, required=True)
     prep.add_argument("--output-dir", type=Path, required=True)
     prep.add_argument("--seed", type=int, default=42)
+    prep.add_argument("--style-method", choices=["retime", "select"], default="retime")
+    prep.add_argument("--slow-factor", type=float, default=.75)
+    prep.add_argument("--fast-factor", type=float, default=1.25)
+    prep.add_argument("--smooth-window", type=int, default=5)
     prep.add_argument("--inspect-only", action="store_true",
                       help="Write task counts, exclusion reasons and motion metrics without converting videos")
     training = sub.add_parser("train")
@@ -287,6 +377,9 @@ def main():
     training.add_argument("--seed", type=int, default=42)
     training.add_argument("--resume", action="store_true")
     args = parser.parse_args()
+    if args.command == "prepare" and (not 0 < args.slow_factor < 1 or not np.isfinite(args.fast_factor)
+            or args.fast_factor <= 1 or args.smooth_window < 1 or args.smooth_window % 2 != 1):
+        parser.error("slow-factor must be (0,1), fast-factor >1, smooth-window positive and odd")
     if args.command == "train" and (min(args.max_steps, args.save_steps, args.batch_size,
                                         args.gradient_accumulation) < 1 or args.lr <= 0 or args.workers < 0):
         parser.error("Steps/batch/accumulation/lr must be positive; workers >= 0")

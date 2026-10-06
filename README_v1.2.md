@@ -5,7 +5,7 @@
 - 모델 A: 느리고 부드러운 동작의 시연을 학습한다.
 - 모델 B: 같은 task의 빠른 동작 시연을 학습한다.
 
-두 모델은 같은 pretrained checkpoint에서 각각 시작한다. 스타일은 demonstration 선택으로 학습하며 loss는 GR00T 기본 flow-matching MSE를 사용한다.
+두 모델은 같은 pretrained checkpoint에서 각각 시작한다. 스타일은 동일 시연의 시간 재샘플링과 A의 action smoothing으로 만들며 loss는 GR00T 기본 flow-matching MSE를 사용한다.
 
 ## 1. 환경과 프로젝트 설치
 
@@ -178,10 +178,10 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train_groot_styles_v1_2.py" --hel
 
 | 모델 | 학습 demonstration | Loss |
 |---|---|---|
-| A (`a`) | 같은 task 내 관절 command 속도 RMS와 가속도 RMS가 낮은 episode | GR00T 기본 masked flow-matching MSE |
-| B (`b`) | A와 겹치지 않는 빠른 episode | 같은 GR00T 기본 loss |
+| A (`a`) | 원본 train 시연의 0.75배속 + 연속 action smoothing | GR00T 기본 masked flow-matching MSE |
+| B (`b`) | 같은 원본 train 시연의 1.25배속 | 같은 GR00T 기본 loss |
 
-여기서는 **스타일별 시연을 imitation하는 방식**을 구현했다. A에 별도 smoothness penalty를 더하거나 B에 음의 smoothness penalty를 넣는 구현은 아니다. 가속도 RMS가 낮을수록 부드럽다는 기준을 사용하며 jerk도 보고서에 기록한다. B에 의도적으로 진동을 만들지는 않는다. 동일 task에서 A의 평균 속도와 평균 가속도가 모두 B보다 낮은 경우만 사용한다. 이는 데이터의 차이를 검증하며 학습된 모델의 실제 움직임 차이를 보장하지 않는다. 관절 속도가 높아도 task 완료 시간이 짧아지는지는 closed-loop에서 확인해야 한다.
+기본 경로는 **합성 스타일 demonstration을 imitation하는 방식**이다. A/B 모두 GR00T 기본 loss를 사용하며 별도 smoothness penalty는 추가하지 않는다. 실제 동작의 속도·smoothness·task 성공률은 함께 평가해야 한다.
 
 ## 4. DROID 데이터 다운로드
 
@@ -189,7 +189,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train_groot_styles_v1_2.py" --hel
 
 `HF_HUB_ENABLE_HF_TRANSFER=0`으로 일반 다운로드를 사용한다. 서버에서 해당 변수가 `1`로 설정되어 있어도 아래 블록에서 덮어쓰므로 선택 패키지 `hf_transfer`를 설치할 필요가 없다. 실패하면 같은 명령을 다시 실행해 다운로드 cache를 재사용한다.
 
-이미 받은 `data/v1.2/droid`를 사용해도 된다. 스타일 준비에서 반복 task 부족 오류가 나면 아래처럼 **새 폴더**에 episode 수를 늘린다. 300은 첫 시도용 개수이며 task당 데이터 수를 보장하지 않는다. 다운로드 helper는 첫 metadata shard의 성공·언어 있는 episode만 선택한다. 해당 shard의 가용 수를 넘기면 오류가 나며 모든 DROID shard를 자동 탐색하지 않는다. 같은 task별로 최소 5개가 필요하고, 실험의 신뢰성을 위해 충분한 반복 시연을 모으는 것이 좋다.
+이미 받은 300개 `data/v1.2/droid_styles_source`를 그대로 사용한다. 다시 다운로드할 필요는 없다. 시간 재샘플링은 동일 instruction 반복을 요구하지 않으며 최소 3개 원본 episode로 실행할 수 있다. 아래 다운로드 명령은 데이터가 아직 없을 때만 실행한다. 다운로드 helper는 첫 metadata shard의 성공·언어 있는 episode를 선택한다.
 
 ```bash
 (
@@ -204,11 +204,9 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/prepare_droid_v1_2.py" download \
 )
 ```
 
-## 5. 스타일 분리와 GR00T LeRobot v2 변환
+## 5. 시간 재샘플링으로 A/B 데이터 생성
 
-**일반 DROID episode 300개만으로 이 단계가 성공한다고 보장할 수 없다.** 서로 다른 task가 많거나 스타일 차이가 부족하면 중단한다. 이 단계는 설치가 아니라 학습 데이터 준비다.
-
-기존 데이터로 먼저 시도하려면 아래 `--dataset-dir`만 `data/v1.2/droid`로 변경한다. 기존 데이터를 덮어쓰지 않는다.
+서버에 수정된 `Protoss/train_groot_styles_v1_2.py`를 반영한 뒤 실행한다. 실패했던 준비 시도와 구분해 새 폴더에 생성한다.
 
 ```bash
 (
@@ -220,22 +218,25 @@ cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/train_groot_styles_v1_2.py" \
   --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" prepare \
   --dataset-dir "$PROTOSS_ROOT/data/v1.2/droid_styles_source" \
-  --output-dir "$PROTOSS_ROOT/data/v1.2/groot_styles" --seed 42
+  --output-dir "$PROTOSS_ROOT/data/v1.2/groot_styles_retimed" \
+  --style-method retime --slow-factor 0.75 --fast-factor 1.25 \
+  --smooth-window 5 --seed 42
 )
 ```
 
-`prepare`는 변환 전에 `data/v1.2/groot_styles.inspection.json`에 task별 episode 수, 선택 수, 제외 이유, episode별 motion metric을 저장한다. 실패해도 보고서는 남으며 output 폴더 밖에 저장하므로 같은 명령을 다시 실행할 수 있다. 영상 변환 없이 진단만 하려면 위 명령 마지막에 `--inspect-only`를 추가한다.
-
-`No usable style groups` 오류일 때 보고서의 `tasks_with_at_least_5_episodes`가 0이면 같은 instruction의 반복 시연이 부족한 것이다. 0보다 크면 `skipped_tasks`의 `candidate_means`로 A/B 후보의 속도·가속도 차이를 확인한다. Instruction 문장이 다르면 같은 작업이어도 별도 그룹이다. 데이터 수를 늘리는 것만으로 해결된다고 보장할 수 없으며, 같은 task의 느리고 부드러운 성공 시연과 빠른 성공 시연을 확보해야 한다. 서로 다른 작업을 임의로 묶거나 필터를 무조건 완화해서 학습하면 스타일 비교가 왜곡될 수 있다.
-
 준비 절차:
 
-1. 성공 subset의 episode별 absolute joint command로 속도, 가속도, jerk를 계산한다. 관측된 실제 joint motion과는 구분한다. `v = diff(q) × 15`, `acc = diff(v) × 15`, `jerk = diff(acc) × 15`이며 7개 관절·모든 timestep의 RMS다.
-2. **instruction 문자열이 같은 task**끼리 모으고, 무작위 약 20%(최소 1개)를 공통 test로 먼저 분리한다. task 문자열이 같아도 물체 위치·경로 길이는 다를 수 있다.
-3. 나머지에서 속도/가속도 순위 합이 낮은 절반을 A에, 남은 episode 중 빠른 순으로 같은 수를 B에 배정한다. 스타일 차이가 부족한 task는 제외한다. A/B의 task별 episode 수는 같으며 세 split 사이 episode 중복은 없다. Validation split은 이 초기 구현에서 별도로 만들지 않는다.
-4. 선택된 episode를 영상과 함께 GR00T-flavored LeRobot v2로 변환한다. `[eef_9d(9), gripper(1), joint(7)]`의 17D state/action, task annotation, per-episode parquet/video 및 split별 normalization/relative statistics를 생성한다. EEF 변환과 통계는 설치된 GR00T 함수를 사용한다. 카메라는 exterior_1_left와 wrist_left다.
+1. 원본 episode를 먼저 train 80% / test 20%로 나눈다. 300개면 240/60개다. A/B는 같은 train 원본을 사용한다. Test 원본은 어느 학습 데이터에도 들어가지 않고 원래 속도로 보존한다. Episode 단위 split이며 unseen-task 평가나 pretrained DROID 전체의 데이터 누수 방지를 보장하지 않는다.
+2. A는 0.75배속으로 시간 축을 확장한다. Joint/EEF 위치 action에 5프레임 중앙 이동 평균과 양 끝 위치를 보존하는 선형 보정을 적용한다. EEF 회전 action은 주변 rotation의 평균으로 smoothing하고 양 끝 회전을 보존한다. State에는 smoothing을 적용하지 않는다.
+3. B는 같은 원본을 1.25배속으로 시간 압축하며 smoothing을 적용하지 않는다. 양쪽 모두 출력은 15Hz다. 시작/끝을 모두 포함하므로 짧은 episode의 실제 배속은 요청값과 약간 다를 수 있다.
+4. 연속 joint/EEF 위치 state와 action은 선형 보간한다. 회전은 GR00T의 `XYZ` Euler convention으로 rotation을 만들고 Slerp로 보간한다. Gripper와 두 camera는 공통 시간 지도의 가장 가까운 원본 frame을 선택하며 gripper를 smoothing하지 않는다. 압축 시 아주 짧은 이벤트가 사라질 수 있으므로 큰 fast-factor 사용에 주의한다.
+5. Timestamp, frame/global index, episode length를 새 15Hz 기준으로 작성한다. `[eef_9d(9), gripper(1), joint(7)]`의 GR00T LeRobot v2 데이터와 split별 normalization/relative statistics를 생성한다. EEF 변환과 통계는 GR00T 함수를 사용한다. 카메라는 exterior_1_left와 wrist_left다.
 
-결과: `groot_styles/a`, `groot_styles/b`, `groot_styles/test`, `groot_styles/styles.json`. JSON에서 사용 episode, task, metric과 제외 이유를 확인한다. 영상은 FFmpeg로 정확한 시작 시점에서 decode 후 H.264로 저장하며 frame을 빠뜨리거나 action만 시간 축을 바꾸지 않는다. Episode 단위로 영상을 RAM에 읽으므로 긴 episode는 RAM 사용량이 커질 수 있다. 준비 중 실패하면 새 output 경로로 재실행한다. Task당 5개는 실행 최소치이며 fine-tuning 품질에 충분하다는 의미가 아니다.
+결과는 `groot_styles_retimed/a`, `b`, `test`, `styles.json`이다. 원본 300개 기준 성공 출력은 `Prepared A=240, B=240, test=60`이다. `styles.json`에는 `synthetic: true`, 원본 ID, 배속·smoothing 설정, 원본 및 변형 후 command 속도/가속도/jerk RMS를 기록한다. 계산은 `v = diff(q) × 15`, `acc = diff(v) × 15`, `jerk = diff(acc) × 15`이며 실제 로봇 motion과 구분한다. Smoothing 효과는 metric으로 확인한다.
+
+영상은 원본 frame을 반복/선택하며 실제 새 장면을 생성하지 않는다. 보간된 state와 smoothed action 때문에 이미지·state·command의 물리적 일치가 근사적이고, joint/EEF command의 kinematic 일치도 보장하지 않는다. 접촉/파지 성공 여부와 빠른 궤적의 실행 가능성은 closed-loop에서 확인해야 한다. 초기 합성 데이터 실험으로 사용하고 이후 실제 스타일 시연으로 보완한다.
+
+Episode 영상 전체를 RAM에 로드하므로 긴 episode는 메모리 사용량이 커질 수 있다. Output이 비어 있지 않으면 중단한다. 진단만 하려면 `--inspect-only`를 추가한다. `groot_styles_retimed.inspection.json`은 output 밖에 저장된다. 이전 방식은 `--style-method select`로 사용할 수 있으며 동일 instruction 최소 5개와 속도/가속도 차이 조건을 적용한다.
 
 ## 6. A 학습 후 B 학습
 
@@ -254,7 +255,7 @@ cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 for STYLE in a b; do
   uv run --no-sync python "$PROTOSS_ROOT/Protoss/train_groot_styles_v1_2.py" \
     --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" train \
-    --styles-dir "$PROTOSS_ROOT/data/v1.2/groot_styles" --style "$STYLE" \
+    --styles-dir "$PROTOSS_ROOT/data/v1.2/groot_styles_retimed" --style "$STYLE" \
     --base-model "$PROTOSS_ROOT/Protoss/checkpoints/GR00T-N1.7-DROID" \
     --output-dir "$PROTOSS_ROOT/Protoss/checkpoints/groot_v1.2_$STYLE" \
     --max-steps 2000 --save-steps 500 --batch-size 2 \
@@ -280,7 +281,7 @@ unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 for STYLE in a b; do
   uv run --no-sync python gr00t/eval/open_loop_eval.py \
-    --dataset-path "$PROTOSS_ROOT/data/v1.2/groot_styles/test" \
+    --dataset-path "$PROTOSS_ROOT/data/v1.2/groot_styles_retimed/test" \
     --embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT \
     --model-path "$PROTOSS_ROOT/Protoss/checkpoints/groot_v1.2_$STYLE/checkpoint-2000" \
     --traj-ids 0 --execution-horizon 8 --steps 400 \
@@ -312,7 +313,7 @@ uv run --no-sync python gr00t/eval/run_gr00t_server.py \
 
 A 평가가 끝나면 서버를 종료하고 checkpoint 경로의 `a`를 `b`로 바꿔 같은 포트에서 실행한다. 8절의 RoboLab output 이름도 B용으로 변경한다.
 
-검증 범위: 스타일 분리/command metric, 실제 parquet·metadata 변환, A/B의 원본 checkpoint 및 output 분리는 CPU 테스트 5개로 확인했다. 변환 테스트의 GR00T 통계 함수와 영상 encoder, 학습 테스트의 GPU/trainer는 mock을 사용했다. 실제 GR00T checkpoint GPU 로딩, backward, RunPod 학습, 학습 후 스타일 차이는 로컬 macOS에서 실행하지 않았다. 스타일별 성공 시연이 적거나 환경과 맞지 않으면 원하는 동작을 얻지 못할 수 있다.
+검증 범위: 동일 instruction 반복 없이 300개→240/60 split, 시간 보간의 배속·회전 wrap·gripper 정렬, smoothing, 실제 parquet·metadata·영상 frame 수 및 독립 학습 설정을 CPU 테스트 7개로 확인했다. 변환 테스트의 GR00T 통계 함수와 영상 encoder, 학습 테스트의 GPU/trainer는 mock을 사용했다. 실제 GR00T checkpoint GPU 로딩, backward, RunPod 학습, 학습 후 스타일 차이는 로컬 macOS에서 실행하지 않았다. 합성 스타일이 실제 task 수행에서 유효한지는 평가해야 한다.
 
 
 ## 8. RoboLab closed-loop 평가 — 선택 사항
@@ -375,7 +376,7 @@ UV_PROJECT_ENVIRONMENT=.venv-51 uv run --no-sync --extra isaac51 \
 | 파일 | 역할 |
 |---|---|
 | `Protoss/prepare_droid_v1_2.py` | 공개 성공 DROID subset 다운로드 (`download` 명령) |
-| `Protoss/train_groot_styles_v1_2.py` | 스타일 분리, LeRobot v2 변환, GR00T A/B 독립 학습 |
+| `Protoss/train_groot_styles_v1_2.py` | 시간 재샘플링/smoothing, LeRobot v2 변환, GR00T A/B 독립 학습 |
 | `Protoss/test_train_groot_styles_v1_2.py` | command metric, split 누수, 변환 및 학습 설정 검증 |
 
 ```bash
@@ -390,4 +391,4 @@ uv run --no-sync python -m unittest discover \
 )
 ```
 
-CPU 테스트 5개를 통과했다. 영상 encoder, GR00T 통계 함수와 GPU trainer는 테스트에서 mock을 사용했다. 실제 GPU 학습 및 학습 후 스타일 차이는 이 로컬 환경에서 검증하지 않았다.
+CPU 테스트 7개를 통과했다. 영상 encoder, GR00T 통계 함수와 GPU trainer는 테스트에서 mock을 사용했다. 실제 GPU 학습 및 학습 후 스타일 차이는 이 로컬 환경에서 검증하지 않았다.
