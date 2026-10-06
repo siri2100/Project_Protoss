@@ -26,13 +26,14 @@ def inventory(folder):
     return files
 
 
-def upload(args, api=None):
+def upload(args, api=None, *, validator=inventory, repo_type="model"):
     folder = args.folder.resolve()
-    files = inventory(folder)
+    files = validator(folder)
     total = sum(p.stat().st_size for p in files)
     if len(args.repo_id.split("/")) != 2 or any(not part.strip() for part in args.repo_id.split("/")):
         raise ValueError("repo-id must be ACCOUNT/REPOSITORY")
-    print(f"Source: {folder}\nDestination: https://huggingface.co/{args.repo_id}\n"
+    url = f"https://huggingface.co/{'datasets/' if repo_type == 'dataset' else ''}{args.repo_id}"
+    print(f"Source: {folder}\nDestination: {url}\n"
           f"Files: {len(files)}, size: {total / 1e9:.2f} GB", flush=True)
     if args.dry_run:
         print("Dry run: no network request or upload performed")
@@ -41,20 +42,21 @@ def upload(args, api=None):
         os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
         from huggingface_hub import HfApi
         api = HfApi()
-    api.create_repo(repo_id=args.repo_id, repo_type="model", private=True, exist_ok=True)
-    if not api.model_info(args.repo_id).private:
+    api.create_repo(repo_id=args.repo_id, repo_type=repo_type, private=True, exist_ok=True)
+    info = api.dataset_info(args.repo_id) if repo_type == "dataset" else api.model_info(args.repo_id)
+    if not info.private:
         raise ValueError("Destination already exists and is public. Use a private repository.")
     # Upload everything, including optimizer/scheduler/RNG and processor files.
     # Re-running the same folder/repo reuses the SDK's large-upload cache.
-    api.upload_large_folder(repo_id=args.repo_id, repo_type="model", folder_path=str(folder),
+    api.upload_large_folder(repo_id=args.repo_id, repo_type=repo_type, folder_path=str(folder),
                             ignore_patterns=IGNORE, num_workers=args.workers)
-    remote = set(api.list_repo_files(repo_id=args.repo_id, repo_type="model"))
+    remote = set(api.list_repo_files(repo_id=args.repo_id, repo_type=repo_type))
     missing = sorted(p.relative_to(folder).as_posix() for p in files
                      if p.relative_to(folder).as_posix() not in remote)
     if missing:
         raise RuntimeError(f"Upload verification: missing files: {missing[:10]}. "
                            "Check a root .gitignore or rerun the upload.")
-    print(f"Upload complete: https://huggingface.co/{args.repo_id}")
+    print(f"Upload complete: {url}")
 
 
 def main():

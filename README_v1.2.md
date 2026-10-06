@@ -460,8 +460,8 @@ HF_ACCOUNT=YOUR_HF_ACCOUNT
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/upload_checkpoint_hf_v1_2.py" \
-  --folder "$PROTOSS_ROOT/Protoss/checkpoints/groot_v1.2_b/checkpoint-2000" \
-  --repo-id "$HF_ACCOUNT/protoss-groot-v12-b-step2000" --workers 2
+  --folder "$PROTOSS_ROOT/Protoss/checkpoints/groot_v1.2_a/checkpoint-2000" \
+  --repo-id "$HF_ACCOUNT/protoss-groot-v12-a-step2000" --workers 2
 )
 ```
 
@@ -491,3 +491,57 @@ uv run --no-sync hf download "$HF_ACCOUNT/protoss-groot-v12-a-step2000" \
 B도 같은 방식으로 이름/경로를 바꿔 다운로드한다. 재현하려면 `hf download`에 모델 저장소의 commit SHA를 `--revision SHA`로 지정한다. 다운로드 후 7절 평가/서버 실행에서 해당 경로를 사용한다. 학습을 재개할 때는 원본 pretrained weight와 `groot_styles_retimed` 데이터도 준비하고, 같은 학습 설정과 output 경로로 6절 명령에 `--resume`을 추가한다. Optimizer 상태가 없는 최종 추론 모델 폴더는 학습 재개용 checkpoint를 대신하지 않는다.
 
 검증: 업로드 코드는 CPU mock 테스트로 private 저장소 조건, 전체 checkpoint 전송 호출, 원격 누락 검사와 dry-run을 확인했다. 실제 계정으로 대용량 업로드는 이 작업에서 실행하지 않았다.
+
+## 11. 생성한 데이터를 Hugging Face에 보관
+
+`Protoss/upload_dataset_hf_v1_2.py`로 **`groot_styles_retimed` 전체**를 private dataset 저장소에 업로드한다. A/B/test의 parquet, 영상, metadata/통계 및 `styles.json`이 모두 포함된다. 5절이 `Prepared A=240, B=240, test=60`으로 완료된 뒤 실행한다. 코드가 metadata의 episode 수와 필요한 파일의 존재/빈 파일 여부를 검사하며, 생성 중이거나 불완전한 폴더는 업로드 전에 중단한다. 영상 decode나 parquet 내용 검증은 하지 않는다.
+
+원본 `droid_styles_source`는 이 스크립트의 업로드 대상이 아니다. 보관한 생성 데이터만 있으면 5절을 다시 실행하지 않고 학습할 수 있지만, 배속/smoothing 설정을 바꿔 재생성하려면 원본도 별도로 보관해야 한다. 업로드 코드와 공통 함수가 있는 `upload_checkpoint_hf_v1_2.py`를 서버에 함께 반영한다.
+
+### 11.1 데이터 업로드
+
+10.1절처럼 dataset 저장소 생성·쓰기 권한이 있는 토큰으로 로그인한다. 아래 명령은 로그인된 실제 계정명을 자동으로 읽으므로 `YOUR_HF_ACCOUNT`를 입력할 필요가 없다. Organization에 올릴 때는 `HF_ACCOUNT`를 해당 organization 이름으로 직접 지정한다.
+
+```bash
+(
+set -e
+export PROTOSS_ROOT=/workspace/Project_Protoss
+export HF_HOME=/workspace/.cache/huggingface
+export HF_HUB_ENABLE_HF_TRANSFER=0
+export PATH="$HOME/.local/bin:$PATH"
+unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
+cd "$PROTOSS_ROOT/Issac-GR00T-N17"
+HF_ACCOUNT=$(uv run --no-sync python -c \
+  'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
+uv run --no-sync python "$PROTOSS_ROOT/Protoss/upload_dataset_hf_v1_2.py" \
+  --folder "$PROTOSS_ROOT/data/v1.2/groot_styles_retimed" \
+  --repo-id "$HF_ACCOUNT/protoss-groot-v12-retimed-data" --workers 2
+)
+```
+
+네트워크 없이 파일 수와 용량을 확인하려면 업로드 명령에 `--dry-run`을 추가한다(계정명 자동 조회 명령은 별도로 네트워크를 사용한다). Private dataset 저장소를 자동 생성하며 기존 public 저장소에는 업로드하지 않는다. 대용량 업로드가 중단되면 같은 폴더/저장소로 재실행한다. `.cache/huggingface` 전송 상태는 유지한다. `.cache`, `.git`, `.DS_Store`는 보관 대상에서 제외한다. 완료 시 원격 파일 목록에 대상 파일이 있는지 검사한다. 다른 배속/seed의 데이터는 새 저장소 이름에 보관한다.
+
+### 11.2 새 Pod에서 데이터 다운로드
+
+1~3절 환경 설치와 로그인 후 실행한다. 모델 저장소와 구분하기 위해 **`--repo-type dataset`**을 반드시 지정한다.
+
+```bash
+(
+set -e
+export PROTOSS_ROOT=/workspace/Project_Protoss
+export HF_HOME=/workspace/.cache/huggingface
+export HF_HUB_ENABLE_HF_TRANSFER=0
+export PATH="$HOME/.local/bin:$PATH"
+unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
+cd "$PROTOSS_ROOT/Issac-GR00T-N17"
+HF_ACCOUNT=$(uv run --no-sync python -c \
+  'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
+uv run --no-sync hf download "$HF_ACCOUNT/protoss-groot-v12-retimed-data" \
+  --repo-type dataset \
+  --local-dir "$PROTOSS_ROOT/data/v1.2/groot_styles_retimed"
+)
+```
+
+다운로드 후 **6.1 또는 6.2절부터 학습**한다. 이미 있는 다른 데이터와 섞이지 않게 비어 있는 대상 경로에 다운로드한다. 정확한 버전 재현에는 `--revision`으로 dataset commit SHA를 지정한다. `styles.json`의 source 경로는 최초 생성 서버의 기록이므로 새 Pod에서 존재하지 않아도 학습에는 문제가 없다.
+
+검증: CPU mock 테스트로 dataset repo type/private 생성, A/B/test 전송 파일 목록, 불완전한 영상/episode 수 검사, dry-run을 확인했다. 실제 계정으로 데이터 업로드·다운로드는 이 작업에서 실행하지 않았다.
