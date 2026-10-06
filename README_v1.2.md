@@ -460,8 +460,8 @@ HF_ACCOUNT=YOUR_HF_ACCOUNT
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/upload_checkpoint_hf_v1_2.py" \
-  --folder "$PROTOSS_ROOT/Protoss/checkpoints/groot_v1.2_a/checkpoint-2000" \
-  --repo-id "$HF_ACCOUNT/protoss-groot-v12-a-step2000" --workers 2
+  --folder "$PROTOSS_ROOT/Protoss/checkpoints/groot_v1.2_b/checkpoint-2000" \
+  --repo-id "$HF_ACCOUNT/protoss-groot-v12-b-step2000" --workers 2
 )
 ```
 
