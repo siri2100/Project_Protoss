@@ -6,6 +6,7 @@ The pinned GR00T source supplies its own DROID EEF conversion function.
 import argparse
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 
@@ -57,6 +58,8 @@ def video_filename(row, key):
 
 
 def download_subset(directory, count, revision):
+    # Use standard Hub downloads without the optional hf_transfer package.
+    os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
     from huggingface_hub import HfApi, hf_hub_download
 
     directory.mkdir(parents=True, exist_ok=True)

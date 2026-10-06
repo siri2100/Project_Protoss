@@ -187,6 +187,8 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train_groot_styles_v1_2.py" --hel
 
 1~3절 설치 후 진행한다. Fine-tuning에는 이미지·언어·정답 action이 필요하다. 아래 다운로드 명령은 GR00T 전용 Python 환경에서 실행한다.
 
+`HF_HUB_ENABLE_HF_TRANSFER=0`으로 일반 다운로드를 사용한다. 서버에서 해당 변수가 `1`로 설정되어 있어도 아래 블록에서 덮어쓰므로 선택 패키지 `hf_transfer`를 설치할 필요가 없다. 실패하면 같은 명령을 다시 실행해 다운로드 cache를 재사용한다.
+
 이미 받은 `data/v1.2/droid`를 사용해도 된다. 스타일 준비에서 반복 task 부족 오류가 나면 아래처럼 **새 폴더**에 episode 수를 늘린다. 300은 첫 시도용 개수이며 task당 데이터 수를 보장하지 않는다. 다운로드 helper는 첫 metadata shard의 성공·언어 있는 episode만 선택한다. 해당 shard의 가용 수를 넘기면 오류가 나며 모든 DROID shard를 자동 탐색하지 않는다. 같은 task별로 최소 5개가 필요하고, 실험의 신뢰성을 위해 충분한 반복 시연을 모으는 것이 좋다.
 
 ```bash
@@ -196,6 +198,7 @@ export PROTOSS_ROOT=/workspace/Project_Protoss
 export PATH="$HOME/.local/bin:$PATH"
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
+export HF_HUB_ENABLE_HF_TRANSFER=0
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/prepare_droid_v1_2.py" download \
   --dataset-dir "$PROTOSS_ROOT/data/v1.2/droid_styles_source" --num-episodes 300
 )
