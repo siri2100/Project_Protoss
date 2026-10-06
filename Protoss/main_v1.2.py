@@ -299,8 +299,10 @@ class ResidualFlow(nn.Module):
         x = torch.randn_like(blend)
         for i in range(self.steps):
             t = torch.full((len(blend),), 1 - i / self.steps, device=device)
-            x = x - self(x, (blend - self.mean) / self.scale,
-                         (state - self.mean) / self.scale, t) / self.steps
+            norm_blend = (blend - self.mean) / self.scale
+            norm_state = (state - self.mean) / self.scale
+            velocity = self.forward(x, norm_blend, norm_state, t)
+            x = x - velocity / self.steps
         output = (blend + x * self.scale).cpu().numpy()
         if not np.isfinite(output).all():
             raise ValueError("Nonfinite refined actions")

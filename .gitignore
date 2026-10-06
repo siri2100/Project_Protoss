@@ -17,3 +17,4 @@
 /Protoss/.venv-v12/
 /Protoss/checkpoints/refiner*.pt
 /Protoss/checkpoints/refiner*.history.json
+/Protoss/checkpoints/groot_v1.2_*/

@@ -1,66 +1,17 @@
-# Project Protoss v1.2 — 설치부터 학습·평가까지
+# Project Protoss v1.2 — GR00T A/B 학습·평가
 
-이 문서의 명령을 위에서부터 실행하면 **공개 DROID 성공 demonstration 다운로드 → NPZ export → 두 pretrained 모델의 blending 캐시 → 추가 네트워크 학습 → held-out test 평가**를 진행할 수 있다. 별도의 observation 파일을 직접 만들거나 v1.1 README를 읽을 필요가 없다. 마지막에는 RoboLab에서 v1.1 대비 closed-loop 성공률을 비교하는 절차도 있다.
+이 문서의 명령을 순서대로 실행하면 **GR00T-N1.7-DROID 설치 → 성공 DROID 시연 다운로드 → 스타일별 데이터 분리 → 모델 A/B 독립 fine-tuning → 평가**를 진행할 수 있다.
 
-학습 대상은 blending 이후의 `ResidualFlow` MLP다. GR00T-N1.7-DROID와 π0.5-DROID pretrained weight는 고정한다.
+- 모델 A: 느리고 부드러운 동작의 시연을 학습한다.
+- 모델 B: 같은 task의 빠른 동작 시연을 학습한다.
 
-```text
-DROID LeRobot v3 subset → episode 단위 train/val/test → GR00T 관측+demo action NPZ
-                                  ↓ 두 pretrained 서버로 offline cache 생성
-                 alpha × GR00T action + (1-alpha) × π action
-                                  ↓ train/val cache
-                           ResidualFlow MLP 학습
-                                  ↓ test cache
-                    v1.1 blend vs v1.2 refined action 오차
-                                  ↓ 선택 사항
-                          RoboLab task 성공률 평가
-```
+두 모델은 같은 pretrained checkpoint에서 각각 시작한다. 스타일은 demonstration 선택으로 학습하며 loss는 GR00T 기본 flow-matching MSE를 사용한다.
 
-기본값: alpha=0.5, horizon=8, stride=8, hidden=256, batch=64, seed=42. 공개 데이터는 `lerobot/droid_1.0.1`의 첫 metadata shard에서 **성공 여부가 참이고 언어가 있는 episode 30개**를 선택한다. 그 안에서 episode를 섞어 train 24 / validation 3 / test 3으로 분리한다. 이 subset은 실행 가능한 첫 실험용이며 task별 균형이나 평가 환경과의 일치를 보장하지 않는다.
+## 1. 환경과 프로젝트 설치
 
-RunPod의 Ubuntu 22.04/24.04 + CUDA 환경을 기준으로 한다. 캐시 생성은 VRAM 48GB급 한 장과 RAM 32GB 이상을 시작 예산으로 잡는다(실측 보장값 아님). 추가 MLP만 학습하면 CPU 또는 작은 GPU로도 가능하다. RoboLab에는 RTX rendering을 지원하는 GPU와 Vulkan이 필요하므로 A100/H100에서 모델 학습이 된다는 사실만으로 simulator 실행이 가능한 것은 아니다.
+RunPod의 Ubuntu 22.04/24.04, Linux x86_64, NVIDIA CUDA GPU와 Bash를 기준으로 한다. 명령의 프로젝트 경로는 `/workspace/Project_Protoss`이며 실제 위치가 다르면 모든 블록의 `PROTOSS_ROOT`를 변경한다. OS 설치 명령은 root 기준이고 일반 계정은 `apt-get`, `ldconfig`에 `sudo`를 붙인다. 아래 설치·학습 명령은 원격 Linux용이다.
 
-이 문서의 명령은 원격 Linux 서버용이다. 로컬 macOS에서 모델/Isaac Sim 서버를 실행하는 절차가 아니다. 프로젝트는 아래 clone 대상의 **v1.2 파일이 포함된 revision**이어야 한다. 로컬에서 수정한 파일을 아직 push하지 않았다면 같은 폴더 구조로 서버에 복사한 뒤 설치를 진행한다.
-
-## 1. 환경과 다운로드 위치
-
-Ubuntu 22.04/24.04, Linux x86_64, CUDA가 사용 가능한 NVIDIA GPU와 Bash를 기준으로 한다.
-OS 설치 명령은 root 계정 기준이며 일반 계정은 `apt-get`, `ldconfig`에 `sudo`를 붙인다.
-프로젝트는 `/workspace/Project_Protoss`에 있다고 가정한다. 실제 경로가 `/project_protoss`라면
-**각 블록의 `PROTOSS_ROOT`를 `/project_protoss`로 바꾼다.**
-
-```text
-Project_Protoss/
-├── Issac-GR00T-N17/                  # N1.7 소스와 전용 환경
-├── openpi/                          # π0.5 소스와 전용 환경
-├── openpi-assets-simeval/
-│   └── pi05_droid_jointpos/          # π0.5 실제 weight와 normalization assets
-├── big_vision/                      # PaliGemma tokenizer cache
-├── pi05_droid_jointpos/              # 위 checkpoint를 가리키는 링크
-├── Protoss/
-│   ├── main_v1.0.py                  # v1.2에서도 GR00T 통신 함수를 재사용
-│   ├── main_v1.2.py
-│   ├── requirements_v1.2.txt
-│   ├── .venv-v12/
-│   └── checkpoints/GR00T-N1.7-DROID/
-└── README_v1.2.md
-```
-
-π 소스와 weight 모두 **프로젝트 루트 아래**에 설치한다. Git 추적에서는 제외한다.
-RoboLab은 `/workspace/RoboLab`에 별도로 설치한다.
-
-| 프로세스 | Python | 포트 |
-|---|---|---|
-| GR00T N1.7 | 3.12 | 5557 |
-| OpenPI π0.5 | 3.11 | 8000 |
-| Protoss proxy | 3.12 | 5555 |
-| RoboLab / Isaac Sim 5.1 | 3.11 | client |
-
-명령은 기본적으로 GPU 0을 사용한다. 충분한 VRAM이 있어야 함께 실행할 수 있다.
-모델 서버는 GPU가 여러 개면 아래 서버 명령의 `CUDA_VISIBLE_DEVICES`를 바꿔 분산한다.
-Isaac Sim은 기본 단일 GPU 설정으로 시작하며, 여러 GPU 사용 시 CUDA/Vulkan 장치 매핑을 별도로 확인한다.
-`nvidia-smi -L`에 없는 번호를 지정하면 CUDA가 보이지 않아 FlashAttention 오류 등이 발생한다.
-괄호 안의 `set -e`는 오류 발생 시 작업만 중단하며 부모 터미널을 종료하지 않는다.
+GR00T 소스는 `Issac-GR00T-N17/`, pretrained weight는 `Protoss/checkpoints/GR00T-N1.7-DROID/`, 데이터는 `data/v1.2/` 아래에 둔다. GPU 0을 기본으로 사용하며 A/B를 순차 학습한다. 괄호 안의 `set -e`는 오류 발생 시 해당 블록만 중단한다.
 
 ```bash
 (
@@ -82,9 +33,7 @@ git lfs install
 
 ### 프로젝트 받기
 
-시스템 도구 설치 후 이 블록으로 프로젝트를 받는다.
-이미 받은 프로젝트는 새로 clone하지 않고 실제 경로를 사용한다. 이후 모든 블록의
-`PROTOSS_ROOT`를 같은 경로로 지정한다. 설치 블록은 **Bash** 터미널에서 순서대로 실행한다.
+이미 프로젝트가 있으면 clone하지 않고 해당 경로를 사용한다. 서버에도 A/B 학습 코드가 포함된 revision을 준비한다.
 
 ```bash
 (
@@ -94,8 +43,7 @@ mkdir -p "$(dirname "$PROTOSS_ROOT")"
 if [ ! -d "$PROTOSS_ROOT" ]; then
   git clone https://github.com/siri2100/Project_Protoss.git "$PROTOSS_ROOT"
 fi
-test -f "$PROTOSS_ROOT/Protoss/main_v1.2.py"
-test -f "$PROTOSS_ROOT/Protoss/main_v1.0.py"
+test -f "$PROTOSS_ROOT/Protoss/train_groot_styles_v1_2.py"
 test -f "$PROTOSS_ROOT/Protoss/prepare_droid_v1_2.py"
 )
 ```
@@ -203,102 +151,9 @@ uv run --no-sync hf download nvidia/GR00T-N1.7-DROID \
 Cosmos 접근 확인을 생략해도 N1.7 모델 로딩에서 같은 권한 오류가 발생할 수 있다.
 새 서버 터미널에도 오래된 `HF_TOKEN`이 설정되어 있다면 해제하거나 승인된 토큰으로 교체한다.
 
-## 3. OpenPI 설치 — 프로젝트 루트의 openpi/
+## 3. 데이터 준비 의존성 확인
 
-RoboLab에서 안내하는 **`xuningy/openpi` fork**를 사용한다. 이 fork에 `pi05_droid_jointpos`가 있다.
-N1.7 또는 RoboLab 환경과 합쳐 설치하지 않는다.
-
-```bash
-(
-set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
-export PATH="$HOME/.local/bin:$PATH"
-unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-cd "$PROTOSS_ROOT"
-if [ ! -d openpi ]; then
-  GIT_LFS_SKIP_SMUDGE=1 git clone --recurse-submodules \
-    https://github.com/xuningy/openpi.git openpi
-  git -C openpi checkout aa6420561529593114160d05e5ad155792b272f3
-fi
-test "$(git -C openpi rev-parse HEAD)" = aa6420561529593114160d05e5ad155792b272f3 || {
-  echo "OpenPI 소스 버전이 다릅니다. 기존 폴더를 백업하고 지정 커밋으로 설치하세요." >&2
-  exit 1
-}
-GIT_LFS_SKIP_SMUDGE=1 git -C openpi submodule update --init --recursive
-cd "$PROTOSS_ROOT/openpi"
-test -f pyproject.toml
-GIT_LFS_SKIP_SMUDGE=1 uv sync --locked --python 3.11
-GIT_LFS_SKIP_SMUDGE=1 uv pip install --python .venv/bin/python -e .
-uv run --no-sync python - <<'PY'
-from openpi.training import config
-
-cfg = config.get_config("pi05_droid_jointpos")
-print("OpenPI config:", cfg.name, "horizon:", cfg.model.action_horizon)
-PY
-)
-```
-
-## 4. π0.5-DROID weight 다운로드 — 프로젝트 루트 아래
-
-RoboLab의 jointpos checkpoint는 Hugging Face가 아니라 GCS의
-`gs://openpi-assets-simeval/pi05_droid_jointpos`에서 받는다.
-공개 asset을 anonymous 모드로 요청하며 GitHub 비밀번호나 Hugging Face 토큰은 필요하지 않다.
-403/404가 발생하면 접근이나 원격 checkpoint 상태를 확인해야 하며, 다른 checkpoint로 임의 대체하지 않는다.
-
-```bash
-(
-set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
-export OPENPI_DATA_HOME="$PROTOSS_ROOT"
-export PATH="$HOME/.local/bin:$PATH"
-unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-cd "$PROTOSS_ROOT/openpi"
-uv run --no-sync python - <<'PY'
-import os
-from pathlib import Path
-from openpi.shared import download
-
-root = Path(os.environ["PROTOSS_ROOT"]).resolve()
-# checkpoint와 tokenizer의 다운로드·lock 파일 상위 경로를 준비한다.
-cache = download.get_cache_dir()
-for bucket in ("openpi-assets-simeval", "big_vision"):
-    (cache / bucket).mkdir(parents=True, exist_ok=True)
-checkpoint = download.maybe_download(
-    "gs://openpi-assets-simeval/pi05_droid_jointpos", gs={"token": "anon"}
-)
-assert (checkpoint / "params").is_dir(), "Checkpoint params 폴더가 없습니다"
-assert any((checkpoint / "assets").rglob("norm_stats.json")), "Normalization 통계가 없습니다"
-alias = root / "pi05_droid_jointpos"
-if alias.exists() or alias.is_symlink():
-    assert alias.resolve() == checkpoint.resolve(), f"다른 경로가 이미 존재합니다: {alias}"
-else:
-    alias.symlink_to(checkpoint, target_is_directory=True)
-tokenizer = download.maybe_download(
-    "gs://big_vision/paligemma_tokenizer.model", gs={"token": "anon"}
-)
-assert tokenizer.is_file() and tokenizer.stat().st_size > 0, "Tokenizer 다운로드 실패"
-print("Tokenizer:", tokenizer)
-print("Downloaded checkpoint:", checkpoint)
-print("Server checkpoint path:", alias)
-PY
-)
-```
-
-checkpoint와 PaliGemma tokenizer를 함께 받는다. `mkdir`는 첫 설치에서
-다운로드·잠금 파일의 상위 경로를 준비한다.
-[고정 버전 다운로드 구현](https://github.com/xuningy/openpi/blob/aa6420561529593114160d05e5ad155792b272f3/src/openpi/shared/download.py),
-[tokenizer 구현](https://github.com/xuningy/openpi/blob/aa6420561529593114160d05e5ad155792b272f3/src/openpi/models/tokenizer.py)을 기준으로 한다.
-
-실제 weight는 `$PROTOSS_ROOT/openpi-assets-simeval/pi05_droid_jointpos`에 저장되고,
-서버에는 `$PROTOSS_ROOT/pi05_droid_jointpos`를 전달한다. 재실행하면 완성된 cache를 재사용한다.
-서버 실행에도 동일한 `OPENPI_DATA_HOME`을 사용해 추가 모델 asset cache를 프로젝트 안에 유지한다.
-
-## 5. Protoss v1.2 의존성 설치
-
-OpenPI 모델 전체가 아니라 가벼운 `openpi-client`만 Protoss 환경에 설치한다.
-추가 MLP 학습을 위한 PyTorch와 DROID 준비를 위한 PyArrow/Pandas/SciPy도 설치한다.
-Linux의 PyTorch는 `2.9.1+cu128`로 고정한다. 드라이버 570 환경에서 CUDA 13 wheel이
-설치되는 것을 방지하기 위해 아래 명령의 CUDA 12.8 index를 반드시 함께 사용한다.
+GR00T 전용 `.venv`에서 다운로드·변환·학습을 모두 실행한다. 데이터 준비용 의존성을 같은 환경에 설치한다. `--no-sync`로 실행해 추가 설치한 패키지를 유지한다.
 
 ```bash
 (
@@ -306,49 +161,76 @@ set -e
 export PROTOSS_ROOT=/workspace/Project_Protoss
 export PATH="$HOME/.local/bin:$PATH"
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-cd "$PROTOSS_ROOT"
-test -f openpi/packages/openpi-client/pyproject.toml
-if [ ! -x Protoss/.venv-v12/bin/python ]; then
-  uv venv --python 3.12 Protoss/.venv-v12
-fi
-uv pip install --python Protoss/.venv-v12/bin/python \
-  --index https://download.pytorch.org/whl/cu128 \
-  -r Protoss/requirements_v1.2.txt -e "$PROTOSS_ROOT/openpi/packages/openpi-client"
-Protoss/.venv-v12/bin/python - <<'PY'
+cd "$PROTOSS_ROOT/Issac-GR00T-N17"
+uv pip install --python .venv/bin/python \
+  'huggingface-hub>=0.34,<2' 'pyarrow>=18,<24' 'pandas>=2.2,<3' 'scipy>=1.13,<2'
+uv run --no-sync python - <<'CHECK'
 import torch
-print("PyTorch:", torch.__version__, "wheel CUDA:", torch.version.cuda)
-assert torch.version.cuda == "12.8", "CUDA 12.8 PyTorch wheel이 필요합니다"
+import numpy, pandas, pyarrow, scipy, huggingface_hub
+print("PyTorch:", torch.__version__, "CUDA:", torch.version.cuda)
 print(torch.ones(1, device="cuda"), torch.cuda.get_device_name(0))
-PY
-Protoss/.venv-v12/bin/python Protoss/main_v1.2.py --help
-Protoss/.venv-v12/bin/python -m unittest discover -s Protoss -p 'test_main_v1_*.py' -v
+CHECK
+uv run --no-sync python "$PROTOSS_ROOT/Protoss/train_groot_styles_v1_2.py" --help
 )
 ```
 
-`main_v1.2.py`와 통신 함수를 제공하는 `main_v1.0.py`를 같은 폴더에 둔다.
+`Protoss/train_groot_styles_v1_2.py`가 이번 학습의 실행 코드다. A/B 모두 **GR00T-N1.7-DROID**에서 시작해 multimodal projector와 diffusion action head를 학습한다. LLM/vision backbone은 고정한다.
 
+| 모델 | 학습 demonstration | Loss |
+|---|---|---|
+| A (`a`) | 같은 task 내 관절 command 속도 RMS와 가속도 RMS가 낮은 episode | GR00T 기본 masked flow-matching MSE |
+| B (`b`) | A와 겹치지 않는 빠른 episode | 같은 GR00T 기본 loss |
 
-## 6. DROID 데이터 다운로드 — 모델 서버 없이 실행
+여기서는 **스타일별 시연을 imitation하는 방식**을 구현했다. A에 별도 smoothness penalty를 더하거나 B에 음의 smoothness penalty를 넣는 구현은 아니다. 가속도 RMS가 낮을수록 부드럽다는 기준을 사용하며 jerk도 보고서에 기록한다. B에 의도적으로 진동을 만들지는 않는다. 동일 task에서 A의 평균 속도와 평균 가속도가 모두 B보다 낮은 경우만 사용한다. 이는 데이터의 차이를 검증하며 학습된 모델의 실제 움직임 차이를 보장하지 않는다. 관절 속도가 높아도 task 완료 시간이 짧아지는지는 closed-loop에서 확인해야 한다.
 
-수동 원본 변환 대신 Hugging Face의 공개 **DROID LeRobot v3.0** 데이터를 직접 읽는다. 전체 데이터셋을 받지 않고 선택 episode가 속한 data shard와 exterior/wrist video shard만 받는다. 영상은 shard 단위 다운로드라 30개 episode보다 훨씬 많은 frame이 포함될 수 있다. 처음에는 디스크에 모델·환경 설치 공간과 별도로 **데이터용 10GB 이상**을 확보한다. 실제 다운로드 파일 수/크기는 dataset revision에 따라 달라진다.
+## 4. DROID 데이터 다운로드
+
+1~3절 설치 후 진행한다. Fine-tuning에는 이미지·언어·정답 action이 필요하다. 아래 다운로드 명령은 GR00T 전용 Python 환경에서 실행한다.
+
+이미 받은 `data/v1.2/droid`를 사용해도 된다. 스타일 준비에서 반복 task 부족 오류가 나면 아래처럼 **새 폴더**에 episode 수를 늘린다. 300은 첫 시도용 개수이며 task당 데이터 수를 보장하지 않는다. 다운로드 helper는 첫 metadata shard의 성공·언어 있는 episode만 선택한다. 해당 shard의 가용 수를 넘기면 오류가 나며 모든 DROID shard를 자동 탐색하지 않는다. 같은 task별로 최소 5개가 필요하고, 실험의 신뢰성을 위해 충분한 반복 시연을 모으는 것이 좋다.
 
 ```bash
 (
 set -e
 export PROTOSS_ROOT=/workspace/Project_Protoss
-cd "$PROTOSS_ROOT"
-Protoss/.venv-v12/bin/python Protoss/prepare_droid_v1_2.py download \
-  --dataset-dir data/v1.2/droid --num-episodes 30
+export PATH="$HOME/.local/bin:$PATH"
+unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
+cd "$PROTOSS_ROOT/Issac-GR00T-N17"
+uv run --no-sync python "$PROTOSS_ROOT/Protoss/prepare_droid_v1_2.py" download \
+  --dataset-dir "$PROTOSS_ROOT/data/v1.2/droid_styles_source" --num-episodes 300
 )
 ```
 
-성공 출력: `Subset ready: 30 episodes ... revision=...`. `data/v1.2/droid/subset.json`에는 선택된 episode와 resolved Hugging Face commit이 저장된다. 재실행은 같은 revision을 사용해 다운로드 cache를 재사용한다. 정확히 재현하려면 첫 실험의 `subset.json`에 기록된 SHA를 `--revision SHA`로 전달한다. Episode 수/revision을 바꾸려면 새 dataset 디렉터리를 사용한다.
+## 5. 스타일 분리와 GR00T LeRobot v2 변환
 
-이 경로에서는 raw HDF5, 언어 annotation JSON, LeRobot 설치, 별도의 camera mapping 작업이 필요 없다. `action.joint_position`과 `action.gripper_position`을 **정답 absolute command**로 읽으며 관측 joint 값이나 velocity를 정답으로 대신 사용하지 않는다. 데이터 계약은 [공개 dataset](https://huggingface.co/datasets/lerobot/droid_1.0.1)과 고정 GR00T 소스의 `scripts/download_droid_sample.py`를 확인했다.
+기존 데이터로 먼저 시도하려면 아래 `--dataset-dir`만 `data/v1.2/droid`로 변경한다. 기존 데이터를 덮어쓰지 않는다.
 
-## 7. 두 pretrained 서버 시작 — 각각 별도 터미널
+```bash
+(
+set -e
+export PROTOSS_ROOT=/workspace/Project_Protoss
+export PATH="$HOME/.local/bin:$PATH"
+unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
+cd "$PROTOSS_ROOT/Issac-GR00T-N17"
+uv run --no-sync python "$PROTOSS_ROOT/Protoss/train_groot_styles_v1_2.py" \
+  --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" prepare \
+  --dataset-dir "$PROTOSS_ROOT/data/v1.2/droid_styles_source" \
+  --output-dir "$PROTOSS_ROOT/data/v1.2/groot_styles" --seed 42
+)
+```
 
-### 터미널 A: GR00T N1.7, 포트 5557
+준비 절차:
+
+1. 성공 subset의 episode별 absolute joint command로 속도, 가속도, jerk를 계산한다. 관측된 실제 joint motion과는 구분한다. `v = diff(q) × 15`, `acc = diff(v) × 15`, `jerk = diff(acc) × 15`이며 7개 관절·모든 timestep의 RMS다.
+2. **instruction 문자열이 같은 task**끼리 모으고, 무작위 약 20%(최소 1개)를 공통 test로 먼저 분리한다. task 문자열이 같아도 물체 위치·경로 길이는 다를 수 있다.
+3. 나머지에서 속도/가속도 순위 합이 낮은 절반을 A에, 남은 episode 중 빠른 순으로 같은 수를 B에 배정한다. 스타일 차이가 부족한 task는 제외한다. A/B의 task별 episode 수는 같으며 세 split 사이 episode 중복은 없다. Validation split은 이 초기 구현에서 별도로 만들지 않는다.
+4. 선택된 episode를 영상과 함께 GR00T-flavored LeRobot v2로 변환한다. `[eef_9d(9), gripper(1), joint(7)]`의 17D state/action, task annotation, per-episode parquet/video 및 split별 normalization/relative statistics를 생성한다. EEF 변환과 통계는 설치된 GR00T 함수를 사용한다. 카메라는 exterior_1_left와 wrist_left다.
+
+결과: `groot_styles/a`, `groot_styles/b`, `groot_styles/test`, `groot_styles/styles.json`. JSON에서 사용 episode, task, metric과 제외 이유를 확인한다. 영상은 FFmpeg로 정확한 시작 시점에서 decode 후 H.264로 저장하며 frame을 빠뜨리거나 action만 시간 축을 바꾸지 않는다. Episode 단위로 영상을 RAM에 읽으므로 긴 episode는 RAM 사용량이 커질 수 있다. 준비 중 실패하면 새 output 경로로 재실행한다. Task당 5개는 실행 최소치이며 fine-tuning 품질에 충분하다는 의미가 아니다.
+
+## 6. A 학습 후 B 학습
+
+GPU를 사용하는 모델 서버와 RoboLab을 종료하고 실행한다. NVIDIA의 [hardware guide](https://github.com/NVIDIA/Isaac-GR00T/blob/51d4c89f72fda44cbf77285c6a8114b52676b8a1/getting_started/hardware_recommendation.md)는 fine-tuning에 최소 40GB VRAM을 안내한다. 48GB급 GPU를 시작점으로 권장하며 여기의 batch 설정에 대한 GPU peak는 아직 측정하지 않았다. A/B를 순서대로 학습하면 한 번에 모델 하나만 GPU에 올라간다.
 
 ```bash
 (
@@ -360,165 +242,73 @@ export PATH="$HOME/.local/bin:$PATH"
 export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-uv run --no-sync python -c "import torch; assert torch.cuda.is_available(); print(torch.cuda.get_device_name(0))"
+for STYLE in a b; do
+  uv run --no-sync python "$PROTOSS_ROOT/Protoss/train_groot_styles_v1_2.py" \
+    --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" train \
+    --styles-dir "$PROTOSS_ROOT/data/v1.2/groot_styles" --style "$STYLE" \
+    --base-model "$PROTOSS_ROOT/Protoss/checkpoints/GR00T-N1.7-DROID" \
+    --output-dir "$PROTOSS_ROOT/Protoss/checkpoints/groot_v1.2_$STYLE" \
+    --max-steps 2000 --save-steps 500 --batch-size 2 \
+    --gradient-accumulation 16 --lr 1e-5 --workers 2 --seed 42
+done
+)
+```
+
+각 모델은 같은 원본 checkpoint에서 독립적으로 시작한다. B는 A의 checkpoint를 이어받지 않는다. Single GPU만 지원하며 microbatch=2, gradient accumulation=16으로 optimizer step당 32 samples다. Loss는 GR00T `gr00t_n1d7.py`의 noisy trajectory→flow velocity masked MSE를 그대로 사용한다. Flow velocity는 로봇의 물리적인 joint velocity가 아니다. 학습률/step 수는 초기 실험용 설정이다.
+
+각 output에 `checkpoint-500` … `checkpoint-2000`, 최종 모델, `style_run.json`(스타일/원본 weight/데이터 선택/학습 설정)이 저장된다. 가장 좋은 모델을 자동 선택하지 않으므로 공통 test 평가와 closed-loop 결과로 선택한다. 기존 output이 있으면 중단한다. 중단된 학습은 해당 STYLE만 실행하면서 `--resume`을 추가하면 최신 trainer checkpoint의 optimizer 상태부터 재개한다. 원본 weight/data/batch 등 설정은 같은 값으로 유지한다.
+
+## 7. 같은 held-out episode에서 A/B 평가
+
+```bash
+(
+set -e
+export PROTOSS_ROOT=/workspace/Project_Protoss
+export HF_HOME=/workspace/.cache/huggingface
+export PATH="$HOME/.local/bin:$PATH"
+export CUDA_VISIBLE_DEVICES=0
+unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
+cd "$PROTOSS_ROOT/Issac-GR00T-N17"
+for STYLE in a b; do
+  uv run --no-sync python gr00t/eval/open_loop_eval.py \
+    --dataset-path "$PROTOSS_ROOT/data/v1.2/groot_styles/test" \
+    --embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT \
+    --model-path "$PROTOSS_ROOT/Protoss/checkpoints/groot_v1.2_$STYLE/checkpoint-2000" \
+    --traj-ids 0 --execution-horizon 8 --steps 400 \
+    --modality-keys joint_position gripper_position \
+    --save-plot-path "$PROTOSS_ROOT/results/v1.2/groot_$STYLE"
+done
+)
+```
+
+먼저 test episode 0으로 실행 경로를 확인한다. 이후 `--traj-ids 0 1 2 ...`에 실제 test episode index를 지정해 같은 목록으로 비교한다. 실행 step이 길면 `--steps`를 늘린다. 이 평가는 ground-truth와 예측의 MSE/MAE 및 plot이며 speed/smoothness나 실제 task 성공률 평가를 대체하지 않는다. 빠른 스타일의 모델이 느린 test demo와 차이나는 것 자체를 실패라고 판단하지 않는다.
+
+실제 motion 비교는 아래 서버를 **STYLE=a, b로 각각** 실행하고 RoboLab을 서버 포트 5557에 직접 연결해 8절의 같은 task/control rate/horizon 조건으로 평가한다. 아래는 A 실행 예다.
+
+```bash
+(
+set -e
+export PROTOSS_ROOT=/workspace/Project_Protoss
+export HF_HOME=/workspace/.cache/huggingface
+export PATH="$HOME/.local/bin:$PATH"
+export CUDA_VISIBLE_DEVICES=0
+unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
+cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 uv run --no-sync python gr00t/eval/run_gr00t_server.py \
-  --model-path "$PROTOSS_ROOT/Protoss/checkpoints/GR00T-N1.7-DROID" \
+  --model-path "$PROTOSS_ROOT/Protoss/checkpoints/groot_v1.2_a/checkpoint-2000" \
   --embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT \
   --device cuda:0 --host 127.0.0.1 --port 5557 --use-sim-policy-wrapper
 )
 ```
 
-### 터미널 B: π0.5-DROID jointpos, 포트 8000
+A 평가가 끝나면 서버를 종료하고 checkpoint 경로의 `a`를 `b`로 바꿔 같은 포트에서 실행한다. 8절의 RoboLab output 이름도 B용으로 변경한다.
 
-```bash
-(
-set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
-export OPENPI_DATA_HOME="$PROTOSS_ROOT"
-export PATH="$HOME/.local/bin:$PATH"
-export CUDA_VISIBLE_DEVICES=0
-export XLA_PYTHON_CLIENT_PREALLOCATE=false
-unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-cd "$PROTOSS_ROOT/openpi"
-uv run --no-sync python -c "import jax; print(jax.devices()); assert any(d.platform == 'gpu' for d in jax.devices())"
-uv run --no-sync scripts/serve_policy.py --port 8000 policy:checkpoint \
-  --policy.config=pi05_droid_jointpos \
-  --policy.dir="$PROTOSS_ROOT/pi05_droid_jointpos"
-)
-```
+검증 범위: 스타일 분리/command metric, 실제 parquet·metadata 변환, A/B의 원본 checkpoint 및 output 분리는 CPU 테스트 5개로 확인했다. 변환 테스트의 GR00T 통계 함수와 영상 encoder, 학습 테스트의 GPU/trainer는 mock을 사용했다. 실제 GR00T checkpoint GPU 로딩, backward, RunPod 학습, 학습 후 스타일 차이는 로컬 macOS에서 실행하지 않았다. 스타일별 성공 시연이 적거나 환경과 맞지 않으면 원하는 동작을 얻지 못할 수 있다.
 
-GPU가 두 개라면 터미널 B만 `CUDA_VISIBLE_DEVICES=1`로 변경할 수 있다. 터미널 A/B는 캐시 생성이 끝날 때까지 유지한다. 같은 GPU에서 Python 함수를 순서대로 호출해도 **두 서버의 weight는 계속 상주**한다. OOM이면 GPU/호스트를 분리하거나 더 큰 GPU를 사용한다. JAX preallocation을 끄는 설정은 메모리 사용량의 강제 상한이 아니다. [JAX 메모리 안내](https://docs.jax.dev/en/latest/gpu_memory_allocation.html).
 
-## 8. Export와 캐시 생성 — 터미널 C
+## 8. RoboLab closed-loop 평가 — 선택 사항
 
-먼저 GR00T 서버에서 실제 modality config를 읽어 export한다. 현재 프레임만 필요한 설정과 과거 프레임이 필요한 설정 모두 처리하며, episode 시작에서 부족한 과거 이미지를 복제하지 않고 해당 시점을 건너뛴다. EEF 9D 변환은 **고정 GR00T 소스의 `droid_frame.py` 함수**를 직접 사용한다. 영상은 FFmpeg로 정확한 episode 시작 시점부터 RGB로 디코딩한다.
-
-```bash
-(
-set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
-cd "$PROTOSS_ROOT"
-Protoss/.venv-v12/bin/python Protoss/prepare_droid_v1_2.py export \
-  --dataset-dir data/v1.2/droid --output-dir data/v1.2/export \
-  --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
-  --n17-endpoint tcp://127.0.0.1:5557 \
-  --horizon 8 --stride 8 --seed 42
-for split in train val test; do
-  Protoss/.venv-v12/bin/python Protoss/main_v1.2.py --mode cache \
-    --input-dir "data/v1.2/export/$split" --cache-dir "data/v1.2/cache/$split" \
-    --n17-endpoint tcp://127.0.0.1:5557 --pi-uri ws://127.0.0.1:8000 \
-    --alpha 0.5 --horizon 8 --timeout-ms 300000 --resume-cache
-done
-)
-```
-
-성공 출력: `Export ready: .../manifest.json`, 이어서 각 split의 `Cached ... files`. `data/v1.2/export/manifest.json`에서 train/val/test episode 목록, 관측 config, frame/sample 수를 확인할 수 있다. `stride=8`은 관측 샘플을 8 frame마다 선택한다는 뜻이며 **target chunk 내부의 action은 계속 연속 15Hz**다. 첫 검증 뒤 더 촘촘한 데이터가 필요하면 새 export 디렉터리에 `--stride 1`로 생성한다.
-
-Export 출력 디렉터리가 비어 있지 않으면 중단한다. 실패한 export는 원인을 해결한 뒤 `--output-dir data/v1.2/export_retry`처럼 새 경로로 실행하고 cache 입력도 그 경로로 바꾼다. 캐시 도중 중단되면 **for 블록만** 다시 실행한다. `--resume-cache`는 source 파일 hash와 alpha/horizon이 같은 완성 파일만 건너뛴다. Pretrained weight나 전처리를 바꾼 경우에는 새 cache 디렉터리를 사용해야 한다.
-
-각 cache 파일에는 `[B,H,8]` blended action과 demo target, `[B,8]` 현재 state, `[B,H]` padding mask, episode ID가 저장된다. 이미지는 저장하지 않는다. 마지막 chunk는 episode를 넘지 않도록 padding하며 loss/평가에서 mask=0을 제외한다.
-
-캐시 생성이 끝나면 터미널 A/B를 Ctrl+C로 종료할 수 있다. 아래 학습과 offline 평가는 모델 서버에 접속하지 않는다.
-
-## 9. 추가 네트워크 학습
-
-```bash
-(
-set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
-cd "$PROTOSS_ROOT"
-Protoss/.venv-v12/bin/python Protoss/main_v1.2.py --mode train \
-  --train-cache data/v1.2/cache/train --val-cache data/v1.2/cache/val \
-  --checkpoint Protoss/checkpoints/refiner_v1.2.pt \
-  --alpha 0.5 --horizon 8 --hidden 256 \
-  --epochs 50 --batch-size 64 --lr 1e-4 --device cuda --seed 42
-)
-```
-
-GPU 없이 학습하려면 `--device cpu`만 바꾼다. 성공 출력: `Saved best checkpoint: ...`. 산출물:
-
-- `Protoss/checkpoints/refiner_v1.2.pt`: validation flow MSE가 가장 낮은 모델, train-only normalization, alpha/horizon, train/val episode ID.
-- `Protoss/checkpoints/refiner_v1.2.history.json`: epoch별 train/validation flow MSE.
-
-학습 데이터와 validation episode가 겹치면 중단한다. 기본 MLP는 약 11.8만 파라미터이고 두 pretrained 모델은 학습하지 않는다. Train/val cache 전체를 CPU RAM에 로드하므로 매우 큰 데이터셋에서는 RAM 사용량을 확인한다. 같은 checkpoint 경로에서 학습을 다시 시작하면 기존 checkpoint와 history를 덮어쓴다. 다른 실험은 경로를 바꾼다. Optimizer 상태를 이용한 학습 재개는 지원하지 않는다.
-
-Loss는 [OpenPI의 flow-matching 구현](https://github.com/Physical-Intelligence/openpi/blob/main/src/openpi/models/pi0.py)을 residual action에 적용한다.
-
-```text
-a_blend = alpha * a_GR00T + (1-alpha) * a_pi
-r = (a_demo - a_blend) / train_action_scale
-noise ~ N(0,I), t ~ Beta(1.5,1) * 0.999 + 0.001
-x_t = t * noise + (1-t) * r
-loss = masked_mean((v_theta(x_t, normalized_blend, normalized_state, t) - (noise-r))²)
-```
-
-`ResidualFlow`는 전체 chunk의 noisy residual, blended action, 현재 state, time을 입력받는 MLP다. 이미지/언어는 두 pretrained VLA 출력을 통해 간접 반영된다. 추론은 t=1의 noise에서 Euler 10 step으로 t=0까지 진행한 뒤 residual을 blend에 더한다. 원본 π0.5 네트워크를 재현하거나 fine-tune한 구조는 아니다.
-
-## 10. Held-out test 평가 — pretrained 서버 불필요
-
-```bash
-(
-set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
-cd "$PROTOSS_ROOT"
-Protoss/.venv-v12/bin/python Protoss/main_v1.2.py --mode eval \
-  --test-cache data/v1.2/cache/test \
-  --checkpoint Protoss/checkpoints/refiner_v1.2.pt \
-  --alpha 0.5 --horizon 8 --flow-steps 10 --batch-size 64 \
-  --device cuda --eval-seeds 42 43 44 \
-  --metrics-output results/v1.2/offline_test.json
-)
-```
-
-성공 출력: `Saved evaluation: results/v1.2/offline_test.json`. JSON의 `v1.1_blend`와 `v1.2_refined`를 비교한다. 각 seed의 결과는 `per_seed`, 평균·표준편차는 `v1.2_refined`에 기록된다. 같은 seed와 batch size/device를 유지해야 비교를 재현하기 쉽다.
-
-| Metric | 의미 |
-|---|---|
-| `joint_mae_rad`, `joint_rmse_rad` | 7개 joint의 demo command 오차, rad |
-| `gripper_mae`, `gripper_rmse` | 연속 gripper command 오차, 0–1 |
-| `normalized_action_mse` | train split의 scale로 정규화한 8차원 평균 제곱 오차 |
-| `refinement_seconds_per_chunk` | 추가 네트워크 보정 시간; VLA 서버 latency는 제외 |
-
-유효 timestep에 대해서만 계산하며 train/val과 test episode가 겹치면 중단한다. 이전 버전 checkpoint에 episode ID가 없다면 현재 trainer로 다시 학습해야 한다. **이 평가는 기록된 관측에서의 action imitation 오차다.** 이 값이 줄어든 것만으로 실제 로봇 task 성공률이 높아졌다고 판단하지 않는다. 이미 두 pretrained 모델이 학습한 DROID episode일 수 있으므로 VLA 전체의 unseen-data 평가로 해석하지 않는다.
-
-## 11. 학습된 정책 추론
-
-터미널 A/B를 7절 명령으로 다시 시작하고, 터미널 C에서 다음 proxy를 띄운다. RoboLab 평가를 위해 refiner는 CPU에 두어 simulator의 GPU 메모리를 아낀다.
-
-```bash
-(
-set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
-cd "$PROTOSS_ROOT"
-Protoss/.venv-v12/bin/python Protoss/main_v1.2.py --mode infer \
-  --checkpoint Protoss/checkpoints/refiner_v1.2.pt \
-  --n17-endpoint tcp://127.0.0.1:5557 --pi-uri ws://127.0.0.1:8000 \
-  --alpha 0.5 --horizon 8 --flow-steps 10 --device cpu --seed 42 \
-  --host 127.0.0.1 --port 5555 --timeout-ms 300000
-)
-```
-
-`Protoss ready`가 나오면 proxy 연결이 준비된 것이다. 학습 당시 alpha/horizon과 다르면 checkpoint 로딩을 거부한다. Alpha=0/1은 blending 단계의 모델 선택이며 추가 보정은 계속 적용된다. 최종 출력은 absolute joint 7개+gripper 1개다. RTC는 지원하지 않는다. Gripper threshold와 robot별 action 제한은 기존 RoboLab client/control 경로가 처리한다.
-
-실제 test export 관측 한 개로 먼저 확인하려면 proxy 대신 아래를 실행한다. 추가 observation 파일을 작성할 필요가 없다.
-
-```bash
-(
-set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
-cd "$PROTOSS_ROOT"
-SAMPLE=$(find data/v1.2/export/test -name '*.npz' -print -quit)
-test -n "$SAMPLE"
-Protoss/.venv-v12/bin/python Protoss/main_v1.2.py --mode infer \
-  --checkpoint Protoss/checkpoints/refiner_v1.2.pt \
-  --observation "$SAMPLE" --output results/v1.2/refined_sample.npz \
-  --alpha 0.5 --horizon 8 --device cpu --seed 42 --timeout-ms 300000
-)
-```
-
-## 12. RoboLab closed-loop 성공률 평가 — 선택 사항
-
-Offline 평가는 10절에서 끝난다. 실제 simulated task 성공률이 필요하면 다음을 추가한다. Isaac Sim 5.1 EULA를 확인한 후 아래 설치 블록을 실행한다. RTX 지원 GPU와 NVIDIA graphics/Vulkan 라이브러리가 노출된 Linux 컨테이너가 필요하다. Isaac Sim은 headless에서도 정책용 camera rendering을 수행한다. [Isaac Sim 요구사항](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/requirements.html).
+실제 simulator task 성공률이 필요하면 진행한다. Isaac Sim 5.1 EULA를 확인한 뒤 설치한다. RTX rendering을 지원하는 GPU와 NVIDIA graphics/Vulkan 라이브러리가 노출된 Linux 컨테이너가 필요하다. A100/H100에서 학습이 가능해도 simulator 실행이 가능한 것은 아니다. [Isaac Sim 요구사항](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/requirements.html).
 
 ### RoboLab 설치
 
@@ -542,11 +332,11 @@ UV_PROJECT_ENVIRONMENT=.venv-51 uv run --no-sync --extra isaac51 \
 )
 ```
 
-RoboLab은 설치 당시 main을 사용하므로 기록된 revision을 두 비교 실험에서 동일하게 유지한다. 모델 두 개와 simulator까지 한 GPU에 올리는 경우 48GB로 충분하다고 보장하지 않는다. 먼저 `--num-envs 1`로 시작하고 모델과 simulator를 GPU/호스트별로 분리할 수 있다.
+RoboLab은 설치 당시 main을 사용하므로 기록된 revision을 두 비교 실험에서 동일하게 유지한다. 모델 서버와 simulator를 함께 실행할 때의 VRAM은 학습과 별도로 확인한다. 먼저 `--num-envs 1`로 시작하고 모델과 simulator를 GPU/호스트별로 분리할 수 있다.
 
-### v1.2 평가 — 터미널 D
+### A/B 평가
 
-7절의 두 upstream 서버와 11절의 proxy가 실행 중이어야 한다.
+7절의 A 모델 서버가 포트 5557에서 실행 중인 상태로 다른 터미널에서 실행한다.
 
 ```bash
 (
@@ -559,95 +349,36 @@ export UV_LINK_MODE=copy
 cd /workspace/RoboLab
 UV_PROJECT_ENVIRONMENT=.venv-51 uv run --no-sync --extra isaac51 \
   python policies/gr00t/run.py \
-  --headless --device cuda:0 --remote-host 127.0.0.1 --remote-port 5555 \
+  --headless --device cuda:0 --remote-host 127.0.0.1 --remote-port 5557 \
   --task BananaOnPlateTask BananasInBinOneMoreTask BananasInCrateTask \
   --num-envs 1 --num-runs 10 --open-loop-horizon 8 \
   --instruction-type default --video-mode none \
-  --output-folder-name protoss_v12_run01_alpha05
+  --output-folder-name groot_v12_a_run01
 )
 ```
 
-첫 확인은 `--num-runs 1`로 줄일 수 있다. 완료 후 `/workspace/RoboLab/output/protoss_v12_run01_alpha05/`에 episode 결과와 summary가 생성된다. [RoboLab runner](https://github.com/NVlabs/RoboLab/blob/main/robolab/eval/runner.py)는 같은 output 이름의 완료 episode를 재사용하므로 새로운 실험은 run 번호를 바꾼다. Simulator에서의 gripper action 후처리는 [GR00T client](https://github.com/NVlabs/RoboLab/blob/main/policies/gr00t/client.py)의 0.5 threshold를 따른다.
+첫 확인은 `--num-runs 1`로 줄일 수 있다. A가 끝나면 모델 서버의 checkpoint를 B로 변경하고, 같은 평가 명령에서 `--output-folder-name groot_v12_b_run01`로 변경한다. 새 실험은 output 이름의 run 번호를 바꾼다. 결과는 `/workspace/RoboLab/output/` 아래에 저장된다. Task 목록, control rate, horizon, simulator revision을 동일하게 유지하고 여러 run으로 비교한다.
 
-### 같은 설정으로 v1.1 baseline 평가
+성공률, 성공 episode의 완료 시간, 실제 joint trajectory의 속도/가속도/jerk RMS를 함께 비교한다. 현재 코드의 motion metric은 학습 시연 command metric이며 RoboLab 실제 joint trajectory의 metric을 자동 수집하는 기능은 포함하지 않는다.
 
-v1.2 평가가 완료되면 **터미널 C의 proxy만** Ctrl+C로 종료하고, 같은 자리에서 아래 baseline을 시작한다. 두 upstream 서버는 유지한다.
+## 9. 코드와 검증
 
-```bash
-(
-set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
-cd "$PROTOSS_ROOT"
-Protoss/.venv-v12/bin/python Protoss/main_v1.1.py \
-  --n17-endpoint tcp://127.0.0.1:5557 --pi-uri ws://127.0.0.1:8000 \
-  --alpha 0.5 --horizon 8 --host 127.0.0.1 --port 5555 --timeout-ms 300000
-)
-```
-
-터미널 D의 동일 평가 명령을 다시 실행하되 `--output-folder-name protoss_v11_run01_alpha05`로 바꾼다. Task 목록, num-envs, num-runs, horizon, instruction과 RoboLab revision은 유지한다. 두 output의 task별 success rate와 전체 success rate를 비교한다. Simulator randomization과 VLA sampling 때문에 단일 run 차이를 개선으로 단정하지 않고 여러 run으로 반복한다. DROID에서 학습한 residual이 RoboLab으로 전이된다는 보장은 없으며, 성공률이 떨어지면 baseline과 offline action metric을 함께 확인한다.
-
-## 13. 실행 중 막히는 경우
-
-### 학습 시작 시 NVIDIA driver is too old (found version 12080)
-
-`12080`은 드라이버가 제공하는 CUDA API 버전 12.8이며 NVIDIA 드라이버의
-`570.xxx` 문자열 자체가 아니다. 드라이버가 너무 오래되었다는 오류가 여기서 발생하면
-v1.2 환경의 PyTorch wheel이 더 높은 CUDA 버전을 요구할 수 있다.
-기존 설치 안내의 `torch>=2.2,<3`만으로는 CUDA wheel 버전이 고정되지 않았다.
-현재 안내는 Linux에서 `torch==2.9.1+cu128`을 설치하도록 수정했다.
-[PyTorch 공식 설치 명령](https://pytorch.org/get-started/previous-versions/),
-[CUDA 13 드라이버 요구사항](https://docs.nvidia.com/cuda/archive/13.0.0/cuda-toolkit-release-notes/index.html).
-
-캐시를 다시 만들 필요 없이 **v1.2 환경만** 아래 명령으로 복구한 뒤 9절을 다시 실행한다.
+| 파일 | 역할 |
+|---|---|
+| `Protoss/prepare_droid_v1_2.py` | 공개 성공 DROID subset 다운로드 (`download` 명령) |
+| `Protoss/train_groot_styles_v1_2.py` | 스타일 분리, LeRobot v2 변환, GR00T A/B 독립 학습 |
+| `Protoss/test_train_groot_styles_v1_2.py` | command metric, split 누수, 변환 및 학습 설정 검증 |
 
 ```bash
 (
 set -e
 export PROTOSS_ROOT=/workspace/Project_Protoss
 export PATH="$HOME/.local/bin:$PATH"
-cd "$PROTOSS_ROOT"
-Protoss/.venv-v12/bin/python -c 'import torch; print("before:", torch.__version__, torch.version.cuda)'
-uv pip install --python Protoss/.venv-v12/bin/python \
-  --reinstall-package torch --index https://download.pytorch.org/whl/cu128 \
-  'torch==2.9.1+cu128'
-Protoss/.venv-v12/bin/python - <<'PY'
-import torch
-print("after:", torch.__version__, "wheel CUDA:", torch.version.cuda)
-assert torch.version.cuda == "12.8"
-print(torch.ones(1, device="cuda"), torch.cuda.get_device_name(0))
-PY
+unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
+cd "$PROTOSS_ROOT/Issac-GR00T-N17"
+uv run --no-sync python -m unittest discover \
+  -s "$PROTOSS_ROOT/Protoss" -p 'test_train_groot_styles_v1_2.py' -v
 )
 ```
 
-CUDA tensor 생성까지 성공하면 9절의 `--device cuda` 학습 명령으로 진행한다.
-GPU 사용 없이 먼저 학습을 시작하려면 9절에서 `--device cpu`로 변경해도 된다.
-
-- **다운로드 401 / 403:** GR00T/Cosmos는 승인받은 Hugging Face 계정으로 2절 로그인. 공개 DROID asset이나 π checkpoint가 접근 불가하면 원격 오류를 확인하고 임의의 action checkpoint로 대체하지 않는다.
-- **영상 디코딩 실패:** `ffmpeg -version` 확인. Export는 AV1을 FFmpeg로 디코딩하므로 OS의 FFmpeg에 AV1 decoder가 있어야 한다. 메타데이터 length/timestamp나 데이터 schema가 다르면 명시적 오류로 중단한다.
-- **첫 캐시 요청이 느림:** JAX 첫 compile은 모델 로딩 이후 발생할 수 있다. 위 명령의 `--timeout-ms 300000`을 사용하고 서버의 OOM/compile 로그를 확인한다.
-- **캐시 설정 mismatch:** alpha/horizon, 입력 hash가 바뀌면 새 cache 경로 사용. Export를 재실행할 때도 새 경로로 생성한다.
-- **CUDA OOM:** `nvidia-smi --query-gpu=index,name,memory.total,memory.used,memory.free --format=csv -l 1`로 peak 확인. 캐시 완료 후 학습 시에는 두 pretrained 서버를 종료한다.
-- **RoboLab 렌더러 crash:** `vulkaninfo --summary`로 NVIDIA GPU와 Vulkan 확인. 관리형 Pod의 host driver는 컨테이너 내부 apt로 교체할 수 없다. Graphics capability와 Isaac Sim 지원 GPU/driver를 확인한다.
-
-## 14. 코드와 검증 범위
-
-| 파일 | 역할 |
-|---|---|
-| `Protoss/prepare_droid_v1_2.py` | public subset 다운로드, server config에 맞춘 observation/target export, episode 분리 |
-| `Protoss/main_v1.2.py` | pretrained blend, cache, ResidualFlow 학습, offline eval, proxy inference |
-| `Protoss/requirements_v1.2.txt` | v1.2 환경 의존성 |
-| `Protoss/test_main_v1_2.py` | 네트워크·cache·checkpoint CPU 테스트 |
-| `Protoss/test_prepare_droid_v1_2.py` | 데이터/영상 정렬·split·pipeline CPU 테스트 |
-
-```bash
-(
-set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
-cd "$PROTOSS_ROOT"
-Protoss/.venv-v12/bin/python -m unittest discover -s Protoss -p 'test_*v1_2.py' -v
-)
-```
-
-로컬 검증은 실제 공개 DROID metadata/data shard의 schema 확인과 synthetic 영상·데이터에 대한 export→cache→train→eval 경로를 포함한다. 실제 pretrained checkpoint를 GPU에 로딩한 캐시 생성, RunPod 환경 전체 설치, DROID 실제 학습 및 Isaac Sim closed-loop 성공률은 이 작업 환경에서 실행하지 않았다. 위 명령은 그 실행 경로를 제공하며 측정하지 않은 학습 성능/성공률을 주장하지 않는다.
-
-2026-10-05 검증: 기존 버전 회귀 테스트를 포함한 32개 테스트 통과. 실제 FFmpeg 영상의 fractional timestamp seek, padding 제외, split 누수 검사, cache 재사용, CPU 학습/checkpoint 로딩, test 평가 및 서버 없이 실행하는 train/eval CLI를 확인했다. README의 19개 Bash 블록도 구문 검사를 통과했다.
+CPU 테스트 5개를 통과했다. 영상 encoder, GR00T 통계 함수와 GPU trainer는 테스트에서 mock을 사용했다. 실제 GPU 학습 및 학습 후 스타일 차이는 이 로컬 환경에서 검증하지 않았다.
