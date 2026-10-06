@@ -206,6 +206,8 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/prepare_droid_v1_2.py" download \
 
 ## 5. 스타일 분리와 GR00T LeRobot v2 변환
 
+**일반 DROID episode 300개만으로 이 단계가 성공한다고 보장할 수 없다.** 서로 다른 task가 많거나 스타일 차이가 부족하면 중단한다. 이 단계는 설치가 아니라 학습 데이터 준비다.
+
 기존 데이터로 먼저 시도하려면 아래 `--dataset-dir`만 `data/v1.2/droid`로 변경한다. 기존 데이터를 덮어쓰지 않는다.
 
 ```bash
@@ -221,6 +223,10 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train_groot_styles_v1_2.py" \
   --output-dir "$PROTOSS_ROOT/data/v1.2/groot_styles" --seed 42
 )
 ```
+
+`prepare`는 변환 전에 `data/v1.2/groot_styles.inspection.json`에 task별 episode 수, 선택 수, 제외 이유, episode별 motion metric을 저장한다. 실패해도 보고서는 남으며 output 폴더 밖에 저장하므로 같은 명령을 다시 실행할 수 있다. 영상 변환 없이 진단만 하려면 위 명령 마지막에 `--inspect-only`를 추가한다.
+
+`No usable style groups` 오류일 때 보고서의 `tasks_with_at_least_5_episodes`가 0이면 같은 instruction의 반복 시연이 부족한 것이다. 0보다 크면 `skipped_tasks`의 `candidate_means`로 A/B 후보의 속도·가속도 차이를 확인한다. Instruction 문장이 다르면 같은 작업이어도 별도 그룹이다. 데이터 수를 늘리는 것만으로 해결된다고 보장할 수 없으며, 같은 task의 느리고 부드러운 성공 시연과 빠른 성공 시연을 확보해야 한다. 서로 다른 작업을 임의로 묶거나 필터를 무조건 완화해서 학습하면 스타일 비교가 왜곡될 수 있다.
 
 준비 절차:
 

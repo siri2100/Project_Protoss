@@ -33,7 +33,7 @@ def motion_metrics(joints, fps):
             "duration_s": len(joints) / fps}
 
 
-def select_styles(records, seed):
+def select_styles(records, seed, allow_empty=False):
     """Reserve shared test episodes before ranking; balance task counts A/B."""
     rng = np.random.default_rng(seed)
     groups = {}
@@ -43,7 +43,7 @@ def select_styles(records, seed):
     skipped = []
     for task, group in sorted(groups.items()):
         if len(group) < 5:
-            skipped.append({"task": task, "episodes": len(group)})
+            skipped.append({"task": task, "episodes": len(group), "reason": "fewer than 5 episodes"})
             continue
         group = [group[i] for i in rng.permutation(len(group))]
         test_count = max(1, int(len(group) * .2))
@@ -63,15 +63,19 @@ def select_styles(records, seed):
         # Fail instead of naming two indistinguishable subsets smooth/fast.
         if any(np.mean([r[k] for r in a]) >= np.mean([r[k] for r in b])
                for k in ("speed_rms_rad_s", "accel_rms_rad_s2")):
-            skipped.append({"task": task, "reason": "no clear speed/acceleration contrast"})
+            skipped.append({"task": task, "episodes": len(group),
+                            "reason": "no clear speed/acceleration contrast",
+                            "candidate_means": {name: {k: float(np.mean([r[k] for r in subset]))
+                                for k in ("speed_rms_rad_s", "accel_rms_rad_s2")}
+                                for name, subset in (("a", a), ("b", b))}})
             continue
         splits["a"].extend(a)
         splits["b"].extend(b)
         splits["test"].extend(test)
-    if not splits["a"]:
+    if not splits["a"] and not allow_empty:
         raise ValueError("No task has >=5 episodes and a slow/smooth vs fast contrast. "
                          "Download more successful episodes or collect paired styles; "
-                         "the existing 30-episode refiner subset may be insufficient.")
+                         "a general-purpose DROID subset may be insufficient.")
     return splits, skipped
 
 
@@ -90,9 +94,6 @@ def prepare(args):
     if output.exists() and any(output.iterdir()):
         raise ValueError("Output is nonempty; use a new directory")
     import pyarrow.parquet as pq
-    from gr00t.data.state_action.droid_frame import compute_eef_9d
-    from gr00t.data.stats import generate_stats, generate_rel_stats
-    from gr00t.data.embodiment_tags import EmbodimentTag
     manifest = json.loads((source / "subset.json").read_text())
     fps = float(manifest["fps"])
     records = []
@@ -115,7 +116,31 @@ def prepare(args):
             raise ValueError(f"Episode {ep} must have one nonempty instruction")
         records.append({"source_episode": ep, "task": tasks[0],
                         **motion_metrics(vector_column(frame, "action.joint_position", 7), fps)})
-    splits, skipped = select_styles(records, args.seed)
+    splits, skipped = select_styles(records, args.seed, allow_empty=True)
+    counts = {}
+    for record in records:
+        counts[record["task"]] = counts.get(record["task"], 0) + 1
+    inspection_path = output.parent / (output.name + ".inspection.json")
+    write_json(inspection_path, {"source": str(source), "revision": manifest["revision"],
+        "seed": args.seed, "episodes": len(records), "unique_tasks": len(counts),
+        "task_counts": dict(sorted(counts.items(), key=lambda item: (-item[1], item[0]))),
+        "tasks_with_at_least_5_episodes": sum(n >= 5 for n in counts.values()),
+        "selected_counts": {k: len(v) for k, v in splits.items()},
+        "skipped_tasks": skipped, "episode_metrics": records})
+    print(f"Inspection: {len(records)} episodes, {len(counts)} unique instructions, "
+          f"{sum(n >= 5 for n in counts.values())} tasks with >=5 episodes", flush=True)
+    for task, count in sorted(counts.items(), key=lambda item: -item[1])[:10]:
+        print(f"  {count:4d} episodes: {task}", flush=True)
+    print(f"Saved inspection: {inspection_path}", flush=True)
+    if getattr(args, "inspect_only", False):
+        return
+    if not splits["a"]:
+        raise ValueError(f"No usable style groups. See {inspection_path} for task counts "
+                         "and exclusion reasons. Collect repeated successful demonstrations "
+                         "of the same task with distinct motion styles.")
+    from gr00t.data.state_action.droid_frame import compute_eef_9d
+    from gr00t.data.stats import generate_stats, generate_rel_stats
+    from gr00t.data.embodiment_tags import EmbodimentTag
     rows_by_id = {int(r["episode_index"]): r for r in manifest["episodes"]}
     tasks = sorted({r["task"] for split in splits.values() for r in split})
     # Materialize genuine, synchronized episodes; no action-only retiming.
@@ -246,6 +271,8 @@ def main():
     prep.add_argument("--dataset-dir", type=Path, required=True)
     prep.add_argument("--output-dir", type=Path, required=True)
     prep.add_argument("--seed", type=int, default=42)
+    prep.add_argument("--inspect-only", action="store_true",
+                      help="Write task counts, exclusion reasons and motion metrics without converting videos")
     training = sub.add_parser("train")
     training.add_argument("--styles-dir", type=Path, required=True)
     training.add_argument("--style", choices=["a", "b"], required=True)
