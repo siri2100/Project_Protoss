@@ -349,23 +349,31 @@ def train(args):
     run(config)
 
 
-def main():
+def main(argv=None, fixed_style=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--groot-root", type=Path, required=True)
-    sub = parser.add_subparsers(dest="command", required=True)
-    prep = sub.add_parser("prepare")
-    prep.add_argument("--dataset-dir", type=Path, required=True)
-    prep.add_argument("--output-dir", type=Path, required=True)
-    prep.add_argument("--seed", type=int, default=42)
-    prep.add_argument("--style-method", choices=["retime", "select"], default="retime")
-    prep.add_argument("--slow-factor", type=float, default=.75)
-    prep.add_argument("--fast-factor", type=float, default=1.25)
-    prep.add_argument("--smooth-window", type=int, default=5)
-    prep.add_argument("--inspect-only", action="store_true",
-                      help="Write task counts, exclusion reasons and motion metrics without converting videos")
-    training = sub.add_parser("train")
+    if fixed_style is None:
+        sub = parser.add_subparsers(dest="command", required=True)
+        prep = sub.add_parser("prepare")
+        prep.add_argument("--dataset-dir", type=Path, required=True)
+        prep.add_argument("--output-dir", type=Path, required=True)
+        prep.add_argument("--seed", type=int, default=42)
+        prep.add_argument("--style-method", choices=["retime", "select"], default="retime")
+        prep.add_argument("--slow-factor", type=float, default=.75)
+        prep.add_argument("--fast-factor", type=float, default=1.25)
+        prep.add_argument("--smooth-window", type=int, default=5)
+        prep.add_argument("--inspect-only", action="store_true",
+                          help="Write task counts, exclusion reasons and motion metrics without converting videos")
+        training = sub.add_parser("train")
+    else:
+        if fixed_style not in ("a", "b"):
+            raise ValueError("fixed_style must be a or b")
+        parser.description = f"Fine-tune GR00T model {fixed_style.upper()}"
+        parser.set_defaults(command="train", style=fixed_style)
+        training = parser
     training.add_argument("--styles-dir", type=Path, required=True)
-    training.add_argument("--style", choices=["a", "b"], required=True)
+    if fixed_style is None:
+        training.add_argument("--style", choices=["a", "b"], required=True)
     training.add_argument("--base-model", type=Path, required=True)
     training.add_argument("--output-dir", type=Path, required=True)
     training.add_argument("--max-steps", type=int, default=2000)
@@ -376,7 +384,7 @@ def main():
     training.add_argument("--workers", type=int, default=2)
     training.add_argument("--seed", type=int, default=42)
     training.add_argument("--resume", action="store_true")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if args.command == "prepare" and (not 0 < args.slow_factor < 1 or not np.isfinite(args.fast_factor)
             or args.fast_factor <= 1 or args.smooth_window < 1 or args.smooth_window % 2 != 1):
         parser.error("slow-factor must be (0,1), fast-factor >1, smooth-window positive and odd")

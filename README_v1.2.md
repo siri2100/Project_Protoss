@@ -238,9 +238,11 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train_groot_styles_v1_2.py" \
 
 Episode 영상 전체를 RAM에 로드하므로 긴 episode는 메모리 사용량이 커질 수 있다. Output이 비어 있지 않으면 중단한다. 진단만 하려면 `--inspect-only`를 추가한다. `groot_styles_retimed.inspection.json`은 output 밖에 저장된다. 이전 방식은 `--style-method select`로 사용할 수 있으며 동일 instruction 최소 5개와 속도/가속도 차이 조건을 적용한다.
 
-## 6. A 학습 후 B 학습
+## 6. A/B 모델별 학습
 
 GPU를 사용하는 모델 서버와 RoboLab을 종료하고 실행한다. NVIDIA의 [hardware guide](https://github.com/NVIDIA/Isaac-GR00T/blob/51d4c89f72fda44cbf77285c6a8114b52676b8a1/getting_started/hardware_recommendation.md)는 fine-tuning에 최소 40GB VRAM을 안내한다. 48GB급 GPU를 시작점으로 권장하며 여기의 batch 설정에 대한 GPU peak는 아직 측정하지 않았다. A/B를 순서대로 학습하면 한 번에 모델 하나만 GPU에 올라간다.
+
+### 6.1 모델 A 학습
 
 ```bash
 (
@@ -252,21 +254,43 @@ export PATH="$HOME/.local/bin:$PATH"
 export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-for STYLE in a b; do
-  uv run --no-sync python "$PROTOSS_ROOT/Protoss/train_groot_styles_v1_2.py" \
-    --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" train \
-    --styles-dir "$PROTOSS_ROOT/data/v1.2/groot_styles_retimed" --style "$STYLE" \
-    --base-model "$PROTOSS_ROOT/Protoss/checkpoints/GR00T-N1.7-DROID" \
-    --output-dir "$PROTOSS_ROOT/Protoss/checkpoints/groot_v1.2_$STYLE" \
-    --max-steps 2000 --save-steps 500 --batch-size 2 \
-    --gradient-accumulation 16 --lr 1e-5 --workers 2 --seed 42
-done
+uv run --no-sync python "$PROTOSS_ROOT/Protoss/train_groot_a_v1_2.py" \
+  --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
+  --styles-dir "$PROTOSS_ROOT/data/v1.2/groot_styles_retimed" \
+  --base-model "$PROTOSS_ROOT/Protoss/checkpoints/GR00T-N1.7-DROID" \
+  --output-dir "$PROTOSS_ROOT/Protoss/checkpoints/groot_v1.2_a" \
+  --max-steps 2000 --save-steps 500 --batch-size 2 \
+  --gradient-accumulation 16 --lr 1e-5 --workers 2 --seed 42
 )
 ```
 
+### 6.2 모델 B 학습
+
+```bash
+(
+set -e
+export PROTOSS_ROOT=/workspace/Project_Protoss
+export HF_HOME=/workspace/.cache/huggingface
+export HF_HUB_ENABLE_HF_TRANSFER=0
+export PATH="$HOME/.local/bin:$PATH"
+export CUDA_VISIBLE_DEVICES=0
+unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
+cd "$PROTOSS_ROOT/Issac-GR00T-N17"
+uv run --no-sync python "$PROTOSS_ROOT/Protoss/train_groot_b_v1_2.py" \
+  --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
+  --styles-dir "$PROTOSS_ROOT/data/v1.2/groot_styles_retimed" \
+  --base-model "$PROTOSS_ROOT/Protoss/checkpoints/GR00T-N1.7-DROID" \
+  --output-dir "$PROTOSS_ROOT/Protoss/checkpoints/groot_v1.2_b" \
+  --max-steps 2000 --save-steps 500 --batch-size 2 \
+  --gradient-accumulation 16 --lr 1e-5 --workers 2 --seed 42
+)
+```
+
+두 명령은 각각 해당 모델 하나만 학습하고 종료한다. A만 먼저 학습하고 B는 나중에 실행할 수 있다. 데이터 생성은 다시 하지 않는다.
+
 각 모델은 같은 원본 checkpoint에서 독립적으로 시작한다. B는 A의 checkpoint를 이어받지 않는다. Single GPU만 지원하며 microbatch=2, gradient accumulation=16으로 optimizer step당 32 samples다. Loss는 GR00T `gr00t_n1d7.py`의 noisy trajectory→flow velocity masked MSE를 그대로 사용한다. Flow velocity는 로봇의 물리적인 joint velocity가 아니다. 학습률/step 수는 초기 실험용 설정이다.
 
-각 output에 `checkpoint-500` … `checkpoint-2000`, 최종 모델, `style_run.json`(스타일/원본 weight/데이터 선택/학습 설정)이 저장된다. 가장 좋은 모델을 자동 선택하지 않으므로 공통 test 평가와 closed-loop 결과로 선택한다. 기존 output이 있으면 중단한다. 중단된 학습은 해당 STYLE만 실행하면서 `--resume`을 추가하면 최신 trainer checkpoint의 optimizer 상태부터 재개한다. 원본 weight/data/batch 등 설정은 같은 값으로 유지한다.
+각 output에 `checkpoint-500` … `checkpoint-2000`, 최종 모델, `style_run.json`(스타일/원본 weight/데이터 선택/학습 설정)이 저장된다. 가장 좋은 모델을 자동 선택하지 않으므로 공통 test 평가와 closed-loop 결과로 선택한다. 기존 output이 있으면 중단한다. 중단된 학습은 해당 모델의 명령에 `--resume`을 추가하면 최신 trainer checkpoint의 optimizer 상태부터 재개한다. 원본 weight/data/batch 등 설정은 같은 값으로 유지한다.
 
 ## 7. 같은 held-out episode에서 A/B 평가
 
@@ -377,6 +401,8 @@ UV_PROJECT_ENVIRONMENT=.venv-51 uv run --no-sync --extra isaac51 \
 |---|---|
 | `Protoss/prepare_droid_v1_2.py` | 공개 성공 DROID subset 다운로드 (`download` 명령) |
 | `Protoss/train_groot_styles_v1_2.py` | 시간 재샘플링/smoothing, LeRobot v2 변환, GR00T A/B 독립 학습 |
+| `Protoss/train_groot_a_v1_2.py` | A 모델 전용 학습 진입점 |
+| `Protoss/train_groot_b_v1_2.py` | B 모델 전용 학습 진입점 |
 | `Protoss/test_train_groot_styles_v1_2.py` | command metric, split 누수, 변환 및 학습 설정 검증 |
 
 ```bash
