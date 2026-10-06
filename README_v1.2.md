@@ -418,3 +418,76 @@ uv run --no-sync python -m unittest discover \
 ```
 
 CPU 테스트 7개를 통과했다. 영상 encoder, GR00T 통계 함수와 GPU trainer는 테스트에서 mock을 사용했다. 실제 GPU 학습 및 학습 후 스타일 차이는 이 로컬 환경에서 검증하지 않았다.
+
+## 10. Hugging Face에 checkpoint 보관
+
+`Protoss/upload_checkpoint_hf_v1_2.py`로 A/B checkpoint를 각각 **private 모델 저장소**에 업로드한다. 지정한 폴더의 모델 weight, processor/config 및 optimizer/scheduler/RNG 상태를 함께 보관한다. `.cache`, `.git`, `.DS_Store`는 제외한다. 학습 코드와 데이터는 이 업로드에 포함되지 않는다.
+
+학습의 checkpoint 저장이 완료된 폴더를 사용한다. 업로드하는 동안 해당 폴더를 수정하거나 trainer의 checkpoint 정리로 삭제하지 않도록 학습 완료 후 실행한다. `--folder`에 전체 `groot_v1.2_a` output을 지정하면 그 안의 여러 checkpoint도 모두 올라가므로, 아래는 `checkpoint-2000` 하나를 지정한다. A/B 저장소는 별도 이름을 사용한다.
+
+### 10.1 로그인
+
+[Hugging Face 토큰 설정](https://huggingface.co/settings/tokens)에서 모델 저장소를 생성하고 파일을 쓸 수 있는 토큰을 준비한다. 토큰은 로그인 프롬프트에 입력하며 코드나 Git에 저장하지 않는다. 아래 모든 명령은 같은 `HF_HOME`을 사용한다.
+
+```bash
+(
+set -e
+export PROTOSS_ROOT=/workspace/Project_Protoss
+export HF_HOME=/workspace/.cache/huggingface
+export HF_HUB_ENABLE_HF_TRANSFER=0
+export PATH="$HOME/.local/bin:$PATH"
+unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
+cd "$PROTOSS_ROOT/Issac-GR00T-N17"
+uv run --no-sync hf auth login
+uv run --no-sync hf auth whoami
+)
+```
+
+기존 `HF_TOKEN` 환경변수가 있으면 저장된 로그인보다 우선하므로 올바른 write 권한의 토큰인지 확인한다.
+
+### 10.2 A checkpoint 업로드
+
+`HF_ACCOUNT`를 실제 Hugging Face 계정 또는 write 권한이 있는 organization 이름으로 변경한다. 코드가 private 저장소를 생성하며, 이미 같은 이름의 public 저장소가 있으면 업로드하지 않고 중단한다.
+
+```bash
+(
+set -e
+export PROTOSS_ROOT=/workspace/Project_Protoss
+export HF_HOME=/workspace/.cache/huggingface
+export HF_HUB_ENABLE_HF_TRANSFER=0
+export PATH="$HOME/.local/bin:$PATH"
+HF_ACCOUNT=YOUR_HF_ACCOUNT
+unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
+cd "$PROTOSS_ROOT/Issac-GR00T-N17"
+uv run --no-sync python "$PROTOSS_ROOT/Protoss/upload_checkpoint_hf_v1_2.py" \
+  --folder "$PROTOSS_ROOT/Protoss/checkpoints/groot_v1.2_a/checkpoint-2000" \
+  --repo-id "$HF_ACCOUNT/protoss-groot-v12-a-step2000" --workers 2
+)
+```
+
+먼저 파일 수/용량만 확인하려면 `--dry-run`을 추가한다. 네트워크 요청이나 업로드를 하지 않는다. B는 위 명령에서 `groot_v1.2_a` → `groot_v1.2_b`, 저장소 이름의 `-a-` → `-b-`로 변경해 따로 실행한다.
+
+대용량 전송은 SDK의 `upload_large_folder`를 사용한다. 중단되면 **같은 폴더와 같은 저장소**로 재실행한다. 로컬 `.cache/huggingface`의 전송 상태를 유지하면 완료한 작업을 재사용한다. 성공하면 원격 파일 목록에서 업로드 대상 파일의 존재를 검사하고 `Upload complete: ...`를 출력한다. 이 검사는 파일 존재 확인이며 checkpoint 로딩 검증이나 독립 hash 검증은 아니다. 다른 학습 실험/step은 새 저장소 이름을 사용하면 서로의 파일이 덮어써지거나 이전 파일이 남는 혼동을 피할 수 있다. [Hugging Face 업로드 안내](https://huggingface.co/docs/huggingface_hub/v0.34.0/guides/upload#upload-a-large-folder).
+
+### 10.3 새 Pod에서 다운로드
+
+새 Pod에 1~3절 환경을 설치하고, 같은 private 저장소를 읽을 수 있는 계정으로 로그인한 후 실행한다. 다운로드 위치는 기존 평가 코드의 checkpoint 경로와 동일하게 한다.
+
+```bash
+(
+set -e
+export PROTOSS_ROOT=/workspace/Project_Protoss
+export HF_HOME=/workspace/.cache/huggingface
+export HF_HUB_ENABLE_HF_TRANSFER=0
+export PATH="$HOME/.local/bin:$PATH"
+HF_ACCOUNT=YOUR_HF_ACCOUNT
+unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
+cd "$PROTOSS_ROOT/Issac-GR00T-N17"
+uv run --no-sync hf download "$HF_ACCOUNT/protoss-groot-v12-a-step2000" \
+  --local-dir "$PROTOSS_ROOT/Protoss/checkpoints/groot_v1.2_a/checkpoint-2000"
+)
+```
+
+B도 같은 방식으로 이름/경로를 바꿔 다운로드한다. 재현하려면 `hf download`에 모델 저장소의 commit SHA를 `--revision SHA`로 지정한다. 다운로드 후 7절 평가/서버 실행에서 해당 경로를 사용한다. 학습을 재개할 때는 원본 pretrained weight와 `groot_styles_retimed` 데이터도 준비하고, 같은 학습 설정과 output 경로로 6절 명령에 `--resume`을 추가한다. Optimizer 상태가 없는 최종 추론 모델 폴더는 학습 재개용 checkpoint를 대신하지 않는다.
+
+검증: 업로드 코드는 CPU mock 테스트로 private 저장소 조건, 전체 checkpoint 전송 호출, 원격 누락 검사와 dry-run을 확인했다. 실제 계정으로 대용량 업로드는 이 작업에서 실행하지 않았다.
