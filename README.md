@@ -265,7 +265,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train_groot_models.py" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
   --base-model "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
   --output-dir "$PROTOSS_ROOT/Protoss/checkpoint/model_1_lora" \
-  --lora-rank 8 --lora-alpha 16 --max-steps 2000 --save-steps 500 \
+  --lora-rank 8 --lora-alpha 16 --max-steps 2000 --save-steps 2000 \
   --batch-size 2 --gradient-accumulation 16 --lr 1e-5 --workers 2 --seed 42
 )
 ```
@@ -287,7 +287,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train_groot_models.py" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
   --base-model "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
   --output-dir "$PROTOSS_ROOT/Protoss/checkpoint/model_S_lora" \
-  --lora-rank 8 --lora-alpha 16 --max-steps 2000 --save-steps 500 \
+  --lora-rank 8 --lora-alpha 16 --max-steps 2000 --save-steps 2000 \
   --batch-size 2 --gradient-accumulation 16 --lr 1e-5 --workers 2 --seed 42
 )
 ```
@@ -309,7 +309,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train_groot_models.py" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
   --base-model "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
   --output-dir "$PROTOSS_ROOT/Protoss/checkpoint/model_E_lora" \
-  --lora-rank 8 --lora-alpha 16 --max-steps 2000 --save-steps 500 \
+  --lora-rank 8 --lora-alpha 16 --max-steps 2000 --save-steps 2000 \
   --batch-size 2 --gradient-accumulation 16 --lr 1e-5 --workers 2 --seed 42
 )
 ```
