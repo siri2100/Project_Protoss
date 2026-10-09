@@ -49,7 +49,8 @@ def upload(args, api=None, *, validator=inventory, repo_type="model"):
     # Upload everything, including optimizer/scheduler/RNG and processor files.
     # Re-running the same folder/repo reuses the SDK's large-upload cache.
     api.upload_large_folder(repo_id=args.repo_id, repo_type=repo_type, folder_path=str(folder),
-                            ignore_patterns=IGNORE, num_workers=args.workers)
+                            ignore_patterns=IGNORE + (["source/**"] if repo_type == "dataset" else []),
+                            num_workers=args.workers)
     remote = set(api.list_repo_files(repo_id=args.repo_id, repo_type=repo_type))
     missing = sorted(p.relative_to(folder).as_posix() for p in files
                      if p.relative_to(folder).as_posix() not in remote)

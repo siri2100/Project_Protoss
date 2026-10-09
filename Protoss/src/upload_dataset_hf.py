@@ -1,9 +1,10 @@
-"""Back up generated A/B/test data to a private Hugging Face dataset repository."""
+"""Back up shared GR00T train/test data to a private Hugging Face dataset repository."""
 import argparse
 import json
 from pathlib import Path
 
-from upload_checkpoint_hf_v1_2 import upload
+from .upload_checkpoint_hf import upload
+from .dataset_paths import split_path
 
 
 def inventory(folder):
@@ -13,8 +14,8 @@ def inventory(folder):
         return path
 
     report = json.loads(required(folder / "styles.json").read_text())
-    for split in ("a", "b", "test"):
-        root = folder / split
+    for split in ("train", "test"):
+        root = split_path(folder, split)
         for name in ("info.json", "modality.json", "tasks.jsonl", "stats.json", "relative_stats.json"):
             required(root / "meta" / name)
         info = json.loads((root / "meta/info.json").read_text())
@@ -37,13 +38,14 @@ def inventory(folder):
                     raise ValueError("Dataset metadata path escapes dataset folder")
                 required(path)
     return [p for p in folder.rglob("*") if p.is_file()
+            and p.relative_to(folder).parts[0] != "source"
             and not any(part in (".git", ".cache", ".DS_Store") for part in p.relative_to(folder).parts)]
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--folder", type=Path, required=True,
-                        help="Generated groot_styles_retimed root containing a/, b/, test/, styles.json")
+                        help="Dataset root containing trainset/, testset/ and styles.json")
     parser.add_argument("--repo-id", required=True)
     parser.add_argument("--workers", type=int, default=2)
     parser.add_argument("--dry-run", action="store_true")

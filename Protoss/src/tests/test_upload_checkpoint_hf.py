@@ -5,7 +5,7 @@ import types
 import unittest
 from unittest.mock import Mock
 
-from upload_checkpoint_hf_v1_2 import upload
+from src.upload_checkpoint_hf import upload
 
 
 class UploadTests(unittest.TestCase):

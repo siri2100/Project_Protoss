@@ -1,4 +1,0 @@
-numpy>=1.26
-msgpack>=1.0
-msgpack-numpy>=0.4.8
-pyzmq>=25
