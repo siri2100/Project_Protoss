@@ -381,6 +381,28 @@ UV_PROJECT_ENVIRONMENT=.venv-51 uv run --no-sync --extra isaac51 \
 
 RoboLab은 설치 당시 main을 사용하므로 기록된 revision을 두 비교 실험에서 동일하게 유지한다. 모델 서버와 simulator를 함께 실행할 때의 VRAM은 학습과 별도로 확인한다. 먼저 `--num-envs 1`로 시작하고 모델과 simulator를 GPU/호스트별로 분리할 수 있다.
 
+### GR00T 클라이언트의 영상 이력 적용
+
+DROID 모델은 카메라마다 `[-15, 0]` 두 시점의 영상을 요구한다. 제공된 클라이언트는 매 제어 step의 영상을 환경별로 저장하고, episode 시작에는 첫 프레임으로 과거를 채운다. 환경 reset 시 해당 이력과 action chunk를 초기화한다. `--open-loop-horizon`은 action 실행 길이이며 영상 프레임 수와 별개다. 영상 간 실제 시간은 RoboLab의 제어 주기에 따라 결정된다.
+
+서버와 평가를 실행하기 전에 아래 명령을 한 번 실행한다. 기존 client.py를 백업한 뒤 프로젝트의 수정된 클라이언트를 적용한다. 이후 RoboLab 코드를 업데이트하면 다시 적용한다.
+
+```bash
+(
+set -e
+export PROTOSS_ROOT=/workspace/Project_Protoss
+CLIENT=/workspace/RoboLab/policies/gr00t/client.py
+test -f "$CLIENT"
+test -f "$PROTOSS_ROOT/Protoss/src/robolab_gr00t_client.py"
+if [ ! -f "$CLIENT.before_protoss_history" ]; then
+  cp "$CLIENT" "$CLIENT.before_protoss_history"
+fi
+cp "$PROTOSS_ROOT/Protoss/src/robolab_gr00t_client.py" "$CLIENT"
+)
+```
+
+이 클라이언트는 영상 이력이 `[-15, 0]`, state 이력이 `[0]`인 DROID 설정용이다. 다른 modality 설정에는 프레임 선택을 맞춰야 한다.
+
 ### Model 0/1/S/E 평가
 
 다른 터미널에서 아래 서버를 먼저 실행한다. Model 0은 기본 `MODEL_PATH`를 사용한다. Model 1은 `MODEL_PATH="$PROTOSS_ROOT/Protoss/checkpoint/model_1_lora/inference"`로 바꾼다. S/E도 학습 완료 후 각 merged 모델 경로를 사용한다.
@@ -394,7 +416,7 @@ export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
 export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-MODEL_PATH="$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID"
+MODEL_PATH="$PROTOSS_ROOT/Protoss/checkpoint/model_1_lora/inference"
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 uv run --no-sync python gr00t/eval/run_gr00t_server.py \
   --model-path "$MODEL_PATH" \
@@ -420,7 +442,7 @@ UV_PROJECT_ENVIRONMENT=.venv-51 uv run --no-sync --extra isaac51 \
   --task BananaOnPlateTask BananasInBinOneMoreTask \
   --num-envs 2 --num-runs 5 --open-loop-horizon 8 \
   --instruction-type default --video-mode none \
-  --output-folder-name model0_run01
+  --output-folder-name model1_run01
 )
 ```
 
