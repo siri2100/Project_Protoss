@@ -1,4 +1,4 @@
-"""Prepare the shared original DROID train/test data for Model 0/1/S/E."""
+"""Prepare the shared original DROID train/test data for baseline / Model-FM/S/E."""
 import argparse
 from pathlib import Path
 import sys

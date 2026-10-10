@@ -15,7 +15,7 @@ class EvaluationTests(unittest.TestCase):
             (root / "styles.json").write_text(json.dumps({"style_method": "original", "synthetic": False,
                 "splits": {"train": [{"source_episode": 0}], "test": [{"source_episode": 1}, {"source_episode": 2}]}}))
             commands = []
-            for model in ("0", "1", "S", "E"):
+            for model in ("baseline", "FM", "S", "E"):
                 argv = ["eval", "--model", model, "--groot-root", str(root), "--dataset-root", str(root),
                         "--model-path", str(root / ("model_" + model)), "--output-dir", str(root / ("eval_" + model))]
                 with patch.object(sys, "argv", argv), patch.object(evaluation.subprocess, "run") as run:
@@ -28,6 +28,7 @@ class EvaluationTests(unittest.TestCase):
                         self.assertEqual(command[command.index("--denoising-steps") + 1], "4")
                         start = command.index("--traj-ids") + 1
                         self.assertEqual(command[start:start + 2], ["0", "1"])
+                    self.assertEqual(json.loads((root / ("eval_" + model) / "evaluation.json").read_text())["model"], model)
                     commands.append(json.loads((root / ("eval_" + model) / "evaluation.json").read_text()))
             self.assertEqual(len({c["dataset_manifest_sha256"] for c in commands}), 1)
 

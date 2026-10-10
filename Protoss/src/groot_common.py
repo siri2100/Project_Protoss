@@ -223,8 +223,13 @@ def train(args):
                          "base_model": str(args.base_model.resolve()), "dataset": str(dataset),
                          "seed": args.seed, "loss": "FM"}
         settings_path = args.output_dir / "lora_settings.json"
-        if args.resume and (not settings_path.exists() or json.loads(settings_path.read_text()) != lora_settings):
-            raise ValueError("LoRA resume settings differ or are missing; use the original experiment settings")
+        if args.resume:
+            previous = json.loads(settings_path.read_text()) if settings_path.exists() else None
+            # Model 1 is the former name of the same FM experiment.
+            if previous is not None and previous.get("variant") == "1":
+                previous["variant"] = "FM"
+            if previous != lora_settings:
+                raise ValueError("LoRA resume settings differ or are missing; use the original experiment settings")
         write_json(settings_path, lora_settings)
         with training_pipeline(config, args.lora_rank, args.lora_alpha) as holder:
             run(config)

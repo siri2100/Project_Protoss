@@ -1,4 +1,4 @@
-"""Train the controlled GR00T Model 1/S/E LoRA experiments."""
+"""Train the controlled GR00T Model-FM/S/E LoRA experiments."""
 import argparse
 import json
 from pathlib import Path
@@ -9,13 +9,13 @@ from .groot_common import train
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model", dest="variant", choices=["1", "S", "E"], required=True)
+    parser.add_argument("--model", dest="variant", choices=["FM", "S", "E"], required=True)
     parser.add_argument("--groot-root", type=Path, required=True)
     parser.add_argument("--dataset-root", dest="styles_dir", type=Path, required=True)
     parser.add_argument("--base-model", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--lora-rank", type=int, default=8)
-    parser.add_argument("--lora-alpha", type=float, default=16)
+    parser.add_argument("--lora-rank", type=int, default=64)
+    parser.add_argument("--lora-alpha", type=float, default=128)
     parser.add_argument("--max-steps", type=int, default=2000)
     parser.add_argument("--save-steps", type=int, default=500)
     parser.add_argument("--batch-size", type=int, default=2)

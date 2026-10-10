@@ -1,15 +1,15 @@
-# Project Protoss v1.2 — GR00T Model 0/1/S/E 학습·평가
+# Project Protoss v1.2 — GR00T baseline / Model-FM/S/E 학습·평가
 
-네 모델은 같은 원본 DROID train/test split을 사용한다. Model 0은 원본 pretrained 평가 전용이며, Model 1/S/E는 같은 pretrained 모델에서 독립적으로 LoRA 학습한다.
+네 모델은 같은 원본 DROID train/test split을 사용한다. baseline은 원본 pretrained 평가 전용이며, Model-FM/S/E는 같은 pretrained 모델에서 독립적으로 LoRA 학습한다.
 
 | 모델 | 학습 | Loss | 구현 상태 |
 |---|---|---|---|
-| Model 0 | 없음 | 없음 | 원본 평가 가능 |
-| Model 1 | LoRA | FM | 학습·평가 실행 경로 제공 |
-| Model-S | 같은 LoRA | FM (현재 Model 1과 동일) | 학습·평가 실행 가능 |
-| Model-E | 같은 LoRA | FM (현재 Model 1과 동일) | 학습·평가 실행 가능 |
+| baseline | 없음 | 없음 | 원본 평가 가능 |
+| Model-FM | LoRA | FM | 학습·평가 실행 경로 제공 |
+| Model-S | LoRA | FM (현재 Model-FM과 동일) | 학습·평가 실행 가능 |
+| Model-E | LoRA | FM (현재 Model-FM과 동일) | 학습·평가 실행 가능 |
 
-현재 Model 1/S/E는 같은 FM loss, 데이터, LoRA 설정으로 독립 학습한다. Model-S/E는 향후 보조 loss를 추가하기 위한 실험 이름이며 현재 smoothness/efficiency loss는 적용하지 않는다. 같은 seed와 설정에서는 같은 결과가 나올 수 있고, 이 단계의 차이를 동작 특성 개선으로 해석하지 않는다.
+현재 Model-FM/S/E는 같은 FM loss, 데이터, LoRA 설정으로 독립 학습한다. Model-S/E는 향후 보조 loss를 추가하기 위한 실험 이름이며 현재 smoothness/efficiency loss는 적용하지 않는다. 같은 seed와 설정에서는 같은 결과가 나올 수 있고, 이 단계의 차이를 동작 특성 개선으로 해석하지 않는다.
 
 ## 1. 환경과 프로젝트 설치
 
@@ -194,7 +194,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train_groot_models.py" --help
 )
 ```
 
-Model 1/S/E의 LoRA 대상은 action DiT 내부 `nn.Linear` weight다. LLM, vision encoder, projector, state/action encoder/decoder 및 pretrained weight를 고정하고 두 low-rank 행렬만 학습한다. 기본 rank=8, alpha=16, adapter dropout=0이다. 이는 이 프로젝트의 LoRA 적용 범위이며 NVIDIA 공식 LoRA 옵션이 아니다.
+Model-FM/S/E의 LoRA 대상은 action DiT 내부 `nn.Linear` weight다. LLM, vision encoder, projector, state/action encoder/decoder 및 pretrained weight를 고정하고 두 low-rank 행렬만 학습한다. 기본 rank=8, alpha=16, adapter dropout=0이다. 이는 이 프로젝트의 LoRA 적용 범위이며 NVIDIA 공식 LoRA 옵션이 아니다.
 
 ## 4. DROID 데이터 다운로드
 
@@ -236,7 +236,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/prepare_groot_dataset.py" \
 )
 ```
 
-원본 episode를 train 80% / test 20%로 먼저 분리한다. 300개면 공통 train 240개 / test 60개다. Model 1/S/E는 같은 `trainset/` 폴더를 읽으므로 데이터와 통계가 동일하며 모델별 데이터를 중복 생성하지 않는다. 원래 joint/gripper command, 관측 state, frame 순서와 15Hz를 유지한다. 배속 변형, smoothing, 시간 보간은 적용하지 않는다.
+원본 episode를 train 80% / test 20%로 먼저 분리한다. 300개면 공통 train 240개 / test 60개다. Model-FM/S/E는 같은 `trainset/` 폴더를 읽으므로 데이터와 통계가 동일하며 모델별 데이터를 중복 생성하지 않는다. 원래 joint/gripper command, 관측 state, frame 순서와 15Hz를 유지한다. 배속 변형, smoothing, 시간 보간은 적용하지 않는다.
 
 GR00T의 DROID 변환과 동일한 `[eef_9d(9), gripper(1), joint(7)]` LeRobot v2 계약으로 저장한다. EEF 변환과 normalization/relative 통계는 설치된 GR00T 함수를 사용한다. 두 카메라는 원본 시작 시점에서 decode한 뒤 H.264로 재인코딩하므로 영상 압축은 바뀌지만 시간 축은 유지한다. 전체 GR00T pretraining 데이터셋을 재현하는 것이 아니라 다운로드한 공개 DROID subset의 형식을 GR00T 학습에 맞춘다.
 
@@ -244,11 +244,11 @@ GR00T의 DROID 변환과 동일한 `[eef_9d(9), gripper(1), joint(7)]` LeRobot v
 
 이미 생성된 trainset/testset 또는 styles.json이 있으면 중단한다. 빈 폴더와 .gitkeep는 허용한다. 진단만 필요하면 `--inspect-only`를 추가한다. 기존 변형 데이터와 checkpoint는 자동으로 삭제하지 않는다. 새로운 공통 데이터 실험은 새 checkpoint output 경로를 사용하고 기존 변형 데이터 학습을 `--resume`으로 이어붙이지 않는다.
 
-## 6. Model 1/S/E LoRA 학습
+## 6. Model-FM/S/E LoRA 학습
 
 새 실험 경로를 사용한다. 기존 full fine-tuning checkpoint를 LoRA checkpoint로 재개할 수 없다. 데이터는 5절의 `Protoss/data`를 재사용한다.
 
-### 6.1 Model 1 학습
+### 6.1 Model-FM 학습
 
 ```bash
 (
@@ -261,10 +261,10 @@ export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/train_groot_models.py" \
-  --model 1 --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
+  --model FM --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
   --base-model "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
-  --output-dir "$PROTOSS_ROOT/Protoss/checkpoint/model_1_lora" \
+  --output-dir "$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora" \
   --lora-rank 8 --lora-alpha 16 --max-steps 2000 --save-steps 2000 \
   --batch-size 2 --gradient-accumulation 16 --lr 1e-5 --workers 2 --seed 42
 )
@@ -314,7 +314,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train_groot_models.py" \
 )
 ```
 
-GR00T 기본 masked flow-matching MSE를 그대로 사용한다. FM의 velocity는 물리적 관절 속도가 아니다. Model 1/S/E는 같은 LoRA rank/alpha, train 데이터, seed, batch, optimizer, step 수와 FM loss를 사용한다. 각 명령은 해당 모델 하나만 학습하고 종료한다. 원본 pretrained checkpoint에서 각각 시작하며 서로의 학습 weight를 이어받지 않는다. 모델 이름과 저장 경로만 다르다.
+GR00T 기본 masked flow-matching MSE를 그대로 사용한다. FM의 velocity는 물리적 관절 속도가 아니다. Model-FM/S/E는 같은 LoRA rank/alpha, train 데이터, seed, batch, optimizer, step 수와 FM loss를 사용한다. 각 명령은 해당 모델 하나만 학습하고 종료한다. 원본 pretrained checkpoint에서 각각 시작하며 서로의 학습 weight를 이어받지 않는다. 모델 이름과 저장 경로만 다르다.
 
 산출물:
 
@@ -329,7 +329,7 @@ GR00T 기본 masked flow-matching MSE를 그대로 사용한다. FM의 velocity�
 
 `eval_groot_models.py`는 같은 test episode, seed 42/43/44, execution horizon=8, denoising steps=4로 GR00T open-loop 평가를 실행한다. 기본은 test 전체를 episode 끝까지 평가한다. 빠른 확인에는 `--traj-ids 0 --seeds 42 --steps 400`을 사용하고 최종 비교는 네 모델에 같은 설정을 사용한다.
 
-### Model 0 평가
+### baseline 평가
 
 ```bash
 (
@@ -342,16 +342,16 @@ export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/eval_groot_models.py" \
-  --model 1 --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
+  --model baseline --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
-  --model-path "$PROTOSS_ROOT/Protoss/checkpoint/model_1_lora/inference" \
-  --output-dir "$PROTOSS_ROOT/results/v1.2/model_1_run01"
+  --model-path "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
+  --output-dir "$PROTOSS_ROOT/results/v1.2/baseline_run01"
 )
 ```
 
-Model 1은 위 명령의 `--model 1`, `--model-path .../Protoss/checkpoint/model_1_lora/inference`, `--output-dir .../results/v1.2/model_1_run01`로 변경한다. Model-S는 `--model S`, `--model-path .../Protoss/checkpoint/model_S_lora/inference`, `--output-dir .../results/v1.2/model_S_run01`을 사용한다. Model-E는 같은 위치의 S를 E로 바꿔 평가한다. Model 0은 학습하지 않는다.
+Model-FM은 위 명령의 `--model FM`, `--model-path .../Protoss/checkpoint/model_FM_lora/inference`, `--output-dir .../results/v1.2/model_FM_run01`로 변경한다. Model-S는 `--model S`, `--model-path .../Protoss/checkpoint/model_S_lora/inference`, `--output-dir .../results/v1.2/model_S_run01`을 사용한다. Model-E는 같은 위치의 S를 E로 바꿔 평가한다. baseline은 학습하지 않는다.
 
-`evaluation.json`에는 test manifest SHA256, trajectory ID, seed, horizon과 모델 경로가 기록된다. Seed별 로그의 `Average MSE/MAE across all trajs`와 plot을 비교한다. 이 평가는 imitation 오차이며 물리적 smoothness, 완료 시간, task 성공률을 측정하지 않는다. Model 0의 pretrained normalization과 fine-tuned processor 통계는 각 모델의 학습/추론 설정을 따른다. 실제 로봇 성능은 8절 closed-loop 평가가 필요하다. 결과 경로가 이미 있으면 중단한다.
+`evaluation.json`에는 test manifest SHA256, trajectory ID, seed, horizon과 모델 경로가 기록된다. Seed별 로그의 `Average MSE/MAE across all trajs`와 plot을 비교한다. 이 평가는 imitation 오차이며 물리적 smoothness, 완료 시간, task 성공률을 측정하지 않는다. baseline의 pretrained normalization과 fine-tuned processor 통계는 각 모델의 학습/추론 설정을 따른다. 실제 로봇 성능은 8절 closed-loop 평가가 필요하다. 결과 경로가 이미 있으면 중단한다.
 
 ## 8. RoboLab closed-loop 평가 — 선택 사항
 
@@ -403,9 +403,9 @@ cp "$PROTOSS_ROOT/Protoss/src/robolab_gr00t_client.py" "$CLIENT"
 
 이 클라이언트는 영상 이력이 `[-15, 0]`, state 이력이 `[0]`인 DROID 설정용이다. 다른 modality 설정에는 프레임 선택을 맞춰야 한다.
 
-### Model 0/1/S/E 평가
+### baseline / Model-FM/S/E 평가
 
-다른 터미널에서 아래 서버를 먼저 실행한다. Model 0은 기본 `MODEL_PATH`를 사용한다. Model 1은 `MODEL_PATH="$PROTOSS_ROOT/Protoss/checkpoint/model_1_lora/inference"`로 바꾼다. S/E도 학습 완료 후 각 merged 모델 경로를 사용한다.
+다른 터미널에서 아래 서버를 먼저 실행한다. baseline은 기본 `MODEL_PATH`를 사용한다. Model-FM은 `MODEL_PATH="$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora/inference"`로 바꾼다. S/E도 학습 완료 후 각 merged 모델 경로를 사용한다.
 
 ```bash
 (
@@ -416,7 +416,7 @@ export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
 export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-MODEL_PATH="$PROTOSS_ROOT/Protoss/checkpoint/model_1_lora/inference"
+MODEL_PATH="$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora/inference"
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 uv run --no-sync python gr00t/eval/run_gr00t_server.py \
   --model-path "$MODEL_PATH" \
@@ -425,7 +425,7 @@ uv run --no-sync python gr00t/eval/run_gr00t_server.py \
 )
 ```
 
-GR00T 기본 서버를 원본(Model 0) 또는 merged inference/(Model 1/S/E)로 포트 5557에서 실행한 상태로 다른 터미널에서 실행한다.
+GR00T 기본 서버를 원본(baseline) 또는 merged inference/(Model-FM/S/E)로 포트 5557에서 실행한 상태로 다른 터미널에서 실행한다.
 
 ```bash
 (
@@ -442,11 +442,11 @@ UV_PROJECT_ENVIRONMENT=.venv-51 uv run --no-sync --extra isaac51 \
   --task BananaOnPlateTask BananasInBinOneMoreTask \
   --num-envs 2 --num-runs 5 --open-loop-horizon 8 \
   --instruction-type default --video-mode none \
-  --output-folder-name model1_run01
+  --output-folder-name modelFM_run01
 )
 ```
 
-첫 확인은 `--num-runs 1`로 줄일 수 있다. 각 모델을 GR00T 기본 서버의 `--model-path`에 지정하고 포트 5557에 연결해 평가한다. Model 0은 원본 checkpoint, Model 1/S/E는 merged inference/ 경로를 사용한다. Model-S/E도 학습이 끝난 뒤 평가한다. 결과 폴더 이름을 `model0_run01`, `model1_run01`, `modelS_run01`, `modelE_run01`처럼 각각 다르게 지정한다. Task 목록, control rate, horizon, simulator revision을 같게 유지하고 여러 run으로 비교한다.
+첫 확인은 `--num-runs 1`로 줄일 수 있다. 각 모델을 GR00T 기본 서버의 `--model-path`에 지정하고 포트 5557에 연결해 평가한다. baseline은 원본 checkpoint, Model-FM/S/E는 merged inference/ 경로를 사용한다. Model-S/E도 학습이 끝난 뒤 평가한다. 결과 폴더 이름을 `baseline_run01`, `modelFM_run01`, `modelS_run01`, `modelE_run01`처럼 각각 다르게 지정한다. Task 목록, control rate, horizon, simulator revision을 같게 유지하고 여러 run으로 비교한다.
 
 성공률, 성공 episode의 완료 시간, 실제 joint trajectory의 속도/가속도/jerk RMS를 함께 비교한다. 현재 코드의 motion metric은 학습 시연 command metric이며 RoboLab 실제 joint trajectory의 metric을 자동 수집하는 기능은 포함하지 않는다.
 
@@ -456,8 +456,8 @@ UV_PROJECT_ENVIRONMENT=.venv-51 uv run --no-sync --extra isaac51 \
 |---|---|
 | `Protoss/prepare_droid.py` | 공개 성공 DROID subset 다운로드 (`download` 명령) |
 | `Protoss/prepare_groot_dataset.py` | 네 모델의 공통 원본 데이터 LeRobot v2 준비 |
-| `Protoss/train_groot_models.py` | Model 1/S/E의 공통 FM LoRA 학습 |
-| `Protoss/eval_groot_models.py` | Model 0/1/S/E 공통 test·seed·horizon 평가 |
+| `Protoss/train_groot_models.py` | Model-FM/S/E의 공통 FM LoRA 학습 |
+| `Protoss/eval_groot_models.py` | baseline / Model-FM/S/E 공통 test·seed·horizon 평가 |
 | `Protoss/src/groot_common.py` | 공통 데이터 변환과 학습 구현 |
 | `Protoss/src/groot_lora.py` | action DiT Linear LoRA 주입과 merge |
 | `Protoss/src/tests/test_groot_common.py` | 원본 command 보존, train/test 분리와 학습 설정 검증 |
@@ -480,7 +480,7 @@ uv run --no-sync python -m unittest discover \
 
 `Protoss/upload_checkpoint_hf.py`로 모델별 산출물을 각각 **private 모델 저장소**에 업로드한다. 지정한 폴더의 모델 weight, processor/config 및 optimizer/scheduler/RNG 상태를 함께 보관한다. `.cache`, `.git`, `.DS_Store`는 제외한다. 학습 코드와 데이터는 이 업로드에 포함되지 않는다.
 
-학습의 checkpoint 저장이 완료된 폴더를 사용한다. 업로드하는 동안 해당 폴더를 수정하거나 trainer의 checkpoint 정리로 삭제하지 않도록 학습 완료 후 실행한다. `--folder`에 전체 `model_1_lora` output을 지정하면 그 안의 여러 checkpoint도 모두 올라가므로, 아래는 merged `inference/`를 지정한다. 학습 재개용은 `model_1_lora` 전체(LoRA 설정, processor, checkpoint 포함)를 별도 저장소에 업로드한다. 모델별 저장소는 별도 이름을 사용한다.
+학습의 checkpoint 저장이 완료된 폴더를 사용한다. 업로드하는 동안 해당 폴더를 수정하거나 trainer의 checkpoint 정리로 삭제하지 않도록 학습 완료 후 실행한다. `--folder`에 전체 `model_FM_lora` output을 지정하면 그 안의 여러 checkpoint도 모두 올라가므로, 아래는 merged `inference/`를 지정한다. 학습 재개용은 `model_FM_lora` 전체(LoRA 설정, processor, checkpoint 포함)를 별도 저장소에 업로드한다. 모델별 저장소는 별도 이름을 사용한다.
 
 ### 10.1 로그인
 
@@ -506,7 +506,7 @@ uv run --no-sync hf auth whoami
 
 10.1절 로그인 후, 학습이 완료된 모델의 명령을 각각 실행한다. 로그인된 실제 계정명을 자동으로 조회한다. Organization에 업로드할 때는 조회 명령 대신 `HF_ACCOUNT`에 write 권한이 있는 organization 이름을 지정한다. 코드가 private 저장소를 생성하며, 이미 같은 이름의 public 저장소가 있으면 업로드하지 않고 중단한다.
 
-#### Model 1
+#### Model-FM
 
 ```bash
 (
@@ -520,8 +520,8 @@ cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 HF_ACCOUNT=$(uv run --no-sync python -c \
   'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/upload_checkpoint_hf.py" \
-  --folder "$PROTOSS_ROOT/Protoss/checkpoint/model_1_lora/inference" \
-  --repo-id "$HF_ACCOUNT/protoss-groot-v12-model1-lora-inference" --workers 2
+  --folder "$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora/inference" \
+  --repo-id "$HF_ACCOUNT/protoss-groot-v12-model-fm-lora-inference" --workers 2
 )
 ```
 
@@ -563,7 +563,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/upload_checkpoint_hf.py" \
 )
 ```
 
-Model 0은 원본 pretrained 모델을 사용하므로 별도 업로드가 필요하지 않다. 파일 수/용량만 확인하려면 업로드 명령에 `--dry-run`을 추가한다. 업로드 스크립트는 네트워크 요청을 하지 않지만, 앞의 계정명 조회는 네트워크를 사용한다.
+baseline은 원본 pretrained 모델을 사용하므로 별도 업로드가 필요하지 않다. 파일 수/용량만 확인하려면 업로드 명령에 `--dry-run`을 추가한다. 업로드 스크립트는 네트워크 요청을 하지 않지만, 앞의 계정명 조회는 네트워크를 사용한다.
 
 대용량 전송은 SDK의 `upload_large_folder`를 사용한다. 중단되면 **같은 폴더와 같은 저장소**로 재실행한다. 로컬 `.cache/huggingface`의 전송 상태를 유지하면 완료한 작업을 재사용한다. 성공하면 원격 파일 목록에서 업로드 대상 파일의 존재를 검사하고 `Upload complete: ...`를 출력한다. 이 검사는 파일 존재 확인이며 checkpoint 로딩 검증이나 독립 hash 검증은 아니다. 다른 학습 실험/step은 새 저장소 이름을 사용하면 서로의 파일이 덮어써지거나 이전 파일이 남는 혼동을 피할 수 있다. [Hugging Face 업로드 안내](https://huggingface.co/docs/huggingface_hub/v0.34.0/guides/upload#upload-a-large-folder).
 
@@ -571,7 +571,9 @@ Model 0은 원본 pretrained 모델을 사용하므로 별도 업로드가 필�
 
 새 Pod에 1~3절 환경을 설치하고 10.1절에서 로그인한 후, 평가할 모델의 명령만 실행한다. 각 저장소는 10.2절에서 업로드가 완료돼 있어야 한다. 계정명은 로그인된 계정에서 자동 조회한다. 다른 계정이나 organization의 저장소라면 조회 명령 대신 `HF_ACCOUNT`에 실제 저장소 소유자 이름을 지정한다.
 
-#### Model 1
+기존 `model_1_lora` 폴더나 `protoss-groot-v12-model1-lora-inference` 저장소는 자동으로 이름이 바뀌지 않는다. 이미 업로드한 모델을 받으려면 아래 다운로드 명령의 저장소 이름만 기존 이름으로 바꾸고 새 `model_FM_lora/inference` 경로에 저장한다. 기존 학습을 재개할 때는 `--model FM --resume`과 기존 output 경로를 사용한다.
+
+#### Model-FM
 
 ```bash
 (
@@ -584,8 +586,8 @@ unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 HF_ACCOUNT=$(uv run --no-sync python -c \
   'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
-uv run --no-sync hf download "$HF_ACCOUNT/protoss-groot-v12-model1-lora-inference" \
-  --local-dir "$PROTOSS_ROOT/Protoss/checkpoint/model_1_lora/inference"
+uv run --no-sync hf download "$HF_ACCOUNT/protoss-groot-v12-model-fm-lora-inference" \
+  --local-dir "$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora/inference"
 )
 ```
 
@@ -625,7 +627,7 @@ uv run --no-sync hf download "$HF_ACCOUNT/protoss-groot-v12-model-e-lora-inferen
 )
 ```
 
-Model 0은 2절의 `nvidia/GR00T-N1.7-DROID` 다운로드 명령을 사용한다. RoboLab 평가만 진행한다면 다운로드 후 8절의 모델 서버와 평가 명령을 실행한다. 서버의 `MODEL_PATH`에는 다운로드한 해당 모델의 `inference/` 경로를 지정한다.
+baseline은 2절의 `nvidia/GR00T-N1.7-DROID` 다운로드 명령을 사용한다. RoboLab 평가만 진행한다면 다운로드 후 8절의 모델 서버와 평가 명령을 실행한다. 서버의 `MODEL_PATH`에는 다운로드한 해당 모델의 `inference/` 경로를 지정한다.
 
 재현하려면 `hf download`에 모델 저장소의 commit SHA를 `--revision SHA`로 지정한다. 다운로드 후 7절 평가/서버 실행에서 해당 경로를 사용한다. 학습 재개용 전체 output을 보관했다면 원본 pretrained weight와 `Protoss/data` 데이터도 준비하고 같은 설정과 output 경로로 6절 명령에 `--resume`을 추가한다. Merged inference/만 다운로드해서 LoRA 학습을 resume할 수는 없다. Optimizer 상태가 없는 최종 추론 모델 폴더는 학습 재개용 checkpoint를 대신하지 않는다.
 

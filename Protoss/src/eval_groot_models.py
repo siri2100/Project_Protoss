@@ -1,4 +1,4 @@
-"""Evaluate Model 0/1/S/E on the same original held-out data and seeds."""
+"""Evaluate baseline / Model-FM/S/E on the same original held-out data and seeds."""
 import argparse
 import hashlib
 import json
@@ -10,11 +10,11 @@ from .dataset_paths import split_path
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model", choices=["0", "1", "S", "E"], required=True)
+    parser.add_argument("--model", choices=["baseline", "FM", "S", "E"], required=True)
     parser.add_argument("--groot-root", type=Path, required=True)
     parser.add_argument("--dataset-root", type=Path, required=True)
     parser.add_argument("--model-path", type=Path, required=True,
-                        help="Original pretrained model for 0; merged inference/ export for 1/S/E")
+                        help="Original pretrained model for baseline; merged inference/ export for FM/S/E")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--traj-ids", type=int, nargs="+")
     parser.add_argument("--seeds", type=int, nargs="+", default=[42, 43, 44])
@@ -47,8 +47,9 @@ def main():
     script = args.groot_root.resolve() / "gr00t/eval/open_loop_eval.py"
     # Set argv inside the child before invoking the upstream entry point.
     runner = "import runpy,sys; from transformers import set_seed; seed=int(sys.argv[1]); script=sys.argv[2]; sys.argv=sys.argv[2:]; set_seed(seed); runpy.run_path(script,run_name='__main__')"
+    label = "baseline" if args.model == "baseline" else f"Model {args.model}"
     for seed in args.seeds:
-        print(f"Evaluating Model {args.model}, seed {seed}; "
+        print(f"Evaluating {label}, seed {seed}; "
               f"progress log: {args.output_dir / f'seed_{seed}.log'}", flush=True)
         command = [sys.executable, "-c", runner, str(seed), str(script),
             "--dataset-path", settings["test_path"], "--model-path", settings["model_path"],
@@ -59,7 +60,7 @@ def main():
             str((args.output_dir / f"seed_{seed}").resolve())]
         with (args.output_dir / f"seed_{seed}.log").open("w") as log:
             subprocess.run(command, cwd=args.groot_root.resolve(), stdout=log, stderr=subprocess.STDOUT, check=True)
-        print(f"Model {args.model} seed {seed} complete: {args.output_dir / f'seed_{seed}.log'}", flush=True)
+        print(f"{label} seed {seed} complete: {args.output_dir / f'seed_{seed}.log'}", flush=True)
 
 
 if __name__ == "__main__":

@@ -15,7 +15,7 @@ class ModelTrainingTests(unittest.TestCase):
             (root / "styles.json").write_text(json.dumps({"style_method": "original",
                 "synthetic": False, "splits": {"train": [1], "test": [2]}}))
             settings = []
-            for variant in ("1", "S", "E"):
+            for variant in ("FM", "S", "E"):
                 argv = ["train", "--model", variant, "--groot-root", str(root),
                     "--dataset-root", str(root), "--base-model", str(root / "base"),
                     "--output-dir", str(root / ("model_" + variant))]
