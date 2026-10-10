@@ -288,7 +288,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train_groot_models.py" \
   --base-model "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
   --output-dir "$PROTOSS_ROOT/Protoss/checkpoint/model_S_lora" \
   --lora-rank 8 --lora-alpha 16 --max-steps 2000 --save-steps 2000 \
-  --batch-size 2 --gradient-accumulation 16 --lr 1e-5 --workers 2 --seed 42
+  --batch-size 2 --gradient-accumulation 16 --lr 1e-5 --workers 1 --seed 42
 )
 ```
 
@@ -342,10 +342,10 @@ export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/eval_groot_models.py" \
-  --model 0 --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
+  --model 1 --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
-  --model-path "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
-  --output-dir "$PROTOSS_ROOT/results/v1.2/model_0_run01"
+  --model-path "$PROTOSS_ROOT/Protoss/checkpoint/model_1_lora/inference" \
+  --output-dir "$PROTOSS_ROOT/results/v1.2/model_1_run01"
 )
 ```
 
@@ -417,8 +417,8 @@ cd /workspace/RoboLab
 UV_PROJECT_ENVIRONMENT=.venv-51 uv run --no-sync --extra isaac51 \
   python policies/gr00t/run.py \
   --headless --device cuda:0 --remote-host 127.0.0.1 --remote-port 5557 \
-  --task BananaOnPlateTask BananasInBinOneMoreTask BananasInCrateTask \
-  --num-envs 1 --num-runs 10 --open-loop-horizon 8 \
+  --task BananaOnPlateTask BananasInBinOneMoreTask \
+  --num-envs 2 --num-runs 5 --open-loop-horizon 8 \
   --instruction-type default --video-mode none \
   --output-folder-name model0_run01
 )
@@ -480,9 +480,11 @@ uv run --no-sync hf auth whoami
 
 기존 `HF_TOKEN` 환경변수가 있으면 저장된 로그인보다 우선하므로 올바른 write 권한의 토큰인지 확인한다.
 
-### 10.2 Model 1 추론 모델 업로드
+### 10.2 모델별 추론 모델 업로드
 
-`HF_ACCOUNT`를 실제 Hugging Face 계정 또는 write 권한이 있는 organization 이름으로 변경한다. 코드가 private 저장소를 생성하며, 이미 같은 이름의 public 저장소가 있으면 업로드하지 않고 중단한다.
+10.1절 로그인 후, 학습이 완료된 모델의 명령을 각각 실행한다. 로그인된 실제 계정명을 자동으로 조회한다. Organization에 업로드할 때는 조회 명령 대신 `HF_ACCOUNT`에 write 권한이 있는 organization 이름을 지정한다. 코드가 private 저장소를 생성하며, 이미 같은 이름의 public 저장소가 있으면 업로드하지 않고 중단한다.
+
+#### Model 1
 
 ```bash
 (
@@ -491,22 +493,17 @@ export PROTOSS_ROOT=/workspace/Project_Protoss
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
-HF_ACCOUNT=YOUR_HF_ACCOUNT
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
+HF_ACCOUNT=$(uv run --no-sync python -c \
+  'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/upload_checkpoint_hf.py" \
   --folder "$PROTOSS_ROOT/Protoss/checkpoint/model_1_lora/inference" \
   --repo-id "$HF_ACCOUNT/protoss-groot-v12-model1-lora-inference" --workers 2
 )
 ```
 
-먼저 파일 수/용량만 확인하려면 `--dry-run`을 추가한다. 네트워크 요청이나 업로드를 하지 않는다. Model-S/E는 학습 완료 후 각 모델의 inference 경로와 별도 저장소 이름을 지정한다.
-
-대용량 전송은 SDK의 `upload_large_folder`를 사용한다. 중단되면 **같은 폴더와 같은 저장소**로 재실행한다. 로컬 `.cache/huggingface`의 전송 상태를 유지하면 완료한 작업을 재사용한다. 성공하면 원격 파일 목록에서 업로드 대상 파일의 존재를 검사하고 `Upload complete: ...`를 출력한다. 이 검사는 파일 존재 확인이며 checkpoint 로딩 검증이나 독립 hash 검증은 아니다. 다른 학습 실험/step은 새 저장소 이름을 사용하면 서로의 파일이 덮어써지거나 이전 파일이 남는 혼동을 피할 수 있다. [Hugging Face 업로드 안내](https://huggingface.co/docs/huggingface_hub/v0.34.0/guides/upload#upload-a-large-folder).
-
-### 10.3 새 Pod에서 다운로드
-
-새 Pod에 1~3절 환경을 설치하고, 같은 private 저장소를 읽을 수 있는 계정으로 로그인한 후 실행한다. 다운로드 위치는 기존 평가 코드의 checkpoint 경로와 동일하게 한다.
+#### Model-S
 
 ```bash
 (
@@ -515,15 +512,100 @@ export PROTOSS_ROOT=/workspace/Project_Protoss
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
-HF_ACCOUNT=YOUR_HF_ACCOUNT
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
+HF_ACCOUNT=$(uv run --no-sync python -c \
+  'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
+uv run --no-sync python "$PROTOSS_ROOT/Protoss/upload_checkpoint_hf.py" \
+  --folder "$PROTOSS_ROOT/Protoss/checkpoint/model_S_lora/inference" \
+  --repo-id "$HF_ACCOUNT/protoss-groot-v12-model-s-lora-inference" --workers 2
+)
+```
+
+#### Model-E
+
+```bash
+(
+set -e
+export PROTOSS_ROOT=/workspace/Project_Protoss
+export HF_HOME=/workspace/.cache/huggingface
+export HF_HUB_ENABLE_HF_TRANSFER=0
+export PATH="$HOME/.local/bin:$PATH"
+unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
+cd "$PROTOSS_ROOT/Issac-GR00T-N17"
+HF_ACCOUNT=$(uv run --no-sync python -c \
+  'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
+uv run --no-sync python "$PROTOSS_ROOT/Protoss/upload_checkpoint_hf.py" \
+  --folder "$PROTOSS_ROOT/Protoss/checkpoint/model_E_lora/inference" \
+  --repo-id "$HF_ACCOUNT/protoss-groot-v12-model-e-lora-inference" --workers 2
+)
+```
+
+Model 0은 원본 pretrained 모델을 사용하므로 별도 업로드가 필요하지 않다. 파일 수/용량만 확인하려면 업로드 명령에 `--dry-run`을 추가한다. 업로드 스크립트는 네트워크 요청을 하지 않지만, 앞의 계정명 조회는 네트워크를 사용한다.
+
+대용량 전송은 SDK의 `upload_large_folder`를 사용한다. 중단되면 **같은 폴더와 같은 저장소**로 재실행한다. 로컬 `.cache/huggingface`의 전송 상태를 유지하면 완료한 작업을 재사용한다. 성공하면 원격 파일 목록에서 업로드 대상 파일의 존재를 검사하고 `Upload complete: ...`를 출력한다. 이 검사는 파일 존재 확인이며 checkpoint 로딩 검증이나 독립 hash 검증은 아니다. 다른 학습 실험/step은 새 저장소 이름을 사용하면 서로의 파일이 덮어써지거나 이전 파일이 남는 혼동을 피할 수 있다. [Hugging Face 업로드 안내](https://huggingface.co/docs/huggingface_hub/v0.34.0/guides/upload#upload-a-large-folder).
+
+### 10.3 새 Pod에서 모델별 다운로드
+
+새 Pod에 1~3절 환경을 설치하고 10.1절에서 로그인한 후, 평가할 모델의 명령만 실행한다. 각 저장소는 10.2절에서 업로드가 완료돼 있어야 한다. 계정명은 로그인된 계정에서 자동 조회한다. 다른 계정이나 organization의 저장소라면 조회 명령 대신 `HF_ACCOUNT`에 실제 저장소 소유자 이름을 지정한다.
+
+#### Model 1
+
+```bash
+(
+set -e
+export PROTOSS_ROOT=/workspace/Project_Protoss
+export HF_HOME=/workspace/.cache/huggingface
+export HF_HUB_ENABLE_HF_TRANSFER=0
+export PATH="$HOME/.local/bin:$PATH"
+unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
+cd "$PROTOSS_ROOT/Issac-GR00T-N17"
+HF_ACCOUNT=$(uv run --no-sync python -c \
+  'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
 uv run --no-sync hf download "$HF_ACCOUNT/protoss-groot-v12-model1-lora-inference" \
   --local-dir "$PROTOSS_ROOT/Protoss/checkpoint/model_1_lora/inference"
 )
 ```
 
-다른 모델도 같은 방식으로 이름/경로를 바꿔 다운로드한다. 재현하려면 `hf download`에 모델 저장소의 commit SHA를 `--revision SHA`로 지정한다. 다운로드 후 7절 평가/서버 실행에서 해당 경로를 사용한다. 학습 재개용 전체 output을 보관했다면 원본 pretrained weight와 `Protoss/data` 데이터도 준비하고 같은 설정과 output 경로로 6절 명령에 `--resume`을 추가한다. Merged inference/만 다운로드해서 LoRA 학습을 resume할 수는 없다. Optimizer 상태가 없는 최종 추론 모델 폴더는 학습 재개용 checkpoint를 대신하지 않는다.
+#### Model-S
+
+```bash
+(
+set -e
+export PROTOSS_ROOT=/workspace/Project_Protoss
+export HF_HOME=/workspace/.cache/huggingface
+export HF_HUB_ENABLE_HF_TRANSFER=0
+export PATH="$HOME/.local/bin:$PATH"
+unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
+cd "$PROTOSS_ROOT/Issac-GR00T-N17"
+HF_ACCOUNT=$(uv run --no-sync python -c \
+  'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
+uv run --no-sync hf download "$HF_ACCOUNT/protoss-groot-v12-model-s-lora-inference" \
+  --local-dir "$PROTOSS_ROOT/Protoss/checkpoint/model_S_lora/inference"
+)
+```
+
+#### Model-E
+
+```bash
+(
+set -e
+export PROTOSS_ROOT=/workspace/Project_Protoss
+export HF_HOME=/workspace/.cache/huggingface
+export HF_HUB_ENABLE_HF_TRANSFER=0
+export PATH="$HOME/.local/bin:$PATH"
+unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
+cd "$PROTOSS_ROOT/Issac-GR00T-N17"
+HF_ACCOUNT=$(uv run --no-sync python -c \
+  'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
+uv run --no-sync hf download "$HF_ACCOUNT/protoss-groot-v12-model-e-lora-inference" \
+  --local-dir "$PROTOSS_ROOT/Protoss/checkpoint/model_E_lora/inference"
+)
+```
+
+Model 0은 2절의 `nvidia/GR00T-N1.7-DROID` 다운로드 명령을 사용한다. RoboLab 평가만 진행한다면 다운로드 후 8절의 모델 서버와 평가 명령을 실행한다. 서버의 `MODEL_PATH`에는 다운로드한 해당 모델의 `inference/` 경로를 지정한다.
+
+재현하려면 `hf download`에 모델 저장소의 commit SHA를 `--revision SHA`로 지정한다. 다운로드 후 7절 평가/서버 실행에서 해당 경로를 사용한다. 학습 재개용 전체 output을 보관했다면 원본 pretrained weight와 `Protoss/data` 데이터도 준비하고 같은 설정과 output 경로로 6절 명령에 `--resume`을 추가한다. Merged inference/만 다운로드해서 LoRA 학습을 resume할 수는 없다. Optimizer 상태가 없는 최종 추론 모델 폴더는 학습 재개용 checkpoint를 대신하지 않는다.
 
 검증: 업로드 코드는 CPU mock 테스트로 private 저장소 조건, 전체 checkpoint 전송 호출, 원격 누락 검사와 dry-run을 확인했다. 실제 계정으로 대용량 업로드는 이 작업에서 실행하지 않았다.
 
