@@ -1,4 +1,4 @@
-# Project Protoss v1.2 — GR00T baseline / Model-FM/S/E 학습·평가
+# Project Protoss v1.3 — GR00T baseline / Model-FM/S/E 학습·평가
 
 네 모델은 같은 원본 DROID train/test split을 사용한다. baseline은 원본 pretrained 평가 전용이며, Model-FM/S/E는 같은 pretrained 모델에서 독립적으로 LoRA 학습한다.
 
@@ -194,7 +194,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train_groot_models.py" --help
 )
 ```
 
-Model-FM/S/E의 LoRA 대상은 action DiT 내부 `nn.Linear` weight다. LLM, vision encoder, projector, state/action encoder/decoder 및 pretrained weight를 고정하고 두 low-rank 행렬만 학습한다. 기본 rank=8, alpha=16, adapter dropout=0이다. 이는 이 프로젝트의 LoRA 적용 범위이며 NVIDIA 공식 LoRA 옵션이 아니다.
+Model-FM/S/E의 LoRA 대상은 action DiT 내부 `nn.Linear` weight다. LLM, vision encoder, projector, state/action encoder/decoder 및 pretrained weight를 고정하고 두 low-rank 행렬만 학습한다. CLI 기본 rank=64, alpha=128이며 아래 학습 예시는 사용자가 지정한 rank=32, alpha=64를 유지한다. Adapter dropout=0이다. 이는 이 프로젝트의 LoRA 적용 범위이며 NVIDIA 공식 LoRA 옵션이 아니다.
 
 ## 4. DROID 데이터 다운로드
 
@@ -248,6 +248,10 @@ GR00T의 DROID 변환과 동일한 `[eef_9d(9), gripper(1), joint(7)]` LeRobot v
 
 새 실험 경로를 사용한다. 기존 full fine-tuning checkpoint를 LoRA checkpoint로 재개할 수 없다. 데이터는 5절의 `Protoss/data`를 재사용한다.
 
+v1.3은 pretrained processor의 modality 정의를 가져온 뒤 영상 시점만 `[0]`으로 명시하고 state dropout 기본값을 `0.0`으로 설정한다. 이는 전체 state 입력을 무작위로 제거하는 augmentation을 끄는 옵션이며 DiT 내부 dropout과 별개다. 필요하면 `--state-dropout-prob 0.2`처럼 변경할 수 있다. Normalization 통계 정책은 이번 변경에서 바꾸지 않는다.
+
+기존 2프레임 v1.2 학습을 새 설정으로 `--resume`하지 않는다. 아래 `model_*_lora_v13` 경로에서 pretrained 모델부터 새로 학습한다. 원본 데이터는 그대로 재사용하며 재다운로드·변환은 필요 없다. 기존 inference의 processor만 1프레임으로 수정하지 않는다.
+
 ### 6.1 Model-FM 학습
 
 ```bash
@@ -264,9 +268,9 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train_groot_models.py" \
   --model FM --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
   --base-model "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
-  --output-dir "$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora" \
+  --output-dir "$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora_v13" \
   --lora-rank 32 --lora-alpha 64 --max-steps 2000 --save-steps 2000 \
-  --batch-size 2 --gradient-accumulation 16 --lr 1e-5 --workers 2 --seed 42
+  --batch-size 2 --gradient-accumulation 16 --lr 1e-5 --workers 2 --seed 42 --state-dropout-prob 0.0
 )
 ```
 
@@ -286,7 +290,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train_groot_models.py" \
   --model S --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
   --base-model "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
-  --output-dir "$PROTOSS_ROOT/Protoss/checkpoint/model_S_lora" \
+  --output-dir "$PROTOSS_ROOT/Protoss/checkpoint/model_S_lora_v13" \
   --lora-rank 32 --lora-alpha 64 --max-steps 2000 --save-steps 2000 \
   --batch-size 2 --gradient-accumulation 16 --lr 1e-5 --workers 1 --seed 42
 )
@@ -308,9 +312,9 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train_groot_models.py" \
   --model E --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
   --base-model "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
-  --output-dir "$PROTOSS_ROOT/Protoss/checkpoint/model_E_lora" \
+  --output-dir "$PROTOSS_ROOT/Protoss/checkpoint/model_E_lora_v13" \
   --lora-rank 32 --lora-alpha 64 --max-steps 2000 --save-steps 2000 \
-  --batch-size 2 --gradient-accumulation 16 --lr 1e-5 --workers 2 --seed 42
+  --batch-size 2 --gradient-accumulation 16 --lr 1e-5 --workers 2 --seed 42 --state-dropout-prob 0.0
 )
 ```
 
@@ -345,7 +349,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/eval_groot_models.py" \
   --model baseline --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
   --model-path "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
-  --output-dir "$PROTOSS_ROOT/results/v1.2/baseline_run01" \
+  --output-dir "$PROTOSS_ROOT/results/v1.3/baseline_run01" \
   --seeds 42 43 44 --execution-horizon 8 --denoising-steps 4 --steps 100000
 )
 ```
@@ -365,8 +369,8 @@ cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/eval_groot_models.py" \
   --model FM --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
-  --model-path "$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora/inference" \
-  --output-dir "$PROTOSS_ROOT/results/v1.2/model_FM_run01" \
+  --model-path "$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora_v13/inference" \
+  --output-dir "$PROTOSS_ROOT/results/v1.3/model_FM_run01" \
   --seeds 42 43 44 --execution-horizon 8 --denoising-steps 4 --steps 100000
 )
 ```
@@ -386,8 +390,8 @@ cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/eval_groot_models.py" \
   --model S --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
-  --model-path "$PROTOSS_ROOT/Protoss/checkpoint/model_S_lora/inference" \
-  --output-dir "$PROTOSS_ROOT/results/v1.2/model_S_run01" \
+  --model-path "$PROTOSS_ROOT/Protoss/checkpoint/model_S_lora_v13/inference" \
+  --output-dir "$PROTOSS_ROOT/results/v1.3/model_S_run01" \
   --seeds 42 43 44 --execution-horizon 8 --denoising-steps 4 --steps 100000
 )
 ```
@@ -407,8 +411,8 @@ cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/eval_groot_models.py" \
   --model E --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
-  --model-path "$PROTOSS_ROOT/Protoss/checkpoint/model_E_lora/inference" \
-  --output-dir "$PROTOSS_ROOT/results/v1.2/model_E_run01" \
+  --model-path "$PROTOSS_ROOT/Protoss/checkpoint/model_E_lora_v13/inference" \
+  --output-dir "$PROTOSS_ROOT/results/v1.3/model_E_run01" \
   --seeds 42 43 44 --execution-horizon 8 --denoising-steps 4 --steps 100000
 )
 ```
@@ -449,7 +453,7 @@ RoboLab은 설치 당시 main을 사용하므로 기록된 revision을 두 비�
 
 ### GR00T 클라이언트의 영상 이력 적용
 
-DROID 모델은 카메라마다 `[-15, 0]` 두 시점의 영상을 요구한다. 제공된 클라이언트는 매 제어 step의 영상을 환경별로 저장하고, episode 시작에는 첫 프레임으로 과거를 채운다. 환경 reset 시 해당 이력과 action chunk를 초기화한다. `--open-loop-horizon`은 action 실행 길이이며 영상 프레임 수와 별개다. 영상 간 실제 시간은 RoboLab의 제어 주기에 따라 결정된다.
+v1.3 학습은 baseline과 동일하게 카메라마다 현재 프레임 `[0]` 한 장을 사용한다. 클라이언트는 서버의 modality config를 조회해 `[0]`이면 한 장, 기존 v1.2 모델의 `[-15, 0]`이면 과거·현재 두 장을 보낸다. 두 프레임 모델은 환경별 이력을 저장하고 reset 시 초기화한다. `--open-loop-horizon`은 action 실행 길이이며 영상 프레임 수와 별개다.
 
 서버와 평가를 실행하기 전에 아래 명령을 한 번 실행한다. 기존 client.py를 백업한 뒤 프로젝트의 수정된 클라이언트를 적용한다. 이후 RoboLab 코드를 업데이트하면 다시 적용한다.
 
@@ -467,11 +471,11 @@ cp "$PROTOSS_ROOT/Protoss/src/robolab_gr00t_client.py" "$CLIENT"
 )
 ```
 
-이 클라이언트는 영상 이력이 `[-15, 0]`, state 이력이 `[0]`인 DROID 설정용이다. 다른 modality 설정에는 프레임 선택을 맞춰야 한다.
+이 클라이언트는 영상 `[0]` 또는 `[-15, 0]`, state `[0]`인 DROID 설정을 지원한다. 다른 영상 시점은 오류로 중단한다.
 
 ### baseline / Model-FM/S/E 평가
 
-다른 터미널에서 아래 서버를 먼저 실행한다. baseline은 기본 `MODEL_PATH`를 사용한다. Model-FM은 `MODEL_PATH="$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora/inference"`로 바꾼다. S/E도 학습 완료 후 각 merged 모델 경로를 사용한다.
+다른 터미널에서 아래 서버를 먼저 실행한다. baseline은 기본 `MODEL_PATH`를 사용한다. Model-FM은 `MODEL_PATH="$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora_v13/inference"`로 바꾼다. S/E도 학습 완료 후 각 merged 모델 경로를 사용한다.
 
 ```bash
 (
@@ -482,7 +486,7 @@ export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
 export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-MODEL_PATH="$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora/inference"
+MODEL_PATH="$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora_v13/inference"
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 uv run --no-sync python gr00t/eval/run_gr00t_server.py \
   --model-path "$MODEL_PATH" \
@@ -546,7 +550,7 @@ uv run --no-sync python -m unittest discover \
 
 `Protoss/upload_checkpoint_hf.py`로 모델별 산출물을 각각 **private 모델 저장소**에 업로드한다. 지정한 폴더의 모델 weight, processor/config 및 optimizer/scheduler/RNG 상태를 함께 보관한다. `.cache`, `.git`, `.DS_Store`는 제외한다. 학습 코드와 데이터는 이 업로드에 포함되지 않는다.
 
-학습의 checkpoint 저장이 완료된 폴더를 사용한다. 업로드하는 동안 해당 폴더를 수정하거나 trainer의 checkpoint 정리로 삭제하지 않도록 학습 완료 후 실행한다. `--folder`에 전체 `model_FM_lora` output을 지정하면 그 안의 여러 checkpoint도 모두 올라가므로, 아래는 merged `inference/`를 지정한다. 학습 재개용은 `model_FM_lora` 전체(LoRA 설정, processor, checkpoint 포함)를 별도 저장소에 업로드한다. 모델별 저장소는 별도 이름을 사용한다.
+학습의 checkpoint 저장이 완료된 폴더를 사용한다. 업로드하는 동안 해당 폴더를 수정하거나 trainer의 checkpoint 정리로 삭제하지 않도록 학습 완료 후 실행한다. `--folder`에 전체 `model_FM_lora_v13` output을 지정하면 그 안의 여러 checkpoint도 모두 올라가므로, 아래는 merged `inference/`를 지정한다. 학습 재개용은 `model_FM_lora_v13` 전체(LoRA 설정, processor, checkpoint 포함)를 별도 저장소에 업로드한다. 모델별 저장소는 별도 이름을 사용한다.
 
 ### 10.1 로그인
 
@@ -586,8 +590,8 @@ cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 HF_ACCOUNT=$(uv run --no-sync python -c \
   'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/upload_checkpoint_hf.py" \
-  --folder "$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora/inference" \
-  --repo-id "$HF_ACCOUNT/protoss-groot-v12-model-fm-lora-inference" --workers 2
+  --folder "$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora_v13/inference" \
+  --repo-id "$HF_ACCOUNT/protoss-groot-v13-model-fm-lora-inference" --workers 2
 )
 ```
 
@@ -605,8 +609,8 @@ cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 HF_ACCOUNT=$(uv run --no-sync python -c \
   'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/upload_checkpoint_hf.py" \
-  --folder "$PROTOSS_ROOT/Protoss/checkpoint/model_S_lora/inference" \
-  --repo-id "$HF_ACCOUNT/protoss-groot-v12-model-s-lora-inference" --workers 2
+  --folder "$PROTOSS_ROOT/Protoss/checkpoint/model_S_lora_v13/inference" \
+  --repo-id "$HF_ACCOUNT/protoss-groot-v13-model-s-lora-inference" --workers 2
 )
 ```
 
@@ -624,8 +628,8 @@ cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 HF_ACCOUNT=$(uv run --no-sync python -c \
   'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/upload_checkpoint_hf.py" \
-  --folder "$PROTOSS_ROOT/Protoss/checkpoint/model_E_lora/inference" \
-  --repo-id "$HF_ACCOUNT/protoss-groot-v12-model-e-lora-inference" --workers 2
+  --folder "$PROTOSS_ROOT/Protoss/checkpoint/model_E_lora_v13/inference" \
+  --repo-id "$HF_ACCOUNT/protoss-groot-v13-model-e-lora-inference" --workers 2
 )
 ```
 
@@ -637,7 +641,7 @@ baseline은 원본 pretrained 모델을 사용하므로 별도 업로드가 필�
 
 새 Pod에 1~3절 환경을 설치하고 10.1절에서 로그인한 후, 평가할 모델의 명령만 실행한다. 각 저장소는 10.2절에서 업로드가 완료돼 있어야 한다. 계정명은 로그인된 계정에서 자동 조회한다. 다른 계정이나 organization의 저장소라면 조회 명령 대신 `HF_ACCOUNT`에 실제 저장소 소유자 이름을 지정한다.
 
-기존 `model_1_lora` 폴더나 `protoss-groot-v12-model1-lora-inference` 저장소는 자동으로 이름이 바뀌지 않는다. 이미 업로드한 모델을 받으려면 아래 다운로드 명령의 저장소 이름만 기존 이름으로 바꾸고 새 `model_FM_lora/inference` 경로에 저장한다. 기존 학습을 재개할 때는 `--model FM --resume`과 기존 output 경로를 사용한다.
+기존 v1.2의 `model_1_lora`/`model_FM_lora` 폴더와 `protoss-groot-v12-model1-lora-inference`/`protoss-groot-v12-model-fm-lora-inference` 저장소는 유지한다. 과거 결과 재평가에는 기존 저장소를 기존 버전 폴더로 다운로드한다. 아래 v1.3 다운로드는 새 학습 모델의 업로드가 완료된 후 사용한다. 2프레임 v1.2 checkpoint를 v1.3 학습 설정으로 resume할 수 없다.
 
 #### Model-FM
 
@@ -652,8 +656,8 @@ unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 HF_ACCOUNT=$(uv run --no-sync python -c \
   'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
-uv run --no-sync hf download "$HF_ACCOUNT/protoss-groot-v12-model-fm-lora-inference" \
-  --local-dir "$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora/inference"
+uv run --no-sync hf download "$HF_ACCOUNT/protoss-groot-v13-model-fm-lora-inference" \
+  --local-dir "$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora_v13/inference"
 )
 ```
 
@@ -670,8 +674,8 @@ unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 HF_ACCOUNT=$(uv run --no-sync python -c \
   'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
-uv run --no-sync hf download "$HF_ACCOUNT/protoss-groot-v12-model-s-lora-inference" \
-  --local-dir "$PROTOSS_ROOT/Protoss/checkpoint/model_S_lora/inference"
+uv run --no-sync hf download "$HF_ACCOUNT/protoss-groot-v13-model-s-lora-inference" \
+  --local-dir "$PROTOSS_ROOT/Protoss/checkpoint/model_S_lora_v13/inference"
 )
 ```
 
@@ -688,8 +692,8 @@ unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 HF_ACCOUNT=$(uv run --no-sync python -c \
   'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
-uv run --no-sync hf download "$HF_ACCOUNT/protoss-groot-v12-model-e-lora-inference" \
-  --local-dir "$PROTOSS_ROOT/Protoss/checkpoint/model_E_lora/inference"
+uv run --no-sync hf download "$HF_ACCOUNT/protoss-groot-v13-model-e-lora-inference" \
+  --local-dir "$PROTOSS_ROOT/Protoss/checkpoint/model_E_lora_v13/inference"
 )
 ```
 

@@ -148,3 +148,7 @@ MSE/MAE는 joint와 gripper를 합친 원본 action 오차이며 success rate나
 ## 5. 로컬 검증 범위
 
 CLI, JSON 비교, 평가 로그 완결성·조건 검증과 CSV 집계는 CPU 테스트로 검증한다. 실제 GR00T GPU inference, safetensors checkpoint export와 결과 일치 여부는 RunPod에서 위 명령으로 확인해야 한다. 진단을 실행하기 전에는 LoRA 설정·학습 step을 변경하지 않는다.
+
+## v1.3 비교 실험
+
+v1.3은 영상 `[0]`, state dropout `0.0`으로 새로 학습한다. 기존 v1.2 분석을 재현할 때는 위 `TRAIN_RUN`을 이전 학습 폴더로 유지한다. v1.3 분석은 `model_FM_lora_v13`과 새 `analysis_v13_run01`을 사용한다. 새 모델은 영상 입력 조건이 달라지므로 v1.2 결과와 단순히 LoRA 효과만 비교하는 실험으로 해석하지 않는다.

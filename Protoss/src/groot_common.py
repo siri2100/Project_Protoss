@@ -185,6 +185,13 @@ def train(args):
     config = get_default_config().load_dict({"data": {"download_cache": False, "datasets": [
         {"dataset_paths": [str(dataset)], "mix_ratio": 1.0,
          "embodiment_tag": EmbodimentTag.resolve(TAG).value}]}})
+    if getattr(args, "lora", False):
+        from .training_processor_settings import load_training_modalities
+        from gr00t.data.utils import parse_modality_configs
+        config.data.modality_configs = parse_modality_configs(
+            load_training_modalities(args.base_model, EmbodimentTag.resolve(TAG).value))
+        config.model.state_dropout_prob = args.state_dropout_prob
+        print(f"v1.3 processor: video_delta_indices=[0], state_dropout_prob={args.state_dropout_prob}", flush=True)
     config.load_config_path = None
     config.data.seed = args.seed
     config.model.tune_llm = False
@@ -221,7 +228,8 @@ def train(args):
         config.model.tune_projector = False
         lora_settings = {"variant": args.variant, "rank": args.lora_rank, "alpha": args.lora_alpha,
                          "base_model": str(args.base_model.resolve()), "dataset": str(dataset),
-                         "seed": args.seed, "loss": "FM"}
+                         "seed": args.seed, "loss": "FM",
+                         "video_delta_indices": [0], "state_dropout_prob": args.state_dropout_prob}
         settings_path = args.output_dir / "lora_settings.json"
         if args.resume:
             previous = json.loads(settings_path.read_text()) if settings_path.exists() else None

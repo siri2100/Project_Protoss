@@ -1,6 +1,6 @@
 # Project Protoss
 
-현재 v1.2는 GR00T-N1.7-DROID 기반 네 모델을 같은 원본 DROID train/test 데이터로 비교한다.
+현재 v1.3는 GR00T-N1.7-DROID 기반 네 모델을 같은 원본 DROID train/test 데이터로 비교한다.
 
 | 모델 | 학습 | Loss |
 |---|---|---|
@@ -18,3 +18,5 @@
 과거 버전 설명은 [v1.0](../README_v1.0.md), [v1.1](../README_v1.1.md)에 보관한다.
 
 CLI는 이 폴더에, 구현은 `src/`, 테스트는 `src/tests/`에 있다. 서버에 복사할 때 `src/`도 함께 포함한다.
+
+v1.3: 영상은 현재 프레임 `[0]`, state dropout은 기본 `0.0`이다. 기존 데이터는 재사용하고 새 checkpoint 폴더에서 재학습한다.

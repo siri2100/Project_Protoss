@@ -26,6 +26,7 @@ class ModelTrainingTests(unittest.TestCase):
                     self.assertEqual(args.variant, variant)
                     self.assertEqual(args.style, variant)
                     self.assertTrue(args.lora)
+                    self.assertEqual(args.state_dropout_prob, 0.0)
                     self.assertEqual(args.output_dir, root / ("model_" + variant))
                     settings.append((args.styles_dir, args.base_model, args.lora_rank,
                         args.lora_alpha, args.seed, args.lr, args.max_steps,

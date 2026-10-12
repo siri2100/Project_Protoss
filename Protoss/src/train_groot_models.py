@@ -23,10 +23,14 @@ def main():
     parser.add_argument("--lr", type=float, default=1e-5)
     parser.add_argument("--workers", type=int, default=2)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--state-dropout-prob", type=float, default=0.0,
+                        help="Probability of dropping the whole state during training; default off")
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
     if min(args.lora_rank, args.max_steps, args.save_steps, args.batch_size, args.gradient_accumulation) < 1 or args.lr <= 0 or args.lora_alpha <= 0 or args.workers < 0:
         parser.error("Invalid positive training/LoRA parameters")
+    if not 0 <= args.state_dropout_prob <= 1:
+        parser.error("state-dropout-prob must be between 0 and 1")
     report = json.loads((args.styles_dir / "styles.json").read_text())
     if report.get("synthetic") or report.get("style_method") != "original" or "train" not in report["splits"]:
         parser.error("Use the common original dataset prepared with --style-method original")

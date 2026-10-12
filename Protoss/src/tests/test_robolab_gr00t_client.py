@@ -42,6 +42,7 @@ class VideoHistoryTests(unittest.TestCase):
         BaseClient.__init__(client)
         client.open_loop_horizon = 8
         client._video_history = {}
+        client.video_delta_indices = (-15, 0)
         requests = []
         def extract(step, *, env_id=0):
             image = np.full((180, 320, 3), step + env_id * 50, np.uint8)
@@ -70,5 +71,16 @@ class VideoHistoryTests(unittest.TestCase):
         client.reset()
         self.assertFalse(client._video_history)
         self.assertFalse(client._chunks)
+        client.video_delta_indices = (0,)
+        client.infer(40, 'single frame', env_id=0)
+        self.assertEqual(requests[-1]['video.wrist_image_left'].shape, (1, 1, 180, 320, 3))
+        self.assertEqual(requests[-1]['video.wrist_image_left'][0, 0, 0, 0, 0], 40)
+        # Check the native server's ModalityConfig envelope is understood.
+        wire = {'video': {'__ModalityConfig__': True, 'as_json': {'delta_indices': [0]}}}
+        transport = module.GR00TPolicyClient.__new__(module.GR00TPolicyClient)
+        transport.api_token = None
+        transport.socket = types.SimpleNamespace(send=lambda payload: None, recv=lambda: b'config')
+        with patch.object(module._MsgSerializer, 'to_bytes', return_value=b'request'), patch.object(module._MsgSerializer, 'from_bytes', return_value=wire):
+            self.assertEqual(transport.get_video_delta_indices(), (0,))
         # Avoid touching the real ZMQ transport in the destructor.
         client.client = types.SimpleNamespace(close=lambda: None)

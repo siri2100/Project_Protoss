@@ -127,6 +127,24 @@ class GR00TPolicyClient:
 
         return tuple(response)  # (action_dict, info_dict)
 
+    def get_video_delta_indices(self) -> tuple[int, ...]:
+        request = {"endpoint": "get_modality_config"}
+        if self.api_token:
+            request["api_token"] = self.api_token
+        self.socket.send(_MsgSerializer.to_bytes(request))
+        message = self.socket.recv()
+        if message == b"ERROR":
+            raise RuntimeError("Could not read server modality config")
+        response = _MsgSerializer.from_bytes(message)
+        if "error" in response:
+            raise RuntimeError(f"Server error: {response['error']}")
+        video = response["video"]
+        video = video.get("as_json", video)
+        indices = tuple(video["delta_indices"])
+        if indices not in ((0,), (-15, 0)):
+            raise ValueError(f"Unsupported video delta indices: {indices}")
+        return indices
+
     def ping(self) -> bool:
         """Check if the server is reachable."""
         try:
@@ -214,20 +232,23 @@ class GR00TDroidJointposClient(InferenceClient):
         self._video_history = {}
         print(f"[{self.__class__.__name__}] Connecting to GR00T policy server at {remote_host}:{remote_port}...")
         self.client = GR00TPolicyClient(host=remote_host, port=remote_port, api_token=api_token)
+        self.video_delta_indices = self.client.get_video_delta_indices()
         print(
             f"[{self.__class__.__name__}] Connected; "
+            f"video_delta_indices={self.video_delta_indices}, "
             f"open_loop_horizon={self.open_loop_horizon}, resize=no_pad_stretch_area."
         )
 
     def infer(self, obs: Any, instruction: str, *, env_id: int = 0) -> dict:
         # Record every control step, including steps served from the action chunk.
         extracted = self._extract_observation(obs, env_id=env_id)
-        history = self._video_history.setdefault(env_id, deque(maxlen=16))
+        history = self._video_history.setdefault(env_id, deque(maxlen=1 - min(self.video_delta_indices)))
         current = tuple(resize_no_pad(extracted[key], *RESOLUTION).copy()
                         for key in ("external_image", "wrist_image"))
         history.append(current)
         # Clamp missing pre-episode history to the first observed frame.
-        extracted["video_pair"] = (history[0], history[-1])
+        extracted["video_frames"] = [history[max(0, len(history) - 1 + delta)]
+                                     for delta in self.video_delta_indices]
         if self._needs_refresh(env_id):
             response = self._query_server(self._pack_request(extracted, instruction))
             chunk = self._postprocess_chunk(self._unpack_response(response))
@@ -264,9 +285,9 @@ class GR00TDroidJointposClient(InferenceClient):
         }
 
     def _pack_request(self, extracted_obs: dict, instruction: str) -> dict:
-        past, current = extracted_obs["video_pair"]
-        ext_image = np.stack([past[0], current[0]])
-        wrist_image = np.stack([past[1], current[1]])
+        frames = extracted_obs["video_frames"]
+        ext_image = np.stack([frame[0] for frame in frames])
+        wrist_image = np.stack([frame[1] for frame in frames])
         return {
             "video.exterior_image_1_left": ext_image[None, ...].astype(np.uint8),
             "video.wrist_image_left": wrist_image[None, ...].astype(np.uint8),
