@@ -417,6 +417,8 @@ baseline은 원본 pretrained 모델을 사용한다. Model-FM/S/E는 학습 완
 
 `evaluation.json`에는 test manifest SHA256, trajectory ID, seed, horizon과 모델 경로가 기록된다. Seed별 로그의 `Average MSE/MAE across all trajs`와 plot을 비교한다. 이 평가는 imitation 오차이며 물리적 smoothness, 완료 시간, task 성공률을 측정하지 않는다. baseline의 pretrained normalization과 fine-tuned processor 통계는 각 모델의 학습/추론 설정을 따른다. 실제 로봇 성능은 8절 closed-loop 평가가 필요하다. 결과 경로가 이미 있으면 중단한다.
 
+Model-FM의 성능 저하 진단은 [README_analysis.md](README_analysis.md)를 따른다. 초기 LoRA·merge·재로딩 출력 비교, processor 통계 비교와 중간 checkpoint 오차 추세를 별도로 확인한다.
+
 ## 8. RoboLab closed-loop 평가 — 선택 사항
 
 실제 simulator task 성공률이 필요하면 진행한다. Isaac Sim 5.1 EULA를 확인한 뒤 설치한다. RTX rendering을 지원하는 GPU와 NVIDIA graphics/Vulkan 라이브러리가 노출된 Linux 컨테이너가 필요하다. A100/H100에서 학습이 가능해도 simulator 실행이 가능한 것은 아니다. [Isaac Sim 요구사항](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/requirements.html).
