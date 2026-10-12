@@ -345,11 +345,75 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/eval_groot_models.py" \
   --model baseline --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
   --model-path "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
-  --output-dir "$PROTOSS_ROOT/results/v1.2/baseline_run01"
+  --output-dir "$PROTOSS_ROOT/results/v1.2/baseline_run01" \
+  --seeds 42 43 44 --execution-horizon 8 --denoising-steps 4 --steps 100000
 )
 ```
 
-Model-FM은 위 명령의 `--model FM`, `--model-path .../Protoss/checkpoint/model_FM_lora/inference`, `--output-dir .../results/v1.2/model_FM_run01`로 변경한다. Model-S는 `--model S`, `--model-path .../Protoss/checkpoint/model_S_lora/inference`, `--output-dir .../results/v1.2/model_S_run01`을 사용한다. Model-E는 같은 위치의 S를 E로 바꿔 평가한다. baseline은 학습하지 않는다.
+### Model-FM 평가
+
+```bash
+(
+set -e
+export PROTOSS_ROOT=/workspace/Project_Protoss
+export HF_HOME=/workspace/.cache/huggingface
+export HF_HUB_ENABLE_HF_TRANSFER=0
+export PATH="$HOME/.local/bin:$PATH"
+export CUDA_VISIBLE_DEVICES=0
+unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
+cd "$PROTOSS_ROOT/Issac-GR00T-N17"
+uv run --no-sync python "$PROTOSS_ROOT/Protoss/eval_groot_models.py" \
+  --model FM --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
+  --dataset-root "$PROTOSS_ROOT/Protoss/data" \
+  --model-path "$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora/inference" \
+  --output-dir "$PROTOSS_ROOT/results/v1.2/model_FM_run01" \
+  --seeds 42 43 44 --execution-horizon 8 --denoising-steps 4 --steps 100000
+)
+```
+
+### Model-S 평가
+
+```bash
+(
+set -e
+export PROTOSS_ROOT=/workspace/Project_Protoss
+export HF_HOME=/workspace/.cache/huggingface
+export HF_HUB_ENABLE_HF_TRANSFER=0
+export PATH="$HOME/.local/bin:$PATH"
+export CUDA_VISIBLE_DEVICES=0
+unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
+cd "$PROTOSS_ROOT/Issac-GR00T-N17"
+uv run --no-sync python "$PROTOSS_ROOT/Protoss/eval_groot_models.py" \
+  --model S --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
+  --dataset-root "$PROTOSS_ROOT/Protoss/data" \
+  --model-path "$PROTOSS_ROOT/Protoss/checkpoint/model_S_lora/inference" \
+  --output-dir "$PROTOSS_ROOT/results/v1.2/model_S_run01" \
+  --seeds 42 43 44 --execution-horizon 8 --denoising-steps 4 --steps 100000
+)
+```
+
+### Model-E 평가
+
+```bash
+(
+set -e
+export PROTOSS_ROOT=/workspace/Project_Protoss
+export HF_HOME=/workspace/.cache/huggingface
+export HF_HUB_ENABLE_HF_TRANSFER=0
+export PATH="$HOME/.local/bin:$PATH"
+export CUDA_VISIBLE_DEVICES=0
+unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
+cd "$PROTOSS_ROOT/Issac-GR00T-N17"
+uv run --no-sync python "$PROTOSS_ROOT/Protoss/eval_groot_models.py" \
+  --model E --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
+  --dataset-root "$PROTOSS_ROOT/Protoss/data" \
+  --model-path "$PROTOSS_ROOT/Protoss/checkpoint/model_E_lora/inference" \
+  --output-dir "$PROTOSS_ROOT/results/v1.2/model_E_run01" \
+  --seeds 42 43 44 --execution-horizon 8 --denoising-steps 4 --steps 100000
+)
+```
+
+baseline은 원본 pretrained 모델을 사용한다. Model-FM/S/E는 학습 완료 후 생성된 merged `inference/` 모델을 사용한다. 기존 `model_1_lora`에 저장된 Model-FM을 평가하려면 해당 명령의 `--model-path`만 기존 경로로 지정한다. 네 명령은 동일한 공통 testset 전체와 평가 설정을 사용하며 결과는 모델별 폴더에 저장한다. 재평가할 때는 `run02`처럼 새 output 경로를 지정한다.
 
 `evaluation.json`에는 test manifest SHA256, trajectory ID, seed, horizon과 모델 경로가 기록된다. Seed별 로그의 `Average MSE/MAE across all trajs`와 plot을 비교한다. 이 평가는 imitation 오차이며 물리적 smoothness, 완료 시간, task 성공률을 측정하지 않는다. baseline의 pretrained normalization과 fine-tuned processor 통계는 각 모델의 학습/추론 설정을 따른다. 실제 로봇 성능은 8절 closed-loop 평가가 필요하다. 결과 경로가 이미 있으면 중단한다.
 
