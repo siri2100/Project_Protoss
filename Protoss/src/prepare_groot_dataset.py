@@ -1,4 +1,4 @@
-"""Prepare the shared original DROID train/test data for baseline / Model-FM/S/E."""
+"""Prepare the shared original DROID training data (all source episodes, no train/test partition) for baseline / Model-FM/S/E."""
 import argparse
 from pathlib import Path
 import sys

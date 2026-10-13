@@ -1,10 +1,10 @@
-"""Back up shared GR00T train/test data to a private Hugging Face dataset repository."""
+"""Back up shared GR00T training data to a private Hugging Face dataset repository."""
 import argparse
 import json
 from pathlib import Path
 
 from .upload_checkpoint_hf import upload
-from .dataset_paths import split_path
+from .dataset_paths import split_path, require_unsplit
 
 
 def inventory(folder):
@@ -14,7 +14,8 @@ def inventory(folder):
         return path
 
     report = json.loads(required(folder / "styles.json").read_text())
-    for split in ("train", "test"):
+    require_unsplit(report)
+    for split in ("train",):
         root = split_path(folder, split)
         for name in ("info.json", "modality.json", "tasks.jsonl", "stats.json", "relative_stats.json"):
             required(root / "meta" / name)
@@ -45,7 +46,7 @@ def inventory(folder):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--folder", type=Path, required=True,
-                        help="Dataset root containing trainset/, testset/ and styles.json")
+                        help="Dataset root containing trainset/ and styles.json")
     parser.add_argument("--repo-id", required=True)
     parser.add_argument("--workers", type=int, default=2)
     parser.add_argument("--dry-run", action="store_true")

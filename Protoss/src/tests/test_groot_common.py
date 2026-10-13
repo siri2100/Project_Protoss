@@ -68,10 +68,13 @@ class CommonTests(unittest.TestCase):
             with patch.dict(sys.modules, modules), patch.object(styles, "decode_episode", return_value=np.zeros((8, 180, 320, 3), np.uint8)), patch.object(styles.subprocess, "run", side_effect=encode):
                 styles.prepare(args)
             report = json.loads((args.output_dir / "styles.json").read_text())
-            for split in ("train", "test"):
+            for split in ("train",):
                 folder = styles.split_path(args.output_dir, split)
                 info = json.loads((folder / "meta/info.json").read_text())
                 self.assertEqual(info["total_episodes"], len(report["splits"][split]))
+                self.assertEqual(info["total_episodes"], 6)
+                self.assertEqual([r["source_episode"] for r in report["splits"]["train"]], list(range(6)))
+                self.assertFalse((args.output_dir / "testset/meta").exists())
                 self.assertEqual(info["fps"], 15)
                 global_indices = []
                 for parquet in sorted(folder.glob("data/*/*.parquet")):
@@ -88,9 +91,9 @@ class CommonTests(unittest.TestCase):
             with patch.dict(sys.modules, modules), patch.object(styles, "decode_episode", return_value=np.zeros((8, 180, 320, 3), np.uint8)), patch.object(styles.subprocess, "run", side_effect=encode):
                 styles.prepare(args)
             report = json.loads((args.output_dir / "styles.json").read_text())
-            self.assertEqual(set(report["splits"]), {"train", "test"})
+            self.assertEqual(set(report["splits"]), {"train"})
             self.assertFalse(report["synthetic"])
-            for split in ("train", "test"):
+            for split in ("train",):
                 for i, record in enumerate(report["splits"][split]):
                     frame = pd.read_parquet(styles.split_path(args.output_dir, split) / f"data/chunk-000/episode_{i:06d}.parquet")
                     expected = ((record["source_episode"] + 1) * np.arange(8) ** 2) / 1000
@@ -118,7 +121,7 @@ class CommonTests(unittest.TestCase):
         modules["gr00t.experiment.experiment"].run = captured.append
         with tempfile.TemporaryDirectory() as tmp, patch.dict(sys.modules, modules):
             root = Path(tmp).resolve()
-            styles.write_json(root / "styles.json", {"splits": {"train": [1, 2], "test": [3]}})
+            styles.write_json(root / "styles.json", {"splits": {"train": [1, 2]}})
             (root / "trainset/meta").mkdir(parents=True)
             (root / "trainset/meta/relative_stats.json").write_text("{}")
             for style in ("a", "b"):
@@ -141,15 +144,6 @@ class CommonTests(unittest.TestCase):
                 self.assertEqual(cfg.data.datasets[0]["dataset_paths"], [str(root / "trainset")])
                 self.assertFalse(cfg.model.tune_llm or cfg.model.tune_visual)
                 self.assertTrue(cfg.model.tune_projector and cfg.model.tune_diffusion_model)
-
-    def test_shared_split_without_repeated_tasks(self):
-        records = [{"source_episode": i, "task": str(i)} for i in range(300)]
-        splits = styles.split_sources(records, 42)
-        self.assertEqual(splits, styles.split_sources(records, 42))
-        self.assertEqual([len(splits[k]) for k in ("train", "test")], [240, 60])
-        self.assertFalse({r["source_episode"] for r in splits["train"]} & {r["source_episode"] for r in splits["test"]})
-        with self.assertRaises(ValueError):
-            styles.split_sources(records[:2], 42)
 
 if __name__ == "__main__":
     unittest.main()

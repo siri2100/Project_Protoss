@@ -3,18 +3,10 @@ import json
 from pathlib import Path
 import subprocess
 import numpy as np
-from .dataset_paths import split_path
+from .dataset_paths import split_path, require_unsplit
 from .prepare_droid import CAMERAS, data_filename, video_filename, vector_column, decode_episode
 
 TAG = "OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT"
-
-def split_sources(records, seed):
-    if len(records) < 3:
-        raise ValueError("At least 3 source episodes required")
-    order = np.random.default_rng(seed).permutation(len(records))
-    n_test = max(1, int(np.ceil(len(records) * .2)))
-    return {"train": [dict(records[i]) for i in order[n_test:]],
-            "test": [dict(records[i]) for i in order[:n_test]]}
 
 def motion_metrics(joints, fps):
     joints = np.asarray(joints, dtype=float)
@@ -71,7 +63,9 @@ def prepare(args):
         records.append({"source_episode": ep, "task": tasks[0],
                         **motion_metrics(vector_column(frame, "action.joint_position", 7), fps)})
     method = "original"
-    splits, skipped = split_sources(records, args.seed), []
+    if not records:
+        raise ValueError("At least one source episode required")
+    splits, skipped = {"train": [dict(record) for record in records]}, []
     counts = {}
     for record in records:
         counts[record["task"]] = counts.get(record["task"], 0) + 1
@@ -174,6 +168,7 @@ def train(args):
     from gr00t.experiment.experiment import run
 
     report = json.loads((args.styles_dir / "styles.json").read_text())
+    require_unsplit(report)
     split = "train"
     dataset = split_path(args.styles_dir.resolve(), split)
     if not report["splits"][split] or not (dataset / "meta/relative_stats.json").exists():

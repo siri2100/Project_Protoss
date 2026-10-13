@@ -9,11 +9,11 @@ from src import eval_groot_models as evaluation
 
 
 class EvaluationTests(unittest.TestCase):
-    def test_same_test_ids_seeds_and_horizon_for_all_models(self):
+    def test_same_training_ids_seeds_and_horizon_for_all_models(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "styles.json").write_text(json.dumps({"style_method": "original", "synthetic": False,
-                "splits": {"train": [{"source_episode": 0}], "test": [{"source_episode": 1}, {"source_episode": 2}]}}))
+                "splits": {"train": [{"source_episode": 0}, {"source_episode": 1}]}}))
             commands = []
             for model in ("baseline", "FM", "S", "E"):
                 argv = ["eval", "--model", model, "--groot-root", str(root), "--dataset-root", str(root),
@@ -24,6 +24,7 @@ class EvaluationTests(unittest.TestCase):
                     self.assertEqual(len(calls), 3)
                     self.assertEqual([command[3] for command in calls], ["42", "43", "44"])
                     for command in calls:
+                        self.assertEqual(command[command.index("--dataset-path") + 1], str((root / "trainset").resolve()))
                         self.assertEqual(command[command.index("--execution-horizon") + 1], "8")
                         self.assertEqual(command[command.index("--denoising-steps") + 1], "4")
                         start = command.index("--traj-ids") + 1

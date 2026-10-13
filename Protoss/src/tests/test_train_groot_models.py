@@ -13,7 +13,7 @@ class ModelTrainingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "styles.json").write_text(json.dumps({"style_method": "original",
-                "synthetic": False, "splits": {"train": [1], "test": [2]}}))
+                "synthetic": False, "splits": {"train": [1]}}))
             settings = []
             for variant in ("FM", "S", "E"):
                 argv = ["train", "--model", variant, "--groot-root", str(root),

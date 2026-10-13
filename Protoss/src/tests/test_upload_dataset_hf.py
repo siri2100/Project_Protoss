@@ -12,8 +12,8 @@ from src.upload_dataset_hf import inventory
 
 class DatasetUploadTests(unittest.TestCase):
     def fixture(self, root):
-        (root / "styles.json").write_text(json.dumps({"splits": {s: [{}] for s in ("train", "test")}}))
-        for split in ("train", "test"):
+        (root / "styles.json").write_text(json.dumps({"splits": {s: [{}] for s in ("train",)}}))
+        for split in ("train",):
             folder = root / {"train": "trainset", "test": "testset"}[split]
             (folder / "meta").mkdir(parents=True)
             info = {"total_episodes": 1, "total_frames": 4, "chunks_size": 1000,
@@ -51,11 +51,22 @@ class DatasetUploadTests(unittest.TestCase):
             upload(args, api, validator=inventory, repo_type="dataset")
             api.create_repo.assert_not_called()
 
+    def test_old_partition_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.fixture(root)
+            report = root / "styles.json"
+            data = json.loads(report.read_text())
+            data["splits"]["test"] = [{}]
+            report.write_text(json.dumps(data))
+            with self.assertRaisesRegex(ValueError, "re-prepare"):
+                inventory(root)
+
     def test_incomplete_video_and_mismatched_episode_count(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.fixture(root)
-            video = root / "testset/videos/chunk-000/observation.images.wrist/episode_000000.mp4"
+            video = root / "trainset/videos/chunk-000/observation.images.wrist/episode_000000.mp4"
             video.unlink()
             with self.assertRaisesRegex(ValueError, "missing or empty"):
                 inventory(root)
