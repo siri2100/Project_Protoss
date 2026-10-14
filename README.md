@@ -363,22 +363,32 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/eval_groot_models.py" \
 
 ### Model-FM 평가
 
+아래는 RunPod에 저장된 `model_FM_lora_v14/inference`로 episode 0 하나를 seed 42에서 평가한다. `INFERENCE_STEPS`를 `100`, `500`, `800`, `1000` 등으로 지정하면 episode당 최대 평가 timestep이 바뀐다. Episode가 더 짧으면 실제 길이까지만 평가한다. 전체 episode와 세 seed를 비교하려면 `--traj-ids 0`을 제거하고 `--seeds 42 43 44`로 변경한다.
+
+`--model-path`에는 실제 존재하는 merged `inference/` 폴더를 지정한다. 같은 step으로 재실행할 때는 결과 폴더의 `run02`를 `run03` 등 새 이름으로 바꾼다.
+
 ```bash
 (
 set -e
+INFERENCE_STEPS=1000
+
 export PROTOSS_ROOT=/workspace/Project_Protoss_v1.4
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
 export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
+
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/eval_groot_models.py" \
-  --model FM --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
+  --model FM \
+  --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
-  --model-path "$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora_v13/inference" \
-  --output-dir "$PROTOSS_ROOT/results/v1.3/model_FM_run01" \
-  --seeds 42 43 44 --execution-horizon 8 --denoising-steps 4 --steps 100000
+  --model-path "$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora_v14/inference" \
+  --output-dir "$PROTOSS_ROOT/experiment/DROID/modelFM_inference${INFERENCE_STEPS}_run02" \
+  --traj-ids 0 --seeds 42 \
+  --steps "$INFERENCE_STEPS" \
+  --execution-horizon 8 --denoising-steps 4
 )
 ```
 
