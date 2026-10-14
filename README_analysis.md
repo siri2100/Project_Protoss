@@ -8,7 +8,7 @@ RunPod에서 프로젝트의 최신 파일과 기존 GR00T 환경을 준비한�
 
 ```bash
 set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
+export PROTOSS_ROOT=/workspace/Project_Protoss_v1.4
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"

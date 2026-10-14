@@ -13,7 +13,7 @@
 
 ## 1. 환경과 프로젝트 설치
 
-RunPod의 Ubuntu 22.04/24.04, Linux x86_64, NVIDIA CUDA GPU와 Bash를 기준으로 한다. 명령의 프로젝트 경로는 `/workspace/Project_Protoss`이며 실제 위치가 다르면 모든 블록의 `PROTOSS_ROOT`를 변경한다. OS 설치 명령은 root 기준이고 일반 계정은 `apt-get`, `ldconfig`에 `sudo`를 붙인다. 아래 설치·학습 명령은 원격 Linux용이다.
+RunPod의 Ubuntu 22.04/24.04, Linux x86_64, NVIDIA CUDA GPU와 Bash를 기준으로 한다. 명령의 프로젝트 경로는 `/workspace/Project_Protoss_v1.4`이며 실제 위치가 다르면 모든 블록의 `PROTOSS_ROOT`를 변경한다. OS 설치 명령은 root 기준이고 일반 계정은 `apt-get`, `ldconfig`에 `sudo`를 붙인다. 아래 설치·학습 명령은 원격 Linux용이다.
 
 GR00T 소스는 `Issac-GR00T-N17/`, pretrained weight는 `Protoss/checkpoint/GR00T-N1.7-DROID/`, 데이터는 `Protoss/data/` 아래에 둔다. GPU 0을 기본으로 사용하며 모델별로 독립 실행한다. 괄호 안의 `set -e`는 오류 발생 시 해당 블록만 중단한다.
 
@@ -42,7 +42,7 @@ git lfs install
 ```bash
 (
 set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
+export PROTOSS_ROOT=/workspace/Project_Protoss_v1.4
 mkdir -p "$(dirname "$PROTOSS_ROOT")"
 if [ ! -d "$PROTOSS_ROOT" ]; then
   git clone https://github.com/siri2100/Project_Protoss.git "$PROTOSS_ROOT"
@@ -59,7 +59,7 @@ test -f "$PROTOSS_ROOT/Protoss/prepare_droid.py"
 ```bash
 (
 set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
+export PROTOSS_ROOT=/workspace/Project_Protoss_v1.4
 mkdir -p "$PROTOSS_ROOT/Protoss/data/source" \
   "$PROTOSS_ROOT/Protoss/data/trainset" \
   "$PROTOSS_ROOT/Protoss/checkpoint"
@@ -76,7 +76,7 @@ Hugging Face 로그인 계정은 [Cosmos-Reason2-2B](https://huggingface.co/nvid
 ```bash
 (
 set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
+export PROTOSS_ROOT=/workspace/Project_Protoss_v1.4
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
@@ -152,7 +152,7 @@ Isaac-GR00T 소스는 공개 저장소다. `could not read Username`은 GitHub �
 ```bash
 (
 set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
+export PROTOSS_ROOT=/workspace/Project_Protoss_v1.4
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
@@ -178,7 +178,7 @@ GR00T 전용 `.venv`에서 다운로드·변환·학습을 모두 실행한다. 
 ```bash
 (
 set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
+export PROTOSS_ROOT=/workspace/Project_Protoss_v1.4
 export PATH="$HOME/.local/bin:$PATH"
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
@@ -207,7 +207,7 @@ Model-FM/S/E의 LoRA 대상은 action DiT 내부 `nn.Linear` weight다. LLM, vis
 ```bash
 (
 set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
+export PROTOSS_ROOT=/workspace/Project_Protoss_v1.4
 export PATH="$HOME/.local/bin:$PATH"
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
@@ -224,14 +224,14 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/prepare_droid.py" download \
 프로젝트 저장소에서 원격 v1.4 브랜치를 기준으로 로컬 브랜치를 생성한다.
 
 ```bash
-cd /workspace/Project_Protoss
+cd /workspace/Project_Protoss_v1.4
 git checkout -b v1.4 origin/v1.4
 ```
 
 ```bash
 (
 set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
+export PROTOSS_ROOT=/workspace/Project_Protoss_v1.4
 export PATH="$HOME/.local/bin:$PATH"
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
@@ -264,7 +264,7 @@ v1.3은 pretrained processor의 modality 정의를 가져온 뒤 영상 시점�
 ```bash
 (
 set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
+export PROTOSS_ROOT=/workspace/Project_Protoss_v1.4
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
@@ -286,7 +286,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train_groot_models.py" \
 ```bash
 (
 set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
+export PROTOSS_ROOT=/workspace/Project_Protoss_v1.4
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
@@ -308,7 +308,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train_groot_models.py" \
 ```bash
 (
 set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
+export PROTOSS_ROOT=/workspace/Project_Protoss_v1.4
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
@@ -345,7 +345,7 @@ GR00T 기본 masked flow-matching MSE를 그대로 사용한다. FM의 velocity�
 ```bash
 (
 set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
+export PROTOSS_ROOT=/workspace/Project_Protoss_v1.4
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
@@ -366,7 +366,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/eval_groot_models.py" \
 ```bash
 (
 set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
+export PROTOSS_ROOT=/workspace/Project_Protoss_v1.4
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
@@ -387,7 +387,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/eval_groot_models.py" \
 ```bash
 (
 set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
+export PROTOSS_ROOT=/workspace/Project_Protoss_v1.4
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
@@ -408,7 +408,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/eval_groot_models.py" \
 ```bash
 (
 set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
+export PROTOSS_ROOT=/workspace/Project_Protoss_v1.4
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
@@ -467,7 +467,7 @@ v1.3 학습은 baseline과 동일하게 카메라마다 현재 프레임 `[0]` �
 ```bash
 (
 set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
+export PROTOSS_ROOT=/workspace/Project_Protoss_v1.4
 CLIENT=/workspace/RoboLab/policies/gr00t/client.py
 test -f "$CLIENT"
 test -f "$PROTOSS_ROOT/Protoss/src/robolab_gr00t_client.py"
@@ -487,7 +487,7 @@ cp "$PROTOSS_ROOT/Protoss/src/robolab_gr00t_client.py" "$CLIENT"
 ```bash
 (
 set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
+export PROTOSS_ROOT=/workspace/Project_Protoss_v1.4
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
@@ -542,7 +542,7 @@ UV_PROJECT_ENVIRONMENT=.venv-51 uv run --no-sync --extra isaac51 \
 ```bash
 (
 set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
+export PROTOSS_ROOT=/workspace/Project_Protoss_v1.4
 export PATH="$HOME/.local/bin:$PATH"
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
@@ -566,7 +566,7 @@ uv run --no-sync python -m unittest discover \
 ```bash
 (
 set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
+export PROTOSS_ROOT=/workspace/Project_Protoss_v1.4
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
@@ -590,7 +590,7 @@ Loss log는 최신 `checkpoint-STEP/trainer_state.json`의 `log_history`를 사�
 ```bash
 (
 set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
+export PROTOSS_ROOT=/workspace/Project_Protoss_v1.4
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
@@ -634,7 +634,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/upload_checkpoint_hf.py" \
 ```bash
 (
 set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
+export PROTOSS_ROOT=/workspace/Project_Protoss_v1.4
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
@@ -678,7 +678,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/upload_checkpoint_hf.py" \
 ```bash
 (
 set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
+export PROTOSS_ROOT=/workspace/Project_Protoss_v1.4
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
@@ -732,7 +732,7 @@ baseline은 원본 pretrained 모델을 사용하므로 별도 업로드가 필�
 ```bash
 (
 set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
+export PROTOSS_ROOT=/workspace/Project_Protoss_v1.4
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
@@ -750,7 +750,7 @@ uv run --no-sync hf download "$HF_ACCOUNT/protoss-groot-v13-model-fm-lora-infere
 ```bash
 (
 set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
+export PROTOSS_ROOT=/workspace/Project_Protoss_v1.4
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
@@ -768,7 +768,7 @@ uv run --no-sync hf download "$HF_ACCOUNT/protoss-groot-v13-model-s-lora-inferen
 ```bash
 (
 set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
+export PROTOSS_ROOT=/workspace/Project_Protoss_v1.4
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
@@ -802,7 +802,7 @@ baseline은 2절의 `nvidia/GR00T-N1.7-DROID` 다운로드 명령을 사용한�
 ```bash
 (
 set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
+export PROTOSS_ROOT=/workspace/Project_Protoss_v1.4
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
@@ -825,7 +825,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/upload_dataset_hf.py" \
 ```bash
 (
 set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
+export PROTOSS_ROOT=/workspace/Project_Protoss_v1.4
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
