@@ -275,7 +275,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train_groot_models.py" \
   --model FM --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
   --base-model "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
-  --output-dir "$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora_v13" \
+  --output-dir "$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora_v14" \
   --lora-rank 32 --lora-alpha 64 --max-steps 1000 --save-steps 100 \
   --batch-size 2 --gradient-accumulation 16 --lr 1e-5 --workers 2 --seed 42 --state-dropout-prob 0.0
 )
@@ -297,7 +297,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train_groot_models.py" \
   --model S --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
   --base-model "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
-  --output-dir "$PROTOSS_ROOT/Protoss/checkpoint/model_S_lora_v13" \
+  --output-dir "$PROTOSS_ROOT/Protoss/checkpoint/model_S_lora_v14" \
   --lora-rank 32 --lora-alpha 64 --max-steps 2000 --save-steps 2000 \
   --batch-size 2 --gradient-accumulation 16 --lr 1e-5 --workers 1 --seed 42
 )
@@ -319,7 +319,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train_groot_models.py" \
   --model E --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
   --base-model "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
-  --output-dir "$PROTOSS_ROOT/Protoss/checkpoint/model_E_lora_v13" \
+  --output-dir "$PROTOSS_ROOT/Protoss/checkpoint/model_E_lora_v14" \
   --lora-rank 32 --lora-alpha 64 --max-steps 2000 --save-steps 2000 \
   --batch-size 2 --gradient-accumulation 16 --lr 1e-5 --workers 2 --seed 42 --state-dropout-prob 0.0
 )
@@ -385,10 +385,10 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/eval_groot_models.py" \
   --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
   --model-path "$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora_v14/inference" \
-  --output-dir "$PROTOSS_ROOT/experiment/DROID/modelFM_inference${INFERENCE_STEPS}_run02" \
+  --output-dir "$PROTOSS_ROOT/experiment/DROID/model_FM_v1.4_${INFERENCE_STEPS}_run02" \
   --traj-ids 0 --seeds 42 \
-  --steps "$INFERENCE_STEPS" \
-  --execution-horizon 8 --denoising-steps 4
+  --execution-horizon 8 --denoising-steps 4 \
+  --seeds 42 43 44 --execution-horizon 8 --denoising-steps 4 --steps 100000
 )
 ```
 
@@ -407,7 +407,7 @@ cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/eval_groot_models.py" \
   --model S --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
-  --model-path "$PROTOSS_ROOT/Protoss/checkpoint/model_S_lora_v13/inference" \
+  --model-path "$PROTOSS_ROOT/Protoss/checkpoint/model_S_lora_v14/inference" \
   --output-dir "$PROTOSS_ROOT/results/v1.3/model_S_run01" \
   --seeds 42 43 44 --execution-horizon 8 --denoising-steps 4 --steps 100000
 )
@@ -492,7 +492,7 @@ cp "$PROTOSS_ROOT/Protoss/src/robolab_gr00t_client.py" "$CLIENT"
 
 ### baseline / Model-FM/S/E 평가
 
-다른 터미널에서 아래 서버를 먼저 실행한다. baseline은 기본 `MODEL_PATH`를 사용한다. Model-FM은 `MODEL_PATH="$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora_v13/inference"`로 바꾼다. S/E도 학습 완료 후 각 merged 모델 경로를 사용한다.
+다른 터미널에서 아래 서버를 먼저 실행한다. baseline은 기본 `MODEL_PATH`를 사용한다. Model-FM은 `MODEL_PATH="$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora_v14/inference"`로 바꾼다. S/E도 학습 완료 후 각 merged 모델 경로를 사용한다.
 
 ```bash
 (
@@ -503,7 +503,7 @@ export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
 export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-MODEL_PATH="$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora_v13/inference"
+MODEL_PATH="$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora_v14/inference"
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 uv run --no-sync python gr00t/eval/run_gr00t_server.py \
   --model-path "$MODEL_PATH" \
@@ -526,10 +526,10 @@ cd /workspace/RoboLab
 UV_PROJECT_ENVIRONMENT=.venv-51 uv run --no-sync --extra isaac51 \
   python policies/gr00t/run.py \
   --headless --device cuda:0 --remote-host 127.0.0.1 --remote-port 5557 \
-  --task BananaOnPlateTask BananasInBinOneMoreTask \
+  --task BananaInBowlTask \
   --num-envs 2 --num-runs 5 --open-loop-horizon 8 \
   --instruction-type default --video-mode none \
-  --output-folder-name modelFM_run01
+  --output-folder-name model_FM_v1.4_1000
 )
 ```
 
