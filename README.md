@@ -221,11 +221,11 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/prepare_droid.py" download \
 
 수정된 코드를 서버에 반영한 뒤 아래 경로에 생성한다. 이미 변형한 이전 데이터는 원래 궤적으로 되돌릴 수 없으므로 원본 `Protoss/data/source`에서 다시 변환한다. 원본 다운로드는 다시 하지 않는다. 기존 다운로드 폴더가 `droid_styles_source`라면 아래 `--dataset-dir`만 그 경로로 변경한다.
 
-프로젝트 저장소에서 원격 v1.3 브랜치를 기준으로 로컬 브랜치를 생성한다.
+프로젝트 저장소에서 원격 v1.4 브랜치를 기준으로 로컬 브랜치를 생성한다.
 
 ```bash
 cd /workspace/Project_Protoss
-git checkout -b v1.3 origin/v1.3
+git checkout -b v1.4 origin/v1.4
 ```
 
 ```bash
