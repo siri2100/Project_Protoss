@@ -232,7 +232,7 @@ class ExplicitLoopTests(unittest.TestCase):
             for mode in ("pretrained", "disabled", "unmerged", "merged"):
                 with patch("transformers.AutoModel.from_pretrained", return_value=TinyPolicy()) as load:
                     model, processor = inference.load_model_for_inference(root, str(base), mode)
-                if mode == "pretrained":
+                if mode in ("pretrained", "disabled"):
                     load.assert_called_once_with(str(base))
                 self.assertEqual(isinstance(model.action_head.model, PeftModel), mode == "unmerged")
                 outputs[mode] = model.action_head.model(inputs).detach()

@@ -55,16 +55,20 @@ def load_model_for_inference(model_path, base_model_path=None, lora_mode="unmerg
         print(f"Inference mode=pretrained; model={base}; processor={processor}", flush=True)
         return AutoModel.from_pretrained(base), processor
 
+    if lora_mode == "disabled":
+        # Match native base loading exactly; only the processor source changes.
+        print(f"Inference mode=disabled; model={base}; processor={processor}; LoRA active=False", flush=True)
+        return AutoModel.from_pretrained(base), processor
+
     import torch
 
     print(f"Inference mode={lora_mode}; pretrained={base}; processor={processor}", flush=True)
     model = AutoModel.from_pretrained(base, load_bf16=False, torch_dtype=torch.float32)
     model.float()
-    if lora_mode != "disabled":
-        from peft import PeftModel
-        print(f"Loading PEFT adapter: {adapter}", flush=True)
-        dit = PeftModel.from_pretrained(model.action_head.model, adapter, is_trainable=False)
-        model.action_head.model = dit.merge_and_unload(safe_merge=True) if lora_mode == "merged" else dit
+    from peft import PeftModel
+    print(f"Loading PEFT adapter: {adapter}", flush=True)
+    dit = PeftModel.from_pretrained(model.action_head.model, adapter, is_trainable=False)
+    model.action_head.model = dit.merge_and_unload(safe_merge=True) if lora_mode == "merged" else dit
     model.requires_grad_(False)
-    print(f"LoRA active={lora_mode != 'disabled'}; merged={lora_mode == 'merged'}", flush=True)
+    print(f"LoRA active=True; merged={lora_mode == 'merged'}", flush=True)
     return model, processor
