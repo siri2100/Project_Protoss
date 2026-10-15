@@ -37,28 +37,34 @@ def resolve_inference_paths(model_path, base_model_path=None):
     return base, adapter, processor
 
 
-def load_model_for_inference(model_path, base_model_path=None):
+def load_model_for_inference(model_path, base_model_path=None, lora_mode="unmerged"):
+    """Choose true pretrained baseline, disabled adapter, or active PEFT inference."""
     from transformers import AutoModel
 
+    if lora_mode not in ("pretrained", "disabled", "unmerged", "merged"):
+        raise ValueError(f"Unknown LoRA mode: {lora_mode}")
     base, adapter, processor = resolve_inference_paths(model_path, base_model_path)
     if adapter is None:
+        print(f"Inference mode=pretrained; model={base}; processor={processor}", flush=True)
         return AutoModel.from_pretrained(base), processor
 
-    from peft import PeftModel
+    if lora_mode == "pretrained":
+        # Match loading the original checkpoint directly, including its processor.
+        native = Path(base)
+        processor = native / "processor" if (native / "processor").is_dir() and not (native / "processor_config.json").exists() else base
+        print(f"Inference mode=pretrained; model={base}; processor={processor}", flush=True)
+        return AutoModel.from_pretrained(base), processor
+
     import torch
 
-    print(f"Loading pretrained model: {base}", flush=True)
+    print(f"Inference mode={lora_mode}; pretrained={base}; processor={processor}", flush=True)
     model = AutoModel.from_pretrained(base, load_bf16=False, torch_dtype=torch.float32)
     model.float()
-    print(f"Loading PEFT adapter: {adapter}", flush=True)
-    dit = PeftModel.from_pretrained(model.action_head.model, adapter, is_trainable=False)
-
-    # LoRA 적용 시
-    # model.action_head.model = dit.merge_and_unload(safe_merge=True)
-
-    # LoRA 미적용시
-    model.action_head.model = dit
-
+    if lora_mode != "disabled":
+        from peft import PeftModel
+        print(f"Loading PEFT adapter: {adapter}", flush=True)
+        dit = PeftModel.from_pretrained(model.action_head.model, adapter, is_trainable=False)
+        model.action_head.model = dit.merge_and_unload(safe_merge=True) if lora_mode == "merged" else dit
     model.requires_grad_(False)
-    print("LoRA merged in FP32 for inference", flush=True)
+    print(f"LoRA active={lora_mode != 'disabled'}; merged={lora_mode == 'merged'}", flush=True)
     return model, processor

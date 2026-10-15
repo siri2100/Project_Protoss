@@ -16,6 +16,7 @@ def main():
     parser.add_argument("--model-path", type=Path, required=True,
                         help="Pretrained model for baseline; adapter run or inference manifest for FM/S/E")
     parser.add_argument("--base-model-path", type=Path, help="Override adapter pretrained model path")
+    parser.add_argument("--lora-mode", choices=["pretrained", "disabled", "unmerged", "merged"], default="unmerged")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--traj-ids", type=int, nargs="+")
     parser.add_argument("--seeds", type=int, nargs="+", default=[42, 43, 44])
@@ -38,6 +39,7 @@ def main():
     args.output_dir.mkdir(parents=True, exist_ok=True)
     settings = {"model": args.model, "model_path": str(args.model_path.resolve()),
                 "base_model_path": str(args.base_model_path.resolve()) if args.base_model_path else None,
+                "lora_mode": args.lora_mode,
                 "dataset_path": str(split_path(args.dataset_root, "train").resolve()), "traj_ids": ids,
                 "seeds": args.seeds, "execution_horizon": args.execution_horizon,
                 "steps": args.steps, "denoising_steps": args.denoising_steps,
@@ -66,6 +68,7 @@ def main():
             "--steps", str(args.steps), "--denoising-steps", str(args.denoising_steps),
             "--modality-keys", "joint_position", "gripper_position", "--save-plot-path",
             str((args.output_dir / f"seed_{seed}").resolve())]
+        command.extend(["--lora-mode", args.lora_mode])
         if args.base_model_path:
             command.extend(["--base-model-path", str(args.base_model_path.resolve())])
         with (args.output_dir / f"seed_{seed}.log").open("w") as log:

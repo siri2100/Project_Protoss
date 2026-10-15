@@ -1,0 +1,59 @@
+--- a/gr00t/policy/gr00t_policy.py
++++ b/gr00t/policy/gr00t_policy.py
+@@ -88,6 +88,7 @@
+         device: int | str,
+         strict: bool = True,
+         base_model_path: str | None = None,
++        lora_mode: str = "unmerged",
+     ):
+         """Initialize the Gr00t Policy.
+ 
+@@ -109,7 +110,7 @@
+ 
+         # Load the pretrained model and move to target device with bfloat16 precision
+         from src.inference_loading import load_model_for_inference
+-        model, processor_dir = load_model_for_inference(model_dir, base_model_path)
++        model, processor_dir = load_model_for_inference(model_dir, base_model_path, lora_mode)
+         model.eval()  # Set model to evaluation mode
+         model.to(device=device, dtype=torch.bfloat16)
+         self.model = model
+--- a/gr00t/eval/run_gr00t_server.py
++++ b/gr00t/eval/run_gr00t_server.py
+@@ -58,6 +58,9 @@
+     model_path: str | None = None
+     """Path to the model checkpoint directory"""
+ 
++    lora_mode: str = "unmerged"
++    """pretrained, disabled (training processor), unmerged, or merged."""
++
+     base_model_path: str | None = None
+     """Optional pretrained model override for an adapter run."""
+ 
+@@ -109,6 +112,7 @@
+             embodiment_tag=config.embodiment_tag,
+             model_path=config.model_path,
+             base_model_path=config.base_model_path,
++            lora_mode=config.lora_mode,
+             device=config.device,
+             strict=config.strict,
+         )
+--- a/gr00t/eval/open_loop_eval.py
++++ b/gr00t/eval/open_loop_eval.py
+@@ -263,6 +263,9 @@
+     model_path: str | None = None
+     """Path to the model checkpoint."""
+ 
++    lora_mode: str = "unmerged"
++    """pretrained, disabled (training processor), unmerged, or merged."""
++
+     base_model_path: str | None = None
+     """Optional pretrained model override for an adapter run."""
+ 
+@@ -307,6 +310,7 @@
+             embodiment_tag=args.embodiment_tag,
+             model_path=local_model_path,
+             base_model_path=args.base_model_path,
++            lora_mode=args.lora_mode,
+             device="cuda" if torch.cuda.is_available() else "cpu",
+         )
+         # Apply --denoising-steps: the action head reads num_inference_timesteps

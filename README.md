@@ -375,7 +375,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
 - `checkpoint-*`: `adapter/`와 optimizer·scheduler·RNG·trainer 상태를 저장하는 재개용 checkpoint. pretrained 가중치는 중복 저장하지 않는다. 같은 학습 명령에 `--resume`을 추가해 재개한다. 기본 서버에 바로 전달하지 않는다.
 - `adapter/`: PEFT 표준 `adapter_config.json`과 `adapter_model.safetensors`. 원본 DiT에 로드하는 adapter이며 standalone GR00T 모델은 아니다.
 - `processor/`: 학습에서 사용한 processor와 normalization 통계.
-- `inference/adapter_inference.json`: 원본 pretrained 모델, adapter, processor 경로를 연결하는 설정 파일. 학습 종료 시 병합 모델을 저장하지 않는다. 추론 시작 시 원본 모델과 PEFT adapter를 FP32로 병합한 뒤 추론 dtype으로 변환한다.
+- `inference/adapter_inference.json`: 원본 pretrained 모델, adapter, processor 경로를 연결하는 설정 파일. 학습 종료 시 병합 모델을 저장하지 않는다. 추론 모드는 `--lora-mode`로 선택한다. 기본 `unmerged`는 adapter를 forward마다 적용하며, `merged`는 FP32로 병합한 뒤 추론 dtype으로 변환한다.
 - `lora_settings.json`, `lora_run.json`: LoRA backend(`peft`), 설정과 적용 layer 목록. 다른 backend/rank/alpha/base/data/seed로 resume하면 중단한다. 이전 자체 LoRA checkpoint는 PEFT 학습으로 resume할 수 없으며 새 output 경로를 사용한다. 기존 merged `inference/`는 계속 평가에 사용할 수 있다.
 
 단일 CUDA GPU 경로를 제공한다. LoRA는 trainable parameter와 optimizer 메모리를 줄이지만 전체 모델 weight와 action-head activation은 필요하다. 해당 구성의 GPU peak와 학습 시간은 아직 측정하지 않았다.
@@ -407,7 +407,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/eval_groot_models.py" \
 
 ### Model-FM 평가
 
-아래는 `latest_FM_lora_v15.txt`에 기록된 학습 output의 adapter를 원본 pretrained 모델과 추론 시 병합하여 episode 0 하나를 seed 42에서 평가한다. `INFERENCE_STEPS`를 `100`, `500`, `800`, `1000` 등으로 지정하면 episode당 최대 평가 timestep이 바뀐다. Episode가 더 짧으면 실제 길이까지만 평가한다. 전체 episode와 세 seed를 비교하려면 `--traj-ids 0`을 제거하고 `--seeds 42 43 44`로 변경한다.
+아래는 `latest_FM_lora_v15.txt`에 기록된 학습 output의 adapter를 원본 pretrained 모델에 적용하여 episode 0 하나를 seed 42에서 평가한다. `INFERENCE_STEPS`를 `100`, `500`, `800`, `1000` 등으로 지정하면 episode당 최대 평가 timestep이 바뀐다. Episode가 더 짧으면 실제 길이까지만 평가한다. 전체 episode와 세 seed를 비교하려면 `--traj-ids 0`을 제거하고 `--seeds 42 43 44`로 변경한다.
 
 `--model-path`에는 학습 output 폴더를 지정한다. 기존 PEFT output의 `adapter/`, `processor/`, `lora_settings.json`도 지원하므로 재학습 없이 추론 시 병합을 확인할 수 있다. 원본 pretrained 모델 위치가 달라졌다면 `--base-model-path /실제/pretrained/경로`를 추가한다. 새 output의 `inference/` 설정 폴더도 지원한다. 같은 step으로 재실행할 때는 결과 폴더의 `run02`를 `run03` 등 새 이름으로 바꾼다.
 
@@ -536,7 +536,7 @@ cp "$PROTOSS_ROOT/Protoss/src/robolab_gr00t_client.py" "$CLIENT"
 
 ### baseline / Model-FM/S/E 평가
 
-다른 터미널에서 아래 Model-FM 서버를 먼저 실행한다. baseline은 `MODEL_PATH`를 원본 pretrained checkpoint 경로로 바꾸고 `--base-model-path`를 제거한다. Model-FM은 `latest_FM_lora_v15.txt`에 기록된 학습 output 경로를 사용한다. S/E도 각 학습 output 경로를 사용한다. 서버는 원본 pretrained 모델과 저장된 adapter를 로드한 뒤 메모리에서 병합한다. `Protoss/serve.py`가 별도 GR00T checkout에 `Protoss/patches/gr00t_adapter_inference.patch`를 자동 적용하므로 `Protoss/patches/`도 함께 복사한다. baseline 서버 실행 시에는 `--base-model-path`를 빼고 `--model-path`에 원본 checkpoint를 지정한다.
+다른 터미널에서 아래 Model-FM 서버를 먼저 실행한다. baseline은 `MODEL_PATH`를 원본 pretrained checkpoint 경로로 바꾸고 `--base-model-path`를 제거한다. Model-FM은 `latest_FM_lora_v15.txt`에 기록된 학습 output 경로를 사용한다. S/E도 각 학습 output 경로를 사용한다. 서버는 원본 pretrained 모델과 저장된 adapter를 로드한다. `unmerged`와 `merged` 모두 LoRA가 적용되며, 원본 비교에는 `pretrained` 모드를 사용한다. `Protoss/serve.py`가 별도 GR00T checkout에 `Protoss/patches/gr00t_adapter_inference.patch`를 자동 적용하므로 `Protoss/patches/`도 함께 복사한다. baseline 서버 실행 시에는 `--base-model-path`를 빼고 `--model-path`에 원본 checkpoint를 지정한다.
 
 ```bash
 (
@@ -552,10 +552,22 @@ cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/serve.py" \
   --model-path "$MODEL_PATH" \
   --base-model-path "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
+  --lora-mode unmerged \
   --embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT \
   --device cuda:0 --host 127.0.0.1 --port 5557 --use-sim-policy-wrapper
 )
 ```
+
+디버깅할 때 위 명령의 `--lora-mode`만 바꾸고 서버를 재시작한다. `model.action_head.model = dit`는 **LoRA가 켜진 상태**다. 병합 줄을 주석 처리해도 pretrained-only가 되지 않는다.
+
+| `--lora-mode` | 가중치 | Processor |
+|---|---|---|
+| `pretrained` | 원본 pretrained, adapter 미로드 | 원본 pretrained processor |
+| `disabled` | 원본 pretrained, adapter 미로드 | 학습 processor |
+| `unmerged` (기본) | 원본 + LoRA, forward마다 적용 | 학습 processor |
+| `merged` | 원본 + LoRA를 FP32로 병합 | 학습 processor |
+
+먼저 같은 RoboLab 조건에서 `pretrained`가 원본 직접 실행과 같은지 확인한다. 이어서 `disabled`가 달라지면 processor 변경 영향을, `disabled`와 `unmerged`의 차이로 학습된 LoRA의 영향을 확인한다. `unmerged`와 `merged`는 같은 모델의 두 실행 방식이다. 실제 수치 비교에서는 동일 관측과 동일 난수 seed를 사용해야 한다. 서버 로그에 mode, pretrained 경로, processor 경로, LoRA 활성·병합 여부를 출력한다.
 
 GR00T 기본 서버를 원본(baseline) 또는 adapter output(Model-FM/S/E)로 포트 5557에서 실행한 상태로 다른 터미널에서 실행한다.
 

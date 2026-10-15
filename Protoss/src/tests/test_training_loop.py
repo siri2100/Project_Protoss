@@ -204,7 +204,7 @@ class ExplicitLoopTests(unittest.TestCase):
             self.assertFalse((root / "checkpoint-4/model.safetensors").exists())
             self.assertTrue((root / "checkpoint-4/adapter/adapter_model.safetensors").is_file())
             with patch("transformers.AutoModel.from_pretrained", return_value=TinyPolicy()) as load:
-                merged, processor = inference.load_model_for_inference(root / "inference", "/override/base")
+                merged, processor = inference.load_model_for_inference(root / "inference", "/override/base", "merged")
                 self.assertEqual(load.call_args.args[0], "/override/base")
             torch.testing.assert_close(merged.action_head.model(inputs), expected)
             self.assertFalse(isinstance(merged.action_head.model, PeftModel))
@@ -214,8 +214,35 @@ class ExplicitLoopTests(unittest.TestCase):
             (root / "inference/adapter_inference.json").unlink()
             (root / "lora_settings.json").write_text(json.dumps({"backend": "peft", "base_model": "/pretrained"}))
             with patch("transformers.AutoModel.from_pretrained", return_value=TinyPolicy()):
-                merged, _ = inference.load_model_for_inference(root)
+                merged, _ = inference.load_model_for_inference(root, lora_mode="merged")
             torch.testing.assert_close(merged.action_head.model(inputs), expected)
+
+    def test_inference_modes_distinguish_disabled_lora_and_processor_source(self):
+        from peft import PeftModel
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base = root / "original"
+            base.mkdir()
+            (base / "processor_config.json").write_text("{}")
+            session = self.make_session(root)
+            self.run_main(session)
+            runtime.export_model(session)
+            inputs = torch.ones(1, 2)
+            outputs, processors = {}, {}
+            for mode in ("pretrained", "disabled", "unmerged", "merged"):
+                with patch("transformers.AutoModel.from_pretrained", return_value=TinyPolicy()) as load:
+                    model, processor = inference.load_model_for_inference(root, str(base), mode)
+                if mode == "pretrained":
+                    load.assert_called_once_with(str(base))
+                self.assertEqual(isinstance(model.action_head.model, PeftModel), mode == "unmerged")
+                outputs[mode] = model.action_head.model(inputs).detach()
+                processors[mode] = Path(processor)
+            torch.testing.assert_close(outputs["pretrained"], outputs["disabled"])
+            torch.testing.assert_close(outputs["unmerged"], outputs["merged"])
+            self.assertFalse(torch.equal(outputs["disabled"], outputs["unmerged"]))
+            self.assertEqual(processors["pretrained"], base)
+            for mode in ("disabled", "unmerged", "merged"):
+                self.assertEqual(processors[mode], root.resolve() / "processor")
 
     def test_native_pretrained_loading_is_unchanged(self):
         with tempfile.TemporaryDirectory() as tmp:
