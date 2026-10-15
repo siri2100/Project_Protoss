@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from src import train_groot_models as training
+import train as training
 
 
 class ModelTrainingTests(unittest.TestCase):

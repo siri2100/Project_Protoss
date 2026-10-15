@@ -47,7 +47,7 @@ mkdir -p "$(dirname "$PROTOSS_ROOT")"
 if [ ! -d "$PROTOSS_ROOT" ]; then
   git clone https://github.com/siri2100/Project_Protoss.git "$PROTOSS_ROOT"
 fi
-test -f "$PROTOSS_ROOT/Protoss/train_groot_models.py"
+test -f "$PROTOSS_ROOT/Protoss/train.py"
 test -f "$PROTOSS_ROOT/Protoss/prepare_droid.py"
 )
 ```
@@ -190,7 +190,7 @@ import numpy, pandas, pyarrow, scipy, huggingface_hub
 print("PyTorch:", torch.__version__, "CUDA:", torch.version.cuda)
 print(torch.ones(1, device="cuda"), torch.cuda.get_device_name(0))
 CHECK
-uv run --no-sync python "$PROTOSS_ROOT/Protoss/train_groot_models.py" --help
+uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" --help
 )
 ```
 
@@ -271,7 +271,7 @@ export PATH="$HOME/.local/bin:$PATH"
 export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-uv run --no-sync python "$PROTOSS_ROOT/Protoss/train_groot_models.py" \
+uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
   --model FM --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
   --base-model "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
@@ -293,7 +293,7 @@ export PATH="$HOME/.local/bin:$PATH"
 export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-uv run --no-sync python "$PROTOSS_ROOT/Protoss/train_groot_models.py" \
+uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
   --model S --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
   --base-model "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
@@ -315,7 +315,7 @@ export PATH="$HOME/.local/bin:$PATH"
 export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-uv run --no-sync python "$PROTOSS_ROOT/Protoss/train_groot_models.py" \
+uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
   --model E --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
   --base-model "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
@@ -543,7 +543,7 @@ UV_PROJECT_ENVIRONMENT=.venv-51 uv run --no-sync --extra isaac51 \
 |---|---|
 | `Protoss/prepare_droid.py` | 공개 성공 DROID subset 다운로드 (`download` 명령) |
 | `Protoss/prepare_groot_dataset.py` | 네 모델의 공통 원본 데이터 LeRobot v2 준비 |
-| `Protoss/train_groot_models.py` | Model-FM/S/E의 공통 FM LoRA 학습 |
+| `Protoss/train.py` | Model-FM/S/E의 공통 FM LoRA 학습 |
 | `Protoss/eval_groot_models.py` | baseline / Model-FM/S/E 공통 trainset·seed·horizon 평가 |
 | `Protoss/src/groot_common.py` | 공통 데이터 변환과 학습 구현 |
 | `Protoss/src/groot_lora.py` | action DiT Linear LoRA 주입과 merge |
@@ -874,7 +874,7 @@ Protoss/
 ├── checkpoint/                 # 원본 및 모델별 checkpoint
 ├── prepare_droid.py
 ├── prepare_groot_dataset.py
-├── train_groot_models.py
+├── train.py
 ├── eval_groot_models.py
 ├── upload_checkpoint_hf.py
 ├── upload_dataset_hf.py

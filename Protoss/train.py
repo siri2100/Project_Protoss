@@ -4,7 +4,10 @@ import json
 from pathlib import Path
 import sys
 
-from .groot_common import train
+if __package__:
+    from .src.groot_common import train
+else:
+    from src.groot_common import train
 
 
 def main():
