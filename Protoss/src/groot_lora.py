@@ -20,9 +20,13 @@ def install_lora(model, rank=8, alpha=16):
         # Add module-name filters here, e.g. exclude timestep_encoder:
         # if "timestep_encoder" in name:
         #     continue
-        names.append(name)
+        if 'to_q' in name:
+            names.append(name)
+            print(name)
     if not names:
         raise ValueError("No Linear modules found in GR00T action DiT")
+    import sys
+    sys.exit()
 
     model.requires_grad_(False)
     config = LoraConfig(
@@ -59,8 +63,6 @@ def install_lora(model, rank=8, alpha=16):
         f"mismatches: {mismatch_count}\n",
         flush=True,
     )
-    import sys
-    sys.exit()
     return ["action_head.model." + name for name in names]
 
 
