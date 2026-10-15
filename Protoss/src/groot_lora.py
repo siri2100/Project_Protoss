@@ -36,6 +36,29 @@ def install_lora(model, rank=8, alpha=16):
         use_rslora=False,
     )
     model.action_head.model = get_peft_model(dit, config)
+
+    print("\nLoRA parameter freeze check:", flush=True)
+    trainable_count = frozen_count = mismatch_count = 0
+    for name, param in model.named_parameters():
+        is_lora = ".lora_A." in name or ".lora_B." in name
+        matches = param.requires_grad == is_lora
+        mismatch_count += int(not matches)
+        if param.requires_grad:
+            trainable_count += param.numel()
+        else:
+            frozen_count += param.numel()
+        print(
+            f"[{'OK' if matches else 'MISMATCH'}] "
+            f"{'LoRA' if is_lora else 'pretrained'} "
+            f"requires_grad={param.requires_grad} "
+            f"shape={tuple(param.shape)} {name}",
+            flush=True,
+        )
+    print(
+        f"Trainable: {trainable_count:,}; frozen: {frozen_count:,}; "
+        f"mismatches: {mismatch_count}\n",
+        flush=True,
+    )
     return ["action_head.model." + name for name in names]
 
 
