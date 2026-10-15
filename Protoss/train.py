@@ -68,11 +68,10 @@ def parse_args():
     return args
 
 
-def main(args):
+def prepare_training(args):
     import torch
     from gr00t.configs.base_config import get_default_config
     from gr00t.data.embodiment_tags import EmbodimentTag
-    from gr00t.experiment.experiment import run
 
     if __package__:
         from .src.groot_common import TAG, write_json
@@ -111,10 +110,6 @@ def main(args):
                "selection": report, "batch_size": args.batch_size, "lr": args.lr,
                "max_steps": args.max_steps, "gradient_accumulation": args.gradient_accumulation})
 
-    if __package__:
-        from .src.groot_lora import training_pipeline, merge_lora
-    else:
-        from src.groot_lora import training_pipeline, merge_lora
     config.model.tune_projector = False
     lora_settings = {"variant": args.variant, "rank": args.lora_rank, "alpha": args.lora_alpha,
                         "base_model": str(args.base_model.resolve()), "dataset": str(dataset),
@@ -130,22 +125,40 @@ def main(args):
             raise ValueError("LoRA resume settings differ or are missing; use the original experiment settings")
     write_json(settings_path, lora_settings)
 
-    with training_pipeline(config, args.lora_rank, args.lora_alpha) as holder:
-        run(config)
-        torch.save({"settings": lora_settings, "state_dict": {
-            name: parameter.detach().cpu() for name, parameter in holder["model"].named_parameters()
-            if parameter.requires_grad}}, args.output_dir / "lora_adapter.pt")
-        # Trainer checkpoints contain parametrized weights + optimizer for
-        # resume. Export merged weights with native names for GR00T eval.
-        merge_lora(holder["model"])
-        export = args.output_dir / "inference"
-        holder["model"].save_pretrained(export)
-        holder["pipeline"].processor.save_pretrained(export)
-        write_json(args.output_dir / "lora_run.json", {
-            "variant": args.variant, "rank": args.lora_rank, "alpha": args.lora_alpha,
-            "targets": holder["targets"], "base_model": str(args.base_model.resolve()),
-            "dataset": str(dataset), "seed": args.seed, "loss": "FM",
-            "inference_path": str(export.resolve())})
+    return config, lora_settings
+
+
+def main(args):
+    if __package__:
+        from .src.training_runtime import (
+            setup_training, preprocess, update_weights, save_checkpoint, export_model,
+        )
+    else:
+        from src.training_runtime import (
+            setup_training, preprocess, update_weights, save_checkpoint, export_model,
+        )
+
+    config, lora_settings = prepare_training(args)
+    with setup_training(config, args, lora_settings) as training:
+        model = training.model
+        for step in range(training.step + 1, args.max_steps + 1):
+            step_loss = 0.0
+            # One optimizer step accumulates gradients from several batches.
+            for batch in training.batches(args.gradient_accumulation):
+                inputs = preprocess(batch, training)
+                with training.autocast():
+                    model_output = model(**inputs)
+                    loss = model_output["loss"] / args.gradient_accumulation
+                loss.backward()
+                step_loss += loss.detach().item()
+
+            update_weights(training)
+            training.step = step
+            print(f"step={step}/{args.max_steps} loss={step_loss:.6f}", flush=True)
+            if step % args.save_steps == 0 or step == args.max_steps:
+                save_checkpoint(training)
+
+        export_model(training)
 
 
 if __name__ == "__main__":

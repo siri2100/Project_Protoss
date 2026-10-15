@@ -1,4 +1,3 @@
-from contextlib import contextmanager
 import argparse
 import json
 from pathlib import Path
@@ -6,7 +5,7 @@ import sys
 import tempfile
 import types
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 import numpy as np
 import pandas as pd
 from src import groot_common as styles
@@ -114,23 +113,13 @@ class CommonTests(unittest.TestCase):
                 return self
         modules = {name: types.ModuleType(name) for name in
                    ("torch", "gr00t", "gr00t.configs", "gr00t.configs.base_config",
-                    "gr00t.data", "gr00t.data.embodiment_tags", "gr00t.experiment",
-                    "gr00t.experiment.experiment")}
+                    "gr00t.data", "gr00t.data.embodiment_tags")}
         modules["torch"].cuda = types.SimpleNamespace(is_available=lambda: True)
         modules["gr00t.configs.base_config"].get_default_config = Config
         modules["gr00t.data.embodiment_tags"].EmbodimentTag = types.SimpleNamespace(
             resolve=lambda tag: types.SimpleNamespace(value=tag.lower()))
-        modules["gr00t.experiment.experiment"].run = captured.append
         modules["gr00t.data.utils"] = types.ModuleType("gr00t.data.utils")
         modules["gr00t.data.utils"].parse_modality_configs = lambda value: value
-        modules["torch"].save = lambda *args: None
-        lora = types.ModuleType("src.groot_lora")
-        @contextmanager
-        def pipeline(config, rank, alpha):
-            yield {"model": MagicMock(), "pipeline": MagicMock(), "targets": ["test.linear"]}
-        lora.training_pipeline = pipeline
-        lora.merge_lora = lambda model: None
-        modules["src.groot_lora"] = lora
         processor = types.ModuleType("src.training_processor_settings")
         processor.load_training_modalities = lambda *args: {"video": "test"}
         modules["src.training_processor_settings"] = processor
@@ -147,10 +136,11 @@ class CommonTests(unittest.TestCase):
                          gradient_accumulation=16, lr=1e-5, max_steps=2000, save_steps=500,
                          workers=2, resume=False, variant=style, lora_rank=32,
                          lora_alpha=64, state_dropout_prob=0.0)
-                training.main(args)
+                config, _ = training.prepare_training(args)
+                captured.append(config)
                 # Refuse accidental rerun/overwrite, before calling the trainer.
                 with self.assertRaises(ValueError):
-                    training.main(args)
+                    training.prepare_training(args)
             self.assertEqual(len(captured), 2)
             for i, style in enumerate(("a", "b")):
                 cfg = captured[i]
