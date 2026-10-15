@@ -4,19 +4,18 @@ import json
 from pathlib import Path
 import sys
 
-
-
 def train(args):
+    import torch
+    from gr00t.configs.base_config import get_default_config
+    from gr00t.data.embodiment_tags import EmbodimentTag
+    from gr00t.experiment.experiment import run
+
     if __package__:
         from .src.groot_common import TAG, write_json
         from .src.dataset_paths import split_path, require_unsplit
     else:
         from src.groot_common import TAG, write_json
         from src.dataset_paths import split_path, require_unsplit
-    import torch
-    from gr00t.configs.base_config import get_default_config
-    from gr00t.data.embodiment_tags import EmbodimentTag
-    from gr00t.experiment.experiment import run
 
     report = json.loads((args.styles_dir / "styles.json").read_text())
     require_unsplit(report)
