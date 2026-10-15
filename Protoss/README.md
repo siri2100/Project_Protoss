@@ -26,3 +26,5 @@
 나머지 CLI는 이 폴더에, 공통 구현은 `src/`, 테스트는 `src/tests/`에 있다. 서버에 복사할 때 `src/`도 함께 포함한다.
 
 v1.3: 영상은 현재 프레임 `[0]`, state dropout은 기본 `0.0`이다. 기존 데이터는 재사용하고 새 checkpoint 폴더에서 재학습한다.
+
+학습 완료 시 모델 output 폴더에 `training_loss.png`와 원본 수치 `training_loss.csv`를 저장한다. X축은 optimizer step, Y축은 gradient accumulation batch들의 평균 flow-matching loss다. Loss 기록은 checkpoint에도 포함되어 `--resume` 시 이어진다. 이 기능 이전 checkpoint에 loss 기록이 없다면 재개 이후 기록만 표시한다.

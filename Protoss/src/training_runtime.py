@@ -198,6 +198,44 @@ def save_checkpoint(training):
     ).on_save(trainer.args, trainer.state, trainer.control)
 
 
+def record_training_loss(training, loss):
+    """Persist every optimizer-step mean loss in the resumable Trainer state."""
+    training.trainer.state.log_history.append({"step": training.step, "loss": float(loss)})
+
+
+def save_training_loss_plot(training):
+    """Write a headless PNG and CSV, including loss restored from checkpoints."""
+    import csv
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+    from matplotlib.ticker import MaxNLocator
+
+    # Ignore final summaries; keep the last entry for any repeated step.
+    losses = {row["step"]: row["loss"] for row in training.trainer.state.log_history
+              if "step" in row and "loss" in row and row["step"] <= training.step}
+    steps = sorted(losses)
+    output = training.args.output_dir
+    with (output / "training_loss.csv").open("w", newline="") as stream:
+        writer = csv.writer(stream)
+        writer.writerow(["step", "loss"])
+        writer.writerows((step, losses[step]) for step in steps)
+
+    figure = Figure(figsize=(9, 5), layout="constrained")
+    axis = figure.subplots()
+    if steps:
+        axis.plot(steps, [losses[step] for step in steps], linewidth=1.2)
+    else:
+        axis.text(0.5, 0.5, "No recorded step losses in this checkpoint",
+                  ha="center", va="center", transform=axis.transAxes)
+    axis.set(title="Training loss", xlabel="Optimizer step", ylabel="Mean flow-matching loss")
+    axis.xaxis.set_major_locator(MaxNLocator(integer=True))
+    axis.grid(True, alpha=0.3)
+    figure.set_dpi(150)
+    path = output / "training_loss.png"
+    FigureCanvasAgg(figure).print_png(path)
+    print(f"Training loss plot: {path}", flush=True)
+
+
 def export_model(training):
     """Save adapters separately, then merge LoRA for the existing eval scripts."""
     import torch

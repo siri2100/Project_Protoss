@@ -1,6 +1,8 @@
 """CPU integration tests for the explicit loop, optimizer and native checkpoints."""
+from collections import OrderedDict
 from contextlib import contextmanager, nullcontext
 import copy
+import csv
 import json
 from pathlib import Path
 import random
@@ -24,7 +26,7 @@ class TinyPolicy(nn.Module):
     def __init__(self):
         super().__init__()
         self.action_head = nn.Module()
-        self.action_head.model = nn.Sequential(nn.Linear(2, 1, bias=False))
+        self.action_head.model = nn.Sequential(OrderedDict(to_q=nn.Linear(2, 1, bias=False)))
         self.action_head.model[0].weight.data.fill_(0.2)
         self.calls = 0
 
@@ -135,6 +137,18 @@ class ExplicitLoopTests(unittest.TestCase):
             self.assertEqual(actual_rng, expected_rng)
             self.assertEqual(resumed.trainer.lr_scheduler.state_dict(),
                              uninterrupted.trainer.lr_scheduler.state_dict())
+            self.assertEqual(resumed.trainer.state.log_history,
+                             uninterrupted.trainer.state.log_history)
+            with (root / "resumed/training_loss.csv").open() as stream:
+                rows = list(csv.DictReader(stream))
+            self.assertEqual([int(row["step"]) for row in rows], [1, 2, 3, 4])
+            self.assertEqual([float(row["loss"]) for row in rows],
+                             [row["loss"] for row in resumed.trainer.state.log_history])
+            from PIL import Image
+            with Image.open(root / "resumed/training_loss.png") as image:
+                self.assertEqual(image.format, "PNG")
+                self.assertEqual(image.size, (1350, 750))
+                image.verify()
             checkpoint = root / "resumed/checkpoint-4"
             for name in ("optimizer.pt", "scheduler.pt", "rng_state.pth", "trainer_state.json"):
                 self.assertTrue((checkpoint / name).is_file())
