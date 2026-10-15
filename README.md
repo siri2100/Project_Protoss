@@ -571,10 +571,10 @@ cd /workspace/RoboLab
 UV_PROJECT_ENVIRONMENT=.venv-51 uv run --no-sync --extra isaac51 \
   python policies/gr00t/run.py \
   --headless --device cuda:0 --remote-host 127.0.0.1 --remote-port 5557 \
-  --task BananaInBowlTask \
+  --task BananaOnPlateTask \
   --num-envs 2 --num-runs 5 --open-loop-horizon 8 \
   --instruction-type default --video-mode none \
-  --output-folder-name model_FM_v1.5_1000
+  --output-folder-name model_FM_v1.5_100
 )
 ```
 
