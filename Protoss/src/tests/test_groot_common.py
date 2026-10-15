@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 import argparse
 import json
 from pathlib import Path
@@ -5,7 +6,7 @@ import sys
 import tempfile
 import types
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 import numpy as np
 import pandas as pd
 from src import groot_common as styles
@@ -120,6 +121,19 @@ class CommonTests(unittest.TestCase):
         modules["gr00t.data.embodiment_tags"].EmbodimentTag = types.SimpleNamespace(
             resolve=lambda tag: types.SimpleNamespace(value=tag.lower()))
         modules["gr00t.experiment.experiment"].run = captured.append
+        modules["gr00t.data.utils"] = types.ModuleType("gr00t.data.utils")
+        modules["gr00t.data.utils"].parse_modality_configs = lambda value: value
+        modules["torch"].save = lambda *args: None
+        lora = types.ModuleType("src.groot_lora")
+        @contextmanager
+        def pipeline(config, rank, alpha):
+            yield {"model": MagicMock(), "pipeline": MagicMock(), "targets": ["test.linear"]}
+        lora.training_pipeline = pipeline
+        lora.merge_lora = lambda model: None
+        modules["src.groot_lora"] = lora
+        processor = types.ModuleType("src.training_processor_settings")
+        processor.load_training_modalities = lambda *args: {"video": "test"}
+        modules["src.training_processor_settings"] = processor
         with tempfile.TemporaryDirectory() as tmp, patch.dict(sys.modules, modules):
             root = Path(tmp).resolve()
             styles.write_json(root / "styles.json", {"splits": {"train": [1, 2]}})
@@ -131,11 +145,12 @@ class CommonTests(unittest.TestCase):
                 args = argparse.Namespace(styles_dir=root, style=style, base_model=root / "original",
                          output_dir=root / ("model_" + style), seed=42, batch_size=2,
                          gradient_accumulation=16, lr=1e-5, max_steps=2000, save_steps=500,
-                         workers=2, resume=False)
-                training.train(args)
+                         workers=2, resume=False, variant=style, lora_rank=32,
+                         lora_alpha=64, state_dropout_prob=0.0)
+                training.main(args)
                 # Refuse accidental rerun/overwrite, before calling the trainer.
                 with self.assertRaises(ValueError):
-                    training.train(args)
+                    training.main(args)
             self.assertEqual(len(captured), 2)
             for i, style in enumerate(("a", "b")):
                 cfg = captured[i]
@@ -144,7 +159,10 @@ class CommonTests(unittest.TestCase):
                 self.assertIsNone(cfg.training.experiment_name)
                 self.assertEqual(cfg.data.datasets[0]["dataset_paths"], [str(root / "trainset")])
                 self.assertFalse(cfg.model.tune_llm or cfg.model.tune_visual)
-                self.assertTrue(cfg.model.tune_projector and cfg.model.tune_diffusion_model)
+                self.assertFalse(cfg.model.tune_projector)
+                self.assertTrue(cfg.model.tune_diffusion_model)
+                self.assertEqual(cfg.model.state_dropout_prob, 0.0)
+                self.assertEqual(cfg.data.modality_configs, {"video": "test"})
 
 if __name__ == "__main__":
     unittest.main()
