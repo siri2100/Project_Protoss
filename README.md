@@ -549,7 +549,7 @@ export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 MODEL_PATH="$(cat "$PROTOSS_ROOT/Protoss/checkpoint/latest_FM_lora_v15.txt")/inference"
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-uv run --no-sync python gr00t/eval/run_gr00t_server.py \
+uv run --no-sync python -m gr00t.eval.run_gr00t_server \
   --model-path "$MODEL_PATH" \
   --embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT \
   --device cuda:0 --host 127.0.0.1 --port 5557 --use-sim-policy-wrapper
