@@ -1,4 +1,4 @@
-# Project Protoss v1.5 — GR00T baseline / Model-FM/S/E 학습·평가
+# Project Protoss v1.6 — GR00T baseline / Model-FM/S/E 학습·평가
 
 네 모델은 분할하지 않은 같은 원본 DROID 데이터 전체을 사용한다. baseline은 원본 pretrained 평가 전용이며, Model-FM/S/E는 같은 pretrained 모델에서 독립적으로 LoRA 학습한다.
 
@@ -221,11 +221,11 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/prepare_droid.py" download \
 
 수정된 코드를 서버에 반영한 뒤 아래 경로에 생성한다. 이미 변형한 이전 데이터는 원래 궤적으로 되돌릴 수 없으므로 원본 `Protoss/data/source`에서 다시 변환한다. 원본 다운로드는 다시 하지 않는다. 기존 다운로드 폴더가 `droid_styles_source`라면 아래 `--dataset-dir`만 그 경로로 변경한다.
 
-프로젝트 저장소에서 원격 v1.5 브랜치를 기준으로 로컬 브랜치를 생성한다.
+프로젝트 저장소에서 원격 v1.6 브랜치를 기준으로 로컬 브랜치를 생성한다.
 
 ```bash
 cd /workspace/Project_Protoss
-git checkout -b v1.5 origin/v1.5
+git checkout -b v1.6 origin/v1.6
 ```
 
 ```bash
@@ -253,11 +253,11 @@ GR00T의 DROID 변환과 동일한 `[eef_9d(9), gripper(1), joint(7)]` LeRobot v
 
 ## 6. Model-FM/S/E LoRA 학습
 
-아래 새 학습 명령은 `mktemp -d`로 매번 고유한 빈 PEFT 실험 폴더를 생성한다. 생성 경로는 터미널과 `Protoss/checkpoint/latest_*_lora_v15.txt`에 기록한다. 데이터는 5절의 `Protoss/data`를 재사용한다.
+아래 새 학습 명령은 `mktemp -d`로 매번 고유한 빈 PEFT 실험 폴더를 생성한다. 생성 경로는 터미널과 `Protoss/checkpoint/latest_*_lora_v16.txt`에 기록한다. 데이터는 5절의 `Protoss/data`를 재사용한다.
 
 `ValueError: Output is nonempty; choose a new path or --resume`는 지정한 output 폴더에 파일이 있어 덮어쓰기를 막았다는 뜻이다. 이전 실행이 학습 전에 중단되어 설정 JSON만 남아 있어도 발생한다. 같은 명령을 반복하면 같은 오류가 난다.
 
-- 새 학습: 아래 명령은 기존 폴더를 보존하면서 새 폴더를 자동 생성한다. `latest_*_lora_v15.txt`는 가장 최근에 시작한 실험을 가리키며, 이전 실험은 실제 폴더 경로를 직접 지정한다.
+- 새 학습: 아래 명령은 기존 폴더를 보존하면서 새 폴더를 자동 생성한다. `latest_*_lora_v16.txt`는 가장 최근에 시작한 실험을 가리키며, 이전 실험은 실제 폴더 경로를 직접 지정한다.
 - 학습 재개: 같은 PEFT 실험의 `checkpoint-*`에 모델·optimizer·scheduler·RNG 상태가 모두 있을 때만 기존 output 경로와 원래 학습 설정을 유지하고 `--resume`을 추가한다.
 - 설정 JSON만 있거나 이전 자체 LoRA/full fine-tuning checkpoint만 있는 폴더는 `--resume`으로 해결되지 않는다. 새 output 경로에서 pretrained 모델부터 시작한다.
 
@@ -278,8 +278,8 @@ export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 mkdir -p "$PROTOSS_ROOT/Protoss/checkpoint"
-OUTPUT_DIR="$(mktemp -d "$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora_v15_peft_XXXXXXXX")"
-printf '%s\n' "$OUTPUT_DIR" > "$PROTOSS_ROOT/Protoss/checkpoint/latest_FM_lora_v15.txt"
+OUTPUT_DIR="$(mktemp -d "$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora_v16_peft_XXXXXXXX")"
+printf '%s\n' "$OUTPUT_DIR" > "$PROTOSS_ROOT/Protoss/checkpoint/latest_FM_lora_v16.txt"
 printf 'Training output: %s\n' "$OUTPUT_DIR"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
   --model FM --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
@@ -304,8 +304,8 @@ export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 mkdir -p "$PROTOSS_ROOT/Protoss/checkpoint"
-OUTPUT_DIR="$(mktemp -d "$PROTOSS_ROOT/Protoss/checkpoint/model_S_lora_v15_peft_XXXXXXXX")"
-printf '%s\n' "$OUTPUT_DIR" > "$PROTOSS_ROOT/Protoss/checkpoint/latest_S_lora_v15.txt"
+OUTPUT_DIR="$(mktemp -d "$PROTOSS_ROOT/Protoss/checkpoint/model_S_lora_v16_peft_XXXXXXXX")"
+printf '%s\n' "$OUTPUT_DIR" > "$PROTOSS_ROOT/Protoss/checkpoint/latest_S_lora_v16.txt"
 printf 'Training output: %s\n' "$OUTPUT_DIR"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
   --model S --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
@@ -330,8 +330,8 @@ export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 mkdir -p "$PROTOSS_ROOT/Protoss/checkpoint"
-OUTPUT_DIR="$(mktemp -d "$PROTOSS_ROOT/Protoss/checkpoint/model_E_lora_v15_peft_XXXXXXXX")"
-printf '%s\n' "$OUTPUT_DIR" > "$PROTOSS_ROOT/Protoss/checkpoint/latest_E_lora_v15.txt"
+OUTPUT_DIR="$(mktemp -d "$PROTOSS_ROOT/Protoss/checkpoint/model_E_lora_v16_peft_XXXXXXXX")"
+printf '%s\n' "$OUTPUT_DIR" > "$PROTOSS_ROOT/Protoss/checkpoint/latest_E_lora_v16.txt"
 printf 'Training output: %s\n' "$OUTPUT_DIR"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
   --model E --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
@@ -347,7 +347,7 @@ GR00T 기본 masked flow-matching MSE를 그대로 사용한다. FM의 velocity�
 
 ### 6.4 중단된 PEFT 학습 재개
 
-6.1의 PEFT 학습이 checkpoint 저장 이후 중단된 경우에만 사용한다. 아래 명령은 `latest_FM_lora_v15.txt`가 가리키는 실험을 재개하므로, 새 학습 명령을 다시 실행하기 전에 사용한다. 디버그 출력 후 종료되어 설정 파일만 남은 경우에는 6.1에서 새 run 경로를 사용한다. 다른 실험을 재개할 때는 해당 실험의 원래 output 경로와 모든 학습 옵션을 유지한다.
+6.1의 PEFT 학습이 checkpoint 저장 이후 중단된 경우에만 사용한다. 아래 명령은 `latest_FM_lora_v16.txt`가 가리키는 실험을 재개하므로, 새 학습 명령을 다시 실행하기 전에 사용한다. 디버그 출력 후 종료되어 설정 파일만 남은 경우에는 6.1에서 새 run 경로를 사용한다. 다른 실험을 재개할 때는 해당 실험의 원래 output 경로와 모든 학습 옵션을 유지한다.
 
 ```bash
 (
@@ -363,7 +363,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
   --model FM --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
   --base-model "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
-  --output-dir "$(cat "$PROTOSS_ROOT/Protoss/checkpoint/latest_FM_lora_v15.txt")" \
+  --output-dir "$(cat "$PROTOSS_ROOT/Protoss/checkpoint/latest_FM_lora_v16.txt")" \
   --lora-rank 32 --lora-alpha 64 --max-steps 1000 --save-steps 100 \
   --batch-size 2 --gradient-accumulation 16 --lr 1e-5 --workers 2 --seed 42 \
   --resume
@@ -407,7 +407,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/eval_groot_models.py" \
 
 ### Model-FM 평가
 
-아래는 `latest_FM_lora_v15.txt`에 기록된 학습 output의 adapter를 원본 pretrained 모델에 적용하여 episode 0 하나를 seed 42에서 평가한다. `INFERENCE_STEPS`를 `100`, `500`, `800`, `1000` 등으로 지정하면 episode당 최대 평가 timestep이 바뀐다. Episode가 더 짧으면 실제 길이까지만 평가한다. 전체 episode와 세 seed를 비교하려면 `--traj-ids 0`을 제거하고 `--seeds 42 43 44`로 변경한다.
+아래는 `latest_FM_lora_v16.txt`에 기록된 학습 output의 adapter를 원본 pretrained 모델에 적용하여 episode 0 하나를 seed 42에서 평가한다. `INFERENCE_STEPS`를 `100`, `500`, `800`, `1000` 등으로 지정하면 episode당 최대 평가 timestep이 바뀐다. Episode가 더 짧으면 실제 길이까지만 평가한다. 전체 episode와 세 seed를 비교하려면 `--traj-ids 0`을 제거하고 `--seeds 42 43 44`로 변경한다.
 
 `--model-path`에는 학습 output 폴더를 지정한다. 기존 PEFT output의 `adapter/`, `processor/`, `lora_settings.json`도 지원하므로 재학습 없이 추론 시 병합을 확인할 수 있다. 원본 pretrained 모델 위치가 달라졌다면 `--base-model-path /실제/pretrained/경로`를 추가한다. 새 output의 `inference/` 설정 폴더도 지원한다. 같은 step으로 재실행할 때는 결과 폴더의 `run02`를 `run03` 등 새 이름으로 바꾼다.
 
@@ -428,8 +428,8 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/eval_groot_models.py" \
   --model FM \
   --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
-  --model-path "$(cat "$PROTOSS_ROOT/Protoss/checkpoint/latest_FM_lora_v15.txt")" \
-  --output-dir "$PROTOSS_ROOT/experiment/DROID/model_FM_v1.5_${INFERENCE_STEPS}_run02" \
+  --model-path "$(cat "$PROTOSS_ROOT/Protoss/checkpoint/latest_FM_lora_v16.txt")" \
+  --output-dir "$PROTOSS_ROOT/experiment/DROID/model_FM_v1.6_${INFERENCE_STEPS}_run02" \
   --traj-ids 0 --seeds 42 \
   --execution-horizon 8 --denoising-steps 4 \
   --seeds 42 43 44 --execution-horizon 8 --denoising-steps 4 --steps 100000
@@ -451,7 +451,7 @@ cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/eval_groot_models.py" \
   --model S --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
-  --model-path "$(cat "$PROTOSS_ROOT/Protoss/checkpoint/latest_S_lora_v15.txt")" \
+  --model-path "$(cat "$PROTOSS_ROOT/Protoss/checkpoint/latest_S_lora_v16.txt")" \
   --output-dir "$PROTOSS_ROOT/results/v1.3/model_S_run01" \
   --seeds 42 43 44 --execution-horizon 8 --denoising-steps 4 --steps 100000
 )
@@ -472,7 +472,7 @@ cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/eval_groot_models.py" \
   --model E --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
-  --model-path "$(cat "$PROTOSS_ROOT/Protoss/checkpoint/latest_E_lora_v15.txt")" \
+  --model-path "$(cat "$PROTOSS_ROOT/Protoss/checkpoint/latest_E_lora_v16.txt")" \
   --output-dir "$PROTOSS_ROOT/results/v1.3/model_E_run01" \
   --seeds 42 43 44 --execution-horizon 8 --denoising-steps 4 --steps 100000
 )
@@ -536,7 +536,7 @@ cp "$PROTOSS_ROOT/Protoss/src/robolab_gr00t_client.py" "$CLIENT"
 
 ### baseline / Model-FM/S/E 평가
 
-다른 터미널에서 아래 Model-FM 서버를 먼저 실행한다. baseline은 `MODEL_PATH`를 원본 pretrained checkpoint 경로로 바꾸고 `--base-model-path`를 제거한다. Model-FM은 `latest_FM_lora_v15.txt`에 기록된 학습 output 경로를 사용한다. S/E도 각 학습 output 경로를 사용한다. 서버는 원본 pretrained 모델과 저장된 adapter를 로드한다. `unmerged`와 `merged` 모두 LoRA가 적용되며, 원본 비교에는 `pretrained` 모드를 사용한다. `Protoss/serve.py`가 별도 GR00T checkout에 `Protoss/patches/gr00t_adapter_inference.patch`를 자동 적용하므로 `Protoss/patches/`도 함께 복사한다. baseline 서버 실행 시에는 `--base-model-path`를 빼고 `--model-path`에 원본 checkpoint를 지정한다.
+다른 터미널에서 아래 Model-FM 서버를 먼저 실행한다. baseline은 `MODEL_PATH`를 원본 pretrained checkpoint 경로로 바꾸고 `--base-model-path`를 제거한다. Model-FM은 `latest_FM_lora_v16.txt`에 기록된 학습 output 경로를 사용한다. S/E도 각 학습 output 경로를 사용한다. 서버는 원본 pretrained 모델과 저장된 adapter를 로드한다. `unmerged`와 `merged` 모두 LoRA가 적용되며, 원본 비교에는 `pretrained` 모드를 사용한다. `Protoss/serve.py`가 별도 GR00T checkout에 `Protoss/patches/gr00t_adapter_inference.patch`를 자동 적용하므로 `Protoss/patches/`도 함께 복사한다. baseline 서버 실행 시에는 `--base-model-path`를 빼고 `--model-path`에 원본 checkpoint를 지정한다.
 
 ```bash
 (
@@ -547,7 +547,7 @@ export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
 export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-MODEL_PATH="$(cat "$PROTOSS_ROOT/Protoss/checkpoint/latest_FM_lora_v15.txt")"
+MODEL_PATH="$(cat "$PROTOSS_ROOT/Protoss/checkpoint/latest_FM_lora_v16.txt")"
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/serve.py" \
   --model-path "$MODEL_PATH" \
@@ -586,7 +586,7 @@ UV_PROJECT_ENVIRONMENT=.venv-51 uv run --no-sync --extra isaac51 \
   --task BananaOnPlateTask \
   --num-envs 2 --num-runs 5 --open-loop-horizon 8 \
   --instruction-type default --video-mode none \
-  --output-folder-name model_FM_v1.5_100
+  --output-folder-name model_FM_v1.6_100
 )
 ```
 
@@ -881,7 +881,7 @@ HF_ACCOUNT=$(uv run --no-sync python -c \
   'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/upload_dataset_hf.py" \
   --folder "$PROTOSS_ROOT/Protoss/data" \
-  --repo-id "$HF_ACCOUNT/protoss-groot-v15-shared-data" --workers 2
+  --repo-id "$HF_ACCOUNT/protoss-groot-v16-shared-data" --workers 2
 )
 ```
 
@@ -902,7 +902,7 @@ unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 HF_ACCOUNT=$(uv run --no-sync python -c \
   'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
-uv run --no-sync hf download "$HF_ACCOUNT/protoss-groot-v15-shared-data" \
+uv run --no-sync hf download "$HF_ACCOUNT/protoss-groot-v16-shared-data" \
   --repo-type dataset \
   --local-dir "$PROTOSS_ROOT/Protoss/data"
 )
@@ -947,4 +947,4 @@ Protoss/
 
 저장 경로 변경 검증: 전체 trainset 생성, 같은 폴더를 읽는 학습·평가, 데이터 업로드의 source 제외를 포함해 CPU 테스트 11개를 통과했다. 실제 다운로드·GPU 학습·원격 업로드는 실행하지 않았다.
 
-v1.5: train/test 분할을 제거하고 원본 episode 전체를 trainset에 변환한다. Open-loop 평가는 같은 trainset을 사용한다. 기존 분할 manifest는 학습·평가·데이터 업로드에서 거부한다.
+v1.6: train/test 분할을 제거하고 원본 episode 전체를 trainset에 변환한다. Open-loop 평가는 같은 trainset을 사용한다. 기존 분할 manifest는 학습·평가·데이터 업로드에서 거부한다.
