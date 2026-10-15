@@ -1,0 +1,99 @@
+diff --git a/gr00t/eval/open_loop_eval.py b/gr00t/eval/open_loop_eval.py
+index 4461b84..5fef241 100644
+--- a/gr00t/eval/open_loop_eval.py
++++ b/gr00t/eval/open_loop_eval.py
+@@ -263,6 +263,9 @@ class ArgsConfig:
+     model_path: str | None = None
+     """Path to the model checkpoint."""
+ 
++    base_model_path: str | None = None
++    """Optional pretrained model override for an adapter run."""
++
+     denoising_steps: int = 4
+     """Number of denoising steps to use."""
+ 
+@@ -303,6 +306,7 @@ def main(args: ArgsConfig):
+         policy = Gr00tPolicy(
+             embodiment_tag=args.embodiment_tag,
+             model_path=local_model_path,
++            base_model_path=args.base_model_path,
+             device="cuda" if torch.cuda.is_available() else "cpu",
+         )
+         # Apply --denoising-steps: the action head reads num_inference_timesteps
+diff --git a/gr00t/eval/run_gr00t_server.py b/gr00t/eval/run_gr00t_server.py
+index 9994b30..2c23b3b 100644
+--- a/gr00t/eval/run_gr00t_server.py
++++ b/gr00t/eval/run_gr00t_server.py
+@@ -58,6 +58,9 @@ class ServerConfig:
+     model_path: str | None = None
+     """Path to the model checkpoint directory"""
+ 
++    base_model_path: str | None = None
++    """Optional pretrained model override for an adapter run."""
++
+     embodiment_tag: str = "new_embodiment"
+     """Embodiment tag (name or value, case-insensitive). Run with --help to see known tags."""
+ 
+@@ -105,6 +108,7 @@ def main(config: ServerConfig):
+         policy = Gr00tPolicy(
+             embodiment_tag=config.embodiment_tag,
+             model_path=config.model_path,
++            base_model_path=config.base_model_path,
+             device=config.device,
+             strict=config.strict,
+         )
+diff --git a/gr00t/policy/gr00t_policy.py b/gr00t/policy/gr00t_policy.py
+index 6f5a46b..1f2cb37 100644
+--- a/gr00t/policy/gr00t_policy.py
++++ b/gr00t/policy/gr00t_policy.py
+@@ -25,7 +25,7 @@ from typing import Any
+ 
+ import numpy as np
+ import torch
+-from transformers import AutoModel, AutoProcessor
++from transformers import AutoProcessor
+ 
+ from gr00t.data.embodiment_tags import FINETUNE_ONLY_TAGS, POSTTRAIN_TAGS, EmbodimentTag
+ from gr00t.data.interfaces import BaseProcessor
+@@ -87,13 +87,15 @@ class Gr00tPolicy(BasePolicy):
+         *,
+         device: int | str,
+         strict: bool = True,
++        base_model_path: str | None = None,
+     ):
+         """Initialize the Gr00t Policy.
+ 
+         Args:
+             embodiment_tag: The embodiment tag defining the robot/environment type.
+                 Accepts an EmbodimentTag enum or a string (resolved case-insensitively).
+-            model_path: Path to the pretrained model checkpoint directory
++            model_path: Pretrained checkpoint, PEFT run output, or adapter inference manifest directory
++            base_model_path: Optional pretrained path override for PEFT runs
+             device: Device to run the model on (e.g., 'cuda:0', 0, 'cpu')
+             strict: Whether to enforce strict input validation (default: True)
+         """
+@@ -106,21 +108,13 @@ class Gr00tPolicy(BasePolicy):
+         model_dir = Path(model_path)
+ 
+         # Load the pretrained model and move to target device with bfloat16 precision
+-        model = AutoModel.from_pretrained(model_dir)
++        from src.inference_loading import load_model_for_inference
++        model, processor_dir = load_model_for_inference(model_dir, base_model_path)
+         model.eval()  # Set model to evaluation mode
+         model.to(device=device, dtype=torch.bfloat16)
+         self.model = model
+ 
+-        # Load the processor for input/output transformation.
+-        # Training saves processor files under a "processor/" subdirectory, but
+-        # AutoProcessor expects them at the model root.  Fall back to the
+-        # subdirectory when the root lacks a processor_config.json.
+-        processor_dir = (
+-            model_dir / "processor"
+-            if (model_dir / "processor").is_dir()
+-            and not (model_dir / "processor_config.json").exists()
+-            else model_dir
+-        )
++        # Use the training processor for adapters, native processor for baseline.
+         self.processor: BaseProcessor = AutoProcessor.from_pretrained(processor_dir)
+         self.processor.eval()
+ 

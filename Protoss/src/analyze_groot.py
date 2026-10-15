@@ -140,6 +140,17 @@ def export_checkpoint(args):
     processor = processor_path(checkpoint) if ((checkpoint / 'processor_config.json').exists() or
                 (checkpoint / 'processor/processor_config.json').exists()) else processor_path(checkpoint.parent)
     model = AutoModel.from_pretrained(args.base_model)
+    if (checkpoint / 'adapter/adapter_config.json').is_file():
+        from peft import PeftModel
+        model.action_head.model = PeftModel.from_pretrained(model.action_head.model, checkpoint / 'adapter')
+        merge_lora(model)
+        model.eval()
+        model.save_pretrained(args.output_dir)
+        AutoProcessor.from_pretrained(processor).save_pretrained(args.output_dir)
+        write(args.output_dir / 'analysis_export.json', {'checkpoint': str(checkpoint),
+              'settings': settings, 'processor_source': str(processor), 'format': 'peft-adapter'})
+        print(f'Merged export: {args.output_dir}', flush=True)
+        return
     targets = install_lora(model, settings['rank'], settings['alpha'])
     index = checkpoint / 'model.safetensors.index.json'
     paths = sorted(set(json.loads(index.read_text())['weight_map'].values())) if index.exists() else ['model.safetensors']

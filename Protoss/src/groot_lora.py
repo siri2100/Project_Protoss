@@ -68,6 +68,24 @@ def merge_lora(model):
         model.action_head.model = dit.merge_and_unload(safe_merge=True)
 
 
+def restore_adapter(model, adapter_path):
+    """Restore adapter weights in place so optimizer references remain valid."""
+    from peft import get_peft_model_state_dict, set_peft_model_state_dict
+    from peft.utils.save_and_load import load_peft_weights
+
+    dit = model.action_head.model
+    config = LoraConfig.from_pretrained(adapter_path)
+    current = dit.peft_config["default"]
+    for key in ("r", "lora_alpha", "target_modules", "lora_dropout", "bias", "use_rslora"):
+        if getattr(config, key) != getattr(current, key):
+            raise ValueError(f"Resume adapter configuration differs: {key}")
+    weights = load_peft_weights(str(adapter_path), device="cpu")
+    expected = get_peft_model_state_dict(dit)
+    if set(weights) != set(expected) or any(weights[k].shape != expected[k].shape for k in expected):
+        raise ValueError("Resume adapter weights do not match the installed LoRA modules")
+    set_peft_model_state_dict(dit, weights)
+
+
 @contextmanager
 def training_pipeline(config, rank, alpha):
     """Install adapters after base loading; preserve upstream processor/trainer."""

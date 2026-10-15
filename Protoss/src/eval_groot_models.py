@@ -14,7 +14,8 @@ def main():
     parser.add_argument("--groot-root", type=Path, required=True)
     parser.add_argument("--dataset-root", type=Path, required=True)
     parser.add_argument("--model-path", type=Path, required=True,
-                        help="Original pretrained model for baseline; merged inference/ export for FM/S/E")
+                        help="Pretrained model for baseline; adapter run or inference manifest for FM/S/E")
+    parser.add_argument("--base-model-path", type=Path, help="Override adapter pretrained model path")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--traj-ids", type=int, nargs="+")
     parser.add_argument("--seeds", type=int, nargs="+", default=[42, 43, 44])
@@ -36,6 +37,7 @@ def main():
         parser.error("Output is nonempty; use a new evaluation directory")
     args.output_dir.mkdir(parents=True, exist_ok=True)
     settings = {"model": args.model, "model_path": str(args.model_path.resolve()),
+                "base_model_path": str(args.base_model_path.resolve()) if args.base_model_path else None,
                 "dataset_path": str(split_path(args.dataset_root, "train").resolve()), "traj_ids": ids,
                 "seeds": args.seeds, "execution_horizon": args.execution_horizon,
                 "steps": args.steps, "denoising_steps": args.denoising_steps,
@@ -45,7 +47,14 @@ def main():
     (args.output_dir / "evaluation.json").write_text(json.dumps(settings, indent=2) + "\n")
     script = args.groot_root.resolve() / "gr00t/eval/open_loop_eval.py"
     # Set argv inside the child before invoking the upstream entry point.
-    runner = "import runpy,sys; from transformers import set_seed; seed=int(sys.argv[1]); script=sys.argv[2]; sys.argv=sys.argv[2:]; set_seed(seed); runpy.run_path(script,run_name='__main__')"
+    runner = (
+        "import runpy,sys; from pathlib import Path; "
+        f"sys.path.insert(0, {str(Path(__file__).resolve().parents[1])!r}); "
+        "from src.gr00t_adapter_patch import ensure_adapter_inference; "
+        "from transformers import set_seed; seed=int(sys.argv[1]); script=sys.argv[2]; "
+        "ensure_adapter_inference(Path(script).parents[2]); "
+        "sys.argv=sys.argv[2:]; set_seed(seed); runpy.run_path(script,run_name='__main__')"
+    )
     label = "baseline" if args.model == "baseline" else f"Model {args.model}"
     for seed in args.seeds:
         print(f"Evaluating {label}, seed {seed}; "
@@ -57,6 +66,8 @@ def main():
             "--steps", str(args.steps), "--denoising-steps", str(args.denoising_steps),
             "--modality-keys", "joint_position", "gripper_position", "--save-plot-path",
             str((args.output_dir / f"seed_{seed}").resolve())]
+        if args.base_model_path:
+            command.extend(["--base-model-path", str(args.base_model_path.resolve())])
         with (args.output_dir / f"seed_{seed}.log").open("w") as log:
             subprocess.run(command, cwd=args.groot_root.resolve(), stdout=log, stderr=subprocess.STDOUT, check=True)
         print(f"{label} seed {seed} complete: {args.output_dir / f'seed_{seed}.log'}", flush=True)

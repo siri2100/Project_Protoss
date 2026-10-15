@@ -1,3 +1,4 @@
+from collections import OrderedDict
 import copy
 import importlib.util
 from pathlib import Path
@@ -16,7 +17,7 @@ class LoRATests(unittest.TestCase):
         model = nn.Module()
         model.backbone = nn.Linear(4, 4)
         model.action_head = nn.Module()
-        model.action_head.model = nn.Sequential(nn.Linear(4, 6), nn.SiLU(), nn.Linear(6, 3))
+        model.action_head.model = nn.Sequential(OrderedDict(to_q=nn.Linear(4, 6), activation=nn.SiLU(), to_q_output=nn.Linear(6, 3)))
         x = torch.randn(5, 4)
         original = model.action_head.model(x).detach()
         base_dit = copy.deepcopy(model.action_head.model)
@@ -41,7 +42,7 @@ class LoRATests(unittest.TestCase):
         merge_lora(model)
         torch.testing.assert_close(adapted, model.action_head.model(x))
         self.assertFalse(any("lora_" in key or "base_layer" in key for key in model.state_dict()))
-        reloaded = nn.Sequential(nn.Linear(4, 6), nn.SiLU(), nn.Linear(6, 3))
+        reloaded = nn.Sequential(OrderedDict(to_q=nn.Linear(4, 6), activation=nn.SiLU(), to_q_output=nn.Linear(6, 3)))
         reloaded.load_state_dict(model.action_head.model.state_dict())
         torch.testing.assert_close(adapted, reloaded(x))
 
@@ -67,7 +68,7 @@ class LoRATests(unittest.TestCase):
                       backbone_attention_mask=torch.ones(2, 4, dtype=torch.bool))
         expected = dit(**inputs).detach()
         targets = install_lora(model, 2, 4)
-        self.assertEqual(len(targets), 18)
+        self.assertEqual(len(targets), 2)
         model.eval()
         torch.testing.assert_close(model.action_head.model(**inputs), expected)
         for name, parameter in model.named_parameters():

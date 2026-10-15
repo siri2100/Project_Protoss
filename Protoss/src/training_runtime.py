@@ -112,7 +112,13 @@ def restore_checkpoint(trainer, args):
     trainer.state = TrainerState.load_from_json(str(Path(checkpoint) / "trainer_state.json"))
     if trainer.state.global_step > args.max_steps:
         raise ValueError("Checkpoint step exceeds --max-steps")
-    trainer._load_from_checkpoint(checkpoint)
+    adapter = Path(checkpoint) / "adapter"
+    if (adapter / "adapter_config.json").is_file():
+        from .groot_lora import restore_adapter
+        restore_adapter(trainer.model, adapter)
+    else:
+        # Compatibility with older full-model PEFT checkpoints.
+        trainer._load_from_checkpoint(checkpoint)
     trainer._load_optimizer_and_scheduler(checkpoint)
     return checkpoint
 
@@ -186,16 +192,21 @@ def update_weights(training):
 
 
 def save_checkpoint(training):
-    """Keep full PEFT model/optimizer/scheduler/RNG checkpoints for resume."""
+    """Save adapter-only model weights plus optimizer/scheduler/RNG for resume."""
     from gr00t.experiment.utils import CheckpointFormatCallback
 
     trainer = training.trainer
-    trainer._save_checkpoint(training.model, trial=None)
+    checkpoint = training.args.output_dir / f"checkpoint-{training.step}"
+    training.model.action_head.model.save_pretrained(checkpoint / "adapter")
+    trainer._save_optimizer_and_scheduler(str(checkpoint))
+    trainer._save_rng_state(str(checkpoint))
+    trainer.state.save_to_json(str(checkpoint / "trainer_state.json"))
     CheckpointFormatCallback(
         run_name=training.args.output_dir.name,
         exp_cfg_dir=training.args.output_dir / "experiment_cfg",
         processor_dir=training.args.output_dir / "processor",
     ).on_save(trainer.args, trainer.state, trainer.control)
+    trainer._rotate_checkpoints(use_mtime=False, output_dir=str(training.args.output_dir))
 
 
 def record_training_loss(training, loss):
@@ -237,23 +248,19 @@ def save_training_loss_plot(training):
 
 
 def export_model(training):
-    """Save adapters separately, then merge LoRA for the existing eval scripts."""
-    import torch
+    """Save the PEFT adapter and processor; merge only when inference loads them."""
     from .groot_common import write_json
-    from .groot_lora import merge_lora
 
-    model = training.model
     output = training.args.output_dir
-    training.trainer.save_model()
-    torch.save({"settings": training.lora_settings, "state_dict": {
-        name: parameter.detach().cpu() for name, parameter in model.named_parameters()
-        if parameter.requires_grad}}, output / "lora_adapter.pt")
-    model.action_head.model.save_pretrained(output / "adapter")
-    merge_lora(model)
-    export = output / "inference"
-    model.save_pretrained(export)
-    training.pipeline.processor.save_pretrained(export)
+    training.model.action_head.model.save_pretrained(output / "adapter")
+    training.pipeline.processor.save_pretrained(output / "processor")
+    write_json(output / "inference/adapter_inference.json", {
+        "format": "protoss-peft-v1",
+        "base_model": training.lora_settings["base_model"],
+        "adapter": "../adapter",
+        "processor": "../processor",
+    })
     write_json(output / "lora_run.json", {
         **training.lora_settings, "targets": training.targets,
-        "inference_path": str(export.resolve()),
+        "inference_path": str((output / "inference").resolve()),
     })

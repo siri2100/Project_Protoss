@@ -21,6 +21,8 @@ import train as entry
 from src import training_runtime as runtime
 from src.groot_lora import install_lora
 
+from src import inference_loading as inference
+
 
 class TinyPolicy(nn.Module):
     def __init__(self):
@@ -62,7 +64,12 @@ class ExplicitLoopTests(unittest.TestCase):
                                gradient_accumulation=accumulation, save_steps=2)
         config = SimpleNamespace(training=SimpleNamespace(bf16=False, max_grad_norm=1.0))
         checkpoint = runtime.restore_checkpoint(trainer, args)
-        session = runtime.TrainingSession(trainer, MagicMock(), config, args, {}, [])
+        session = runtime.TrainingSession(trainer, MagicMock(), config, args, {"base_model": "/pretrained"}, [])
+        def save_processor(directory):
+            directory = Path(directory)
+            directory.mkdir(parents=True, exist_ok=True)
+            (directory / "processor_config.json").write_text("{}")
+        session.pipeline.processor.save_pretrained.side_effect = save_processor
         session.dataloader = [{"inputs": torch.ones(batch_size, 2)}]
         session.iterator = iter(session.dataloader)
         if checkpoint:
@@ -179,7 +186,8 @@ class ExplicitLoopTests(unittest.TestCase):
             self.run_main(resumed)
             self.assertEqual(resumed.step, 4)
 
-    def test_export_preserves_trained_predictions_after_merging(self):
+    def test_export_saves_only_adapter_and_merges_at_inference(self):
+        from peft import PeftModel
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             session = self.make_session(root)
@@ -187,19 +195,40 @@ class ExplicitLoopTests(unittest.TestCase):
             inputs = torch.ones(1, 2)
             expected = session.model.action_head.model(inputs).detach()
             runtime.export_model(session)
+            # Training must leave the live model unmerged and save no base weights.
+            self.assertIsInstance(session.model.action_head.model, PeftModel)
             self.assertTrue((root / "adapter/adapter_config.json").is_file())
             self.assertTrue((root / "adapter/adapter_model.safetensors").is_file())
-            adapter = torch.load(root / "lora_adapter.pt", weights_only=True)
-            self.assertEqual(len(adapter["state_dict"]), 2)
-            self.assertTrue(any(torch.count_nonzero(value) for name, value
-                                in adapter["state_dict"].items() if ".lora_B." in name))
-            reloaded = TinyPolicy()
-            reloaded.load_state_dict(torch.load(root / "inference/model.pt", weights_only=True))
-            torch.testing.assert_close(reloaded.action_head.model(inputs), expected)
-            self.assertTrue((root / "lora_run.json").is_file())
-            session.pipeline.processor.save_pretrained.assert_called_with(root / "inference")
+            self.assertFalse((root / "model.safetensors").exists())
+            self.assertFalse((root / "inference/model.pt").exists())
+            self.assertFalse((root / "checkpoint-4/model.safetensors").exists())
+            self.assertTrue((root / "checkpoint-4/adapter/adapter_model.safetensors").is_file())
+            with patch("transformers.AutoModel.from_pretrained", return_value=TinyPolicy()) as load:
+                merged, processor = inference.load_model_for_inference(root / "inference", "/override/base")
+                self.assertEqual(load.call_args.args[0], "/override/base")
+            torch.testing.assert_close(merged.action_head.model(inputs), expected)
+            self.assertFalse(isinstance(merged.action_head.model, PeftModel))
+            self.assertTrue(all(not p.requires_grad for p in merged.parameters()))
+            self.assertEqual(processor, root.resolve() / "processor")
+            # Existing PEFT run outputs work without an inference manifest too.
+            (root / "inference/adapter_inference.json").unlink()
+            (root / "lora_settings.json").write_text(json.dumps({"backend": "peft", "base_model": "/pretrained"}))
+            with patch("transformers.AutoModel.from_pretrained", return_value=TinyPolicy()):
+                merged, _ = inference.load_model_for_inference(root)
+            torch.testing.assert_close(merged.action_head.model(inputs), expected)
 
-    def test_analysis_export_reads_full_peft_checkpoint(self):
+    def test_native_pretrained_loading_is_unchanged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "processor").mkdir()
+            baseline = TinyPolicy()
+            with patch("transformers.AutoModel.from_pretrained", return_value=baseline) as load:
+                model, processor = inference.load_model_for_inference(root)
+            self.assertIs(model, baseline)
+            self.assertEqual(processor, root / "processor")
+            load.assert_called_once_with(root)
+
+    def test_analysis_export_reads_adapter_checkpoint(self):
         from src.analyze_groot import export_checkpoint
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

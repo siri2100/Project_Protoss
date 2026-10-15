@@ -372,10 +372,10 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
 
 산출물:
 
-- `checkpoint-*`: PEFT LoRA가 들어 있는 전체 trainer checkpoint. 같은 학습 명령에 `--resume`을 추가해 재개한다. 기본 서버에 바로 전달하지 않는다.
+- `checkpoint-*`: `adapter/`와 optimizer·scheduler·RNG·trainer 상태를 저장하는 재개용 checkpoint. pretrained 가중치는 중복 저장하지 않는다. 같은 학습 명령에 `--resume`을 추가해 재개한다. 기본 서버에 바로 전달하지 않는다.
 - `adapter/`: PEFT 표준 `adapter_config.json`과 `adapter_model.safetensors`. 원본 DiT에 로드하는 adapter이며 standalone GR00T 모델은 아니다.
-- `lora_adapter.pt`: PEFT low-rank 행렬과 실험 설정을 담은 보관용 파일.
-- `inference/`: 학습 완료 후 LoRA를 weight에 merge한 원래 GR00T 형식의 모델+processor. 기본 서버와 평가에 사용한다. 이 export는 전체 모델 크기다.
+- `processor/`: 학습에서 사용한 processor와 normalization 통계.
+- `inference/adapter_inference.json`: 원본 pretrained 모델, adapter, processor 경로를 연결하는 설정 파일. 학습 종료 시 병합 모델을 저장하지 않는다. 추론 시작 시 원본 모델과 PEFT adapter를 FP32로 병합한 뒤 추론 dtype으로 변환한다.
 - `lora_settings.json`, `lora_run.json`: LoRA backend(`peft`), 설정과 적용 layer 목록. 다른 backend/rank/alpha/base/data/seed로 resume하면 중단한다. 이전 자체 LoRA checkpoint는 PEFT 학습으로 resume할 수 없으며 새 output 경로를 사용한다. 기존 merged `inference/`는 계속 평가에 사용할 수 있다.
 
 단일 CUDA GPU 경로를 제공한다. LoRA는 trainable parameter와 optimizer 메모리를 줄이지만 전체 모델 weight와 action-head activation은 필요하다. 해당 구성의 GPU peak와 학습 시간은 아직 측정하지 않았다.
@@ -407,9 +407,9 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/eval_groot_models.py" \
 
 ### Model-FM 평가
 
-아래는 `latest_FM_lora_v15.txt`에 기록된 실제 학습 폴더의 `inference/`로 episode 0 하나를 seed 42에서 평가한다. `INFERENCE_STEPS`를 `100`, `500`, `800`, `1000` 등으로 지정하면 episode당 최대 평가 timestep이 바뀐다. Episode가 더 짧으면 실제 길이까지만 평가한다. 전체 episode와 세 seed를 비교하려면 `--traj-ids 0`을 제거하고 `--seeds 42 43 44`로 변경한다.
+아래는 `latest_FM_lora_v15.txt`에 기록된 학습 output의 adapter를 원본 pretrained 모델과 추론 시 병합하여 episode 0 하나를 seed 42에서 평가한다. `INFERENCE_STEPS`를 `100`, `500`, `800`, `1000` 등으로 지정하면 episode당 최대 평가 timestep이 바뀐다. Episode가 더 짧으면 실제 길이까지만 평가한다. 전체 episode와 세 seed를 비교하려면 `--traj-ids 0`을 제거하고 `--seeds 42 43 44`로 변경한다.
 
-`--model-path`에는 실제 존재하는 merged `inference/` 폴더를 지정한다. 같은 step으로 재실행할 때는 결과 폴더의 `run02`를 `run03` 등 새 이름으로 바꾼다.
+`--model-path`에는 학습 output 폴더를 지정한다. 기존 PEFT output의 `adapter/`, `processor/`, `lora_settings.json`도 지원하므로 재학습 없이 추론 시 병합을 확인할 수 있다. 원본 pretrained 모델 위치가 달라졌다면 `--base-model-path /실제/pretrained/경로`를 추가한다. 새 output의 `inference/` 설정 폴더도 지원한다. 같은 step으로 재실행할 때는 결과 폴더의 `run02`를 `run03` 등 새 이름으로 바꾼다.
 
 ```bash
 (
@@ -428,7 +428,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/eval_groot_models.py" \
   --model FM \
   --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
-  --model-path "$(cat "$PROTOSS_ROOT/Protoss/checkpoint/latest_FM_lora_v15.txt")/inference" \
+  --model-path "$(cat "$PROTOSS_ROOT/Protoss/checkpoint/latest_FM_lora_v15.txt")" \
   --output-dir "$PROTOSS_ROOT/experiment/DROID/model_FM_v1.5_${INFERENCE_STEPS}_run02" \
   --traj-ids 0 --seeds 42 \
   --execution-horizon 8 --denoising-steps 4 \
@@ -451,7 +451,7 @@ cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/eval_groot_models.py" \
   --model S --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
-  --model-path "$(cat "$PROTOSS_ROOT/Protoss/checkpoint/latest_S_lora_v15.txt")/inference" \
+  --model-path "$(cat "$PROTOSS_ROOT/Protoss/checkpoint/latest_S_lora_v15.txt")" \
   --output-dir "$PROTOSS_ROOT/results/v1.3/model_S_run01" \
   --seeds 42 43 44 --execution-horizon 8 --denoising-steps 4 --steps 100000
 )
@@ -472,13 +472,13 @@ cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/eval_groot_models.py" \
   --model E --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
-  --model-path "$PROTOSS_ROOT/Protoss/checkpoint/model_E_lora_v13/inference" \
+  --model-path "$(cat "$PROTOSS_ROOT/Protoss/checkpoint/latest_E_lora_v15.txt")" \
   --output-dir "$PROTOSS_ROOT/results/v1.3/model_E_run01" \
   --seeds 42 43 44 --execution-horizon 8 --denoising-steps 4 --steps 100000
 )
 ```
 
-baseline은 원본 pretrained 모델을 사용한다. Model-FM/S/E는 학습 완료 후 생성된 merged `inference/` 모델을 사용한다. 기존 `model_1_lora`에 저장된 Model-FM을 평가하려면 해당 명령의 `--model-path`만 기존 경로로 지정한다. 네 명령은 동일한 공통 trainset 전체와 평가 설정을 사용하며 결과는 모델별 폴더에 저장한다. 재평가할 때는 `run02`처럼 새 output 경로를 지정한다.
+baseline은 원본 pretrained 모델을 사용한다. Model-FM/S/E는 학습 output의 adapter와 학습 processor를 사용하고 추론 시작 시 pretrained 모델에 병합한다. 기존 `model_1_lora`에 저장된 Model-FM을 평가하려면 해당 명령의 `--model-path`만 기존 경로로 지정한다. 네 명령은 동일한 공통 trainset 전체와 평가 설정을 사용하며 결과는 모델별 폴더에 저장한다. 재평가할 때는 `run02`처럼 새 output 경로를 지정한다.
 
 `evaluation.json`에는 데이터 manifest SHA256, trajectory ID, seed, horizon과 모델 경로가 기록된다. Seed별 로그의 `Average MSE/MAE across all trajs`와 plot을 비교한다. 이 평가는 imitation 오차이며 물리적 smoothness, 완료 시간, task 성공률을 측정하지 않는다. baseline의 pretrained normalization과 fine-tuned processor 통계는 각 모델의 학습/추론 설정을 따른다. 실제 로봇 성능은 8절 closed-loop 평가가 필요하다. 결과 경로가 이미 있으면 중단한다.
 
@@ -536,7 +536,7 @@ cp "$PROTOSS_ROOT/Protoss/src/robolab_gr00t_client.py" "$CLIENT"
 
 ### baseline / Model-FM/S/E 평가
 
-다른 터미널에서 아래 서버를 먼저 실행한다. baseline은 기본 `MODEL_PATH`를 사용한다. Model-FM은 `latest_FM_lora_v15.txt`에 기록된 경로 아래의 `inference/`를 사용한다. S/E도 학습 완료 후 각 merged 모델 경로를 사용한다.
+다른 터미널에서 아래 Model-FM 서버를 먼저 실행한다. baseline은 `MODEL_PATH`를 원본 pretrained checkpoint 경로로 바꾸고 `--base-model-path`를 제거한다. Model-FM은 `latest_FM_lora_v15.txt`에 기록된 학습 output 경로를 사용한다. S/E도 각 학습 output 경로를 사용한다. 서버는 원본 pretrained 모델과 저장된 adapter를 로드한 뒤 메모리에서 병합한다. `Protoss/serve.py`가 별도 GR00T checkout에 `Protoss/patches/gr00t_adapter_inference.patch`를 자동 적용하므로 `Protoss/patches/`도 함께 복사한다. baseline 서버 실행 시에는 `--base-model-path`를 빼고 `--model-path`에 원본 checkpoint를 지정한다.
 
 ```bash
 (
@@ -547,16 +547,17 @@ export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
 export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-MODEL_PATH="$(cat "$PROTOSS_ROOT/Protoss/checkpoint/latest_FM_lora_v15.txt")/inference"
+MODEL_PATH="$(cat "$PROTOSS_ROOT/Protoss/checkpoint/latest_FM_lora_v15.txt")"
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-uv run --no-sync python -m gr00t.eval.run_gr00t_server \
+uv run --no-sync python "$PROTOSS_ROOT/Protoss/serve.py" \
   --model-path "$MODEL_PATH" \
+  --base-model-path "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
   --embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT \
   --device cuda:0 --host 127.0.0.1 --port 5557 --use-sim-policy-wrapper
 )
 ```
 
-GR00T 기본 서버를 원본(baseline) 또는 merged inference/(Model-FM/S/E)로 포트 5557에서 실행한 상태로 다른 터미널에서 실행한다.
+GR00T 기본 서버를 원본(baseline) 또는 adapter output(Model-FM/S/E)로 포트 5557에서 실행한 상태로 다른 터미널에서 실행한다.
 
 ```bash
 (
@@ -577,7 +578,7 @@ UV_PROJECT_ENVIRONMENT=.venv-51 uv run --no-sync --extra isaac51 \
 )
 ```
 
-첫 확인은 `--num-runs 1`로 줄일 수 있다. 각 모델을 GR00T 기본 서버의 `--model-path`에 지정하고 포트 5557에 연결해 평가한다. baseline은 원본 checkpoint, Model-FM/S/E는 merged inference/ 경로를 사용한다. Model-S/E도 학습이 끝난 뒤 평가한다. 결과 폴더 이름을 `baseline_run01`, `modelFM_run01`, `modelS_run01`, `modelE_run01`처럼 각각 다르게 지정한다. Task 목록, control rate, horizon, simulator revision을 같게 유지하고 여러 run으로 비교한다.
+첫 확인은 `--num-runs 1`로 줄일 수 있다. 각 모델을 GR00T 기본 서버의 `--model-path`에 지정하고 포트 5557에 연결해 평가한다. baseline은 원본 checkpoint, Model-FM/S/E는 adapter와 processor가 있는 학습 output 경로를 사용한다. Model-S/E도 학습이 끝난 뒤 평가한다. 결과 폴더 이름을 `baseline_run01`, `modelFM_run01`, `modelS_run01`, `modelE_run01`처럼 각각 다르게 지정한다. Task 목록, control rate, horizon, simulator revision을 같게 유지하고 여러 run으로 비교한다.
 
 성공률, 성공 episode의 완료 시간, 실제 joint trajectory의 속도/가속도/jerk RMS를 함께 비교한다. 현재 코드의 motion metric은 학습 시연 command metric이며 RoboLab 실제 joint trajectory의 metric을 자동 수집하는 기능은 포함하지 않는다.
 
@@ -608,6 +609,8 @@ uv run --no-sync python -m unittest discover \
 공통 데이터와 학습 설정 CPU 테스트 4개를 통과했다. 영상 encoder, GR00T 통계 함수와 GPU trainer는 테스트에서 mock을 사용했다. 실제 GPU 학습 및 네 모델의 성능 비교는 이 로컬 환경에서 검증하지 않았다.
 
 ## 10. Hugging Face에 checkpoint 보관
+
+현재 PEFT 실험은 `adapter/`, `processor/`, `inference/adapter_inference.json`, `lora_settings.json`을 함께 보관한다. `inference/`만 업로드하면 adapter와 processor가 빠지므로 학습 output 전체를 `--folder`로 지정한다. 다운로드한 output을 서버의 `--model-path`에 지정하고, 원본 pretrained 경로는 `--base-model-path`로 설정한다. 아래 v1.3 merged 모델 보관·다운로드 예시는 과거 결과용이다.
 
 `Protoss/upload_checkpoint_hf.py`로 모델별 산출물을 각각 **private 모델 저장소**에 업로드한다. 지정한 폴더의 모델 weight, processor/config 및 optimizer/scheduler/RNG 상태를 함께 보관한다. `.cache`, `.git`, `.DS_Store`는 제외한다. 학습 코드와 데이터는 이 업로드에 포함되지 않는다.
 
