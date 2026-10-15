@@ -286,7 +286,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
   --base-model "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
   --output-dir "$OUTPUT_DIR" \
-  --lora-rank 32 --lora-alpha 64 --max-steps 1000 --save-steps 100 \
+  --lora-rank 32 --lora-alpha 64 --max-steps 100 --save-steps 100 \
   --batch-size 2 --gradient-accumulation 16 --lr 1e-5 --workers 2 --seed 42 --state-dropout-prob 0.0
 )
 ```
