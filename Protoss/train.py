@@ -115,7 +115,8 @@ def train(args):
         run(config)
 
 
-def main():
+def parse_args():
+    """Parse and validate training command-line arguments."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", dest="variant", choices=["FM", "S", "E"], required=True)
     parser.add_argument("--groot-root", type=Path, required=True)
@@ -142,6 +143,11 @@ def main():
     report = json.loads((args.styles_dir / "styles.json").read_text())
     if report.get("synthetic") or report.get("style_method") != "original" or "train" not in report["splits"]:
         parser.error("Use the common original dataset prepared with --style-method original")
+    return args
+
+
+def main():
+    args = parse_args()
     args.style, args.lora = args.variant, True
     sys.path.insert(0, str(args.groot_root.resolve()))
     train(args)
