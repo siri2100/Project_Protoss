@@ -9,6 +9,7 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 from src import groot_common as styles
+import train as training
 
 class CommonTests(unittest.TestCase):
     def test_physical_time_units(self):
@@ -131,10 +132,10 @@ class CommonTests(unittest.TestCase):
                          output_dir=root / ("model_" + style), seed=42, batch_size=2,
                          gradient_accumulation=16, lr=1e-5, max_steps=2000, save_steps=500,
                          workers=2, resume=False)
-                styles.train(args)
+                training.train(args)
                 # Refuse accidental rerun/overwrite, before calling the trainer.
                 with self.assertRaises(ValueError):
-                    styles.train(args)
+                    training.train(args)
             self.assertEqual(len(captured), 2)
             for i, style in enumerate(("a", "b")):
                 cfg = captured[i]
