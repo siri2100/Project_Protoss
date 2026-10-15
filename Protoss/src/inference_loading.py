@@ -52,7 +52,13 @@ def load_model_for_inference(model_path, base_model_path=None):
     model.float()
     print(f"Loading PEFT adapter: {adapter}", flush=True)
     dit = PeftModel.from_pretrained(model.action_head.model, adapter, is_trainable=False)
-    model.action_head.model = dit.merge_and_unload(safe_merge=True)
+
+    # LoRA 적용 시
+    # model.action_head.model = dit.merge_and_unload(safe_merge=True)
+
+    # LoRA 미적용시
+    model.action_head.model = dit
+
     model.requires_grad_(False)
     print("LoRA merged in FP32 for inference", flush=True)
     return model, processor
