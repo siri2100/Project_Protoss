@@ -253,17 +253,17 @@ GR00T의 DROID 변환과 동일한 `[eef_9d(9), gripper(1), joint(7)]` LeRobot v
 
 ## 6. Model-FM/S/E LoRA 학습
 
-아래 명령은 새 PEFT 실험 경로 `model_*_lora_v15_peft_run01`을 사용한다. 데이터는 5절의 `Protoss/data`를 재사용한다.
+아래 새 학습 명령은 `mktemp -d`로 매번 고유한 빈 PEFT 실험 폴더를 생성한다. 생성 경로는 터미널과 `Protoss/checkpoint/latest_*_lora_v15.txt`에 기록한다. 데이터는 5절의 `Protoss/data`를 재사용한다.
 
 `ValueError: Output is nonempty; choose a new path or --resume`는 지정한 output 폴더에 파일이 있어 덮어쓰기를 막았다는 뜻이다. 이전 실행이 학습 전에 중단되어 설정 JSON만 남아 있어도 발생한다. 같은 명령을 반복하면 같은 오류가 난다.
 
-- 새 학습: 기존 `model_FM_lora_v15`는 보존하고 아래의 새 `model_FM_lora_v15_peft_run01` 경로를 사용한다. 이 경로도 사용했다면 `run02`, `run03` 등 미사용 경로로 바꾸고 평가·서버의 모델 경로도 동일하게 변경한다.
+- 새 학습: 아래 명령은 기존 폴더를 보존하면서 새 폴더를 자동 생성한다. `latest_*_lora_v15.txt`는 가장 최근에 시작한 실험을 가리키며, 이전 실험은 실제 폴더 경로를 직접 지정한다.
 - 학습 재개: 같은 PEFT 실험의 `checkpoint-*`에 모델·optimizer·scheduler·RNG 상태가 모두 있을 때만 기존 output 경로와 원래 학습 설정을 유지하고 `--resume`을 추가한다.
 - 설정 JSON만 있거나 이전 자체 LoRA/full fine-tuning checkpoint만 있는 폴더는 `--resume`으로 해결되지 않는다. 새 output 경로에서 pretrained 모델부터 시작한다.
 
 v1.3은 pretrained processor의 modality 정의를 가져온 뒤 영상 시점만 `[0]`으로 명시하고 state dropout 기본값을 `0.0`으로 설정한다. 이는 전체 state 입력을 무작위로 제거하는 augmentation을 끄는 옵션이며 DiT 내부 dropout과 별개다. 필요하면 `--state-dropout-prob 0.2`처럼 변경할 수 있다. Normalization 통계 정책은 이번 변경에서 바꾸지 않는다.
 
-기존 2프레임 v1.2 학습을 새 설정으로 `--resume`하지 않는다. 아래 `model_*_lora_v15_peft_run01` 경로에서 pretrained 모델부터 새로 학습한다. 원본 데이터는 그대로 재사용하며 재다운로드·변환은 필요 없다. 기존 inference의 processor만 1프레임으로 수정하지 않는다.
+기존 2프레임 v1.2 학습을 새 설정으로 `--resume`하지 않는다. 아래 명령이 생성하는 새 PEFT 경로에서 pretrained 모델부터 새로 학습한다. 원본 데이터는 그대로 재사용하며 재다운로드·변환은 필요 없다. 기존 inference의 processor만 1프레임으로 수정하지 않는다.
 
 ### 6.1 Model-FM 학습
 
@@ -277,11 +277,15 @@ export PATH="$HOME/.local/bin:$PATH"
 export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
+mkdir -p "$PROTOSS_ROOT/Protoss/checkpoint"
+OUTPUT_DIR="$(mktemp -d "$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora_v15_peft_XXXXXXXX")"
+printf '%s\n' "$OUTPUT_DIR" > "$PROTOSS_ROOT/Protoss/checkpoint/latest_FM_lora_v15.txt"
+printf 'Training output: %s\n' "$OUTPUT_DIR"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
   --model FM --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
   --base-model "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
-  --output-dir "$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora_v15_peft_run01" \
+  --output-dir "$OUTPUT_DIR" \
   --lora-rank 32 --lora-alpha 64 --max-steps 1000 --save-steps 100 \
   --batch-size 2 --gradient-accumulation 16 --lr 1e-5 --workers 2 --seed 42 --state-dropout-prob 0.0
 )
@@ -299,11 +303,15 @@ export PATH="$HOME/.local/bin:$PATH"
 export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
+mkdir -p "$PROTOSS_ROOT/Protoss/checkpoint"
+OUTPUT_DIR="$(mktemp -d "$PROTOSS_ROOT/Protoss/checkpoint/model_S_lora_v15_peft_XXXXXXXX")"
+printf '%s\n' "$OUTPUT_DIR" > "$PROTOSS_ROOT/Protoss/checkpoint/latest_S_lora_v15.txt"
+printf 'Training output: %s\n' "$OUTPUT_DIR"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
   --model S --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
   --base-model "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
-  --output-dir "$PROTOSS_ROOT/Protoss/checkpoint/model_S_lora_v15_peft_run01" \
+  --output-dir "$OUTPUT_DIR" \
   --lora-rank 32 --lora-alpha 64 --max-steps 2000 --save-steps 2000 \
   --batch-size 2 --gradient-accumulation 16 --lr 1e-5 --workers 1 --seed 42
 )
@@ -321,11 +329,15 @@ export PATH="$HOME/.local/bin:$PATH"
 export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
+mkdir -p "$PROTOSS_ROOT/Protoss/checkpoint"
+OUTPUT_DIR="$(mktemp -d "$PROTOSS_ROOT/Protoss/checkpoint/model_E_lora_v15_peft_XXXXXXXX")"
+printf '%s\n' "$OUTPUT_DIR" > "$PROTOSS_ROOT/Protoss/checkpoint/latest_E_lora_v15.txt"
+printf 'Training output: %s\n' "$OUTPUT_DIR"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
   --model E --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
   --base-model "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
-  --output-dir "$PROTOSS_ROOT/Protoss/checkpoint/model_E_lora_v15_peft_run01" \
+  --output-dir "$OUTPUT_DIR" \
   --lora-rank 32 --lora-alpha 64 --max-steps 2000 --save-steps 2000 \
   --batch-size 2 --gradient-accumulation 16 --lr 1e-5 --workers 2 --seed 42 --state-dropout-prob 0.0
 )
@@ -335,7 +347,7 @@ GR00T 기본 masked flow-matching MSE를 그대로 사용한다. FM의 velocity�
 
 ### 6.4 중단된 PEFT 학습 재개
 
-6.1의 PEFT 학습이 checkpoint 저장 이후 중단된 경우에만 사용한다. 디버그 출력 후 종료되어 설정 파일만 남은 경우에는 6.1에서 새 run 경로를 사용한다. 다른 실험을 재개할 때는 해당 실험의 원래 output 경로와 모든 학습 옵션을 유지한다.
+6.1의 PEFT 학습이 checkpoint 저장 이후 중단된 경우에만 사용한다. 아래 명령은 `latest_FM_lora_v15.txt`가 가리키는 실험을 재개하므로, 새 학습 명령을 다시 실행하기 전에 사용한다. 디버그 출력 후 종료되어 설정 파일만 남은 경우에는 6.1에서 새 run 경로를 사용한다. 다른 실험을 재개할 때는 해당 실험의 원래 output 경로와 모든 학습 옵션을 유지한다.
 
 ```bash
 (
@@ -351,7 +363,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
   --model FM --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
   --base-model "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
-  --output-dir "$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora_v15_peft_run01" \
+  --output-dir "$(cat "$PROTOSS_ROOT/Protoss/checkpoint/latest_FM_lora_v15.txt")" \
   --lora-rank 32 --lora-alpha 64 --max-steps 1000 --save-steps 100 \
   --batch-size 2 --gradient-accumulation 16 --lr 1e-5 --workers 2 --seed 42 --state-dropout-prob 0.0 \
   --resume
@@ -395,7 +407,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/eval_groot_models.py" \
 
 ### Model-FM 평가
 
-아래는 RunPod에 저장된 `model_FM_lora_v15_peft_run01/inference`로 episode 0 하나를 seed 42에서 평가한다. `INFERENCE_STEPS`를 `100`, `500`, `800`, `1000` 등으로 지정하면 episode당 최대 평가 timestep이 바뀐다. Episode가 더 짧으면 실제 길이까지만 평가한다. 전체 episode와 세 seed를 비교하려면 `--traj-ids 0`을 제거하고 `--seeds 42 43 44`로 변경한다.
+아래는 `latest_FM_lora_v15.txt`에 기록된 실제 학습 폴더의 `inference/`로 episode 0 하나를 seed 42에서 평가한다. `INFERENCE_STEPS`를 `100`, `500`, `800`, `1000` 등으로 지정하면 episode당 최대 평가 timestep이 바뀐다. Episode가 더 짧으면 실제 길이까지만 평가한다. 전체 episode와 세 seed를 비교하려면 `--traj-ids 0`을 제거하고 `--seeds 42 43 44`로 변경한다.
 
 `--model-path`에는 실제 존재하는 merged `inference/` 폴더를 지정한다. 같은 step으로 재실행할 때는 결과 폴더의 `run02`를 `run03` 등 새 이름으로 바꾼다.
 
@@ -416,7 +428,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/eval_groot_models.py" \
   --model FM \
   --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
-  --model-path "$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora_v15_peft_run01/inference" \
+  --model-path "$(cat "$PROTOSS_ROOT/Protoss/checkpoint/latest_FM_lora_v15.txt")/inference" \
   --output-dir "$PROTOSS_ROOT/experiment/DROID/model_FM_v1.5_${INFERENCE_STEPS}_run02" \
   --traj-ids 0 --seeds 42 \
   --execution-horizon 8 --denoising-steps 4 \
@@ -439,7 +451,7 @@ cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/eval_groot_models.py" \
   --model S --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
-  --model-path "$PROTOSS_ROOT/Protoss/checkpoint/model_S_lora_v15_peft_run01/inference" \
+  --model-path "$(cat "$PROTOSS_ROOT/Protoss/checkpoint/latest_S_lora_v15.txt")/inference" \
   --output-dir "$PROTOSS_ROOT/results/v1.3/model_S_run01" \
   --seeds 42 43 44 --execution-horizon 8 --denoising-steps 4 --steps 100000
 )
@@ -524,7 +536,7 @@ cp "$PROTOSS_ROOT/Protoss/src/robolab_gr00t_client.py" "$CLIENT"
 
 ### baseline / Model-FM/S/E 평가
 
-다른 터미널에서 아래 서버를 먼저 실행한다. baseline은 기본 `MODEL_PATH`를 사용한다. Model-FM은 `MODEL_PATH="$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora_v15_peft_run01/inference"`로 바꾼다. S/E도 학습 완료 후 각 merged 모델 경로를 사용한다.
+다른 터미널에서 아래 서버를 먼저 실행한다. baseline은 기본 `MODEL_PATH`를 사용한다. Model-FM은 `latest_FM_lora_v15.txt`에 기록된 경로 아래의 `inference/`를 사용한다. S/E도 학습 완료 후 각 merged 모델 경로를 사용한다.
 
 ```bash
 (
@@ -535,7 +547,7 @@ export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
 export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-MODEL_PATH="$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora_v15_peft_run01/inference"
+MODEL_PATH="$(cat "$PROTOSS_ROOT/Protoss/checkpoint/latest_FM_lora_v15.txt")/inference"
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 uv run --no-sync python gr00t/eval/run_gr00t_server.py \
   --model-path "$MODEL_PATH" \
