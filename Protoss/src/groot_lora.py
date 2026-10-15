@@ -13,8 +13,14 @@ def install_lora(model, rank=8, alpha=16):
     dit = model.action_head.model
     if isinstance(dit, PeftModel):
         raise ValueError("LoRA is already installed on the action DiT")
-    names = [name for name, module in dit.named_modules()
-             if name and isinstance(module, nn.Linear)]
+    names = []
+    for name, param in dit.named_modules():
+        if not name or not isinstance(param, nn.Linear):
+            continue
+        # Add module-name filters here, e.g. exclude timestep_encoder:
+        # if "timestep_encoder" in name:
+        #     continue
+        names.append(name)
     if not names:
         raise ValueError("No Linear modules found in GR00T action DiT")
 
