@@ -552,7 +552,7 @@ cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/serve.py" \
   --model-path "$MODEL_PATH" \
   --base-model-path "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
-  --lora-mode unmerged \
+  --lora-mode disabled \
   --embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT \
   --device cuda:0 --host 127.0.0.1 --port 5557 --use-sim-policy-wrapper
 )
