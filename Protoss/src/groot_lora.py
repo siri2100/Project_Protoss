@@ -18,7 +18,7 @@ def install_lora(model, rank=8, alpha=16):
         if not name or not isinstance(param, nn.Linear):
             continue
 
-        if 'to_q' in name:
+        if 'to_q' in name or 'to_k' in name or 'to_v' in name:
             names.append(name)
             print(name)
     if not names:
