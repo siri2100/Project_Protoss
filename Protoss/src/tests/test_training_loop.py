@@ -1,6 +1,7 @@
 """CPU integration tests for the explicit loop, optimizer and native checkpoints."""
 from contextlib import contextmanager, nullcontext
 import copy
+import json
 from pathlib import Path
 import random
 import sys
@@ -23,8 +24,8 @@ class TinyPolicy(nn.Module):
     def __init__(self):
         super().__init__()
         self.action_head = nn.Module()
-        self.action_head.model = nn.Linear(2, 1, bias=False)
-        self.action_head.model.weight.data.fill_(0.2)
+        self.action_head.model = nn.Sequential(nn.Linear(2, 1, bias=False))
+        self.action_head.model[0].weight.data.fill_(0.2)
         self.calls = 0
 
     def save_pretrained(self, directory):
@@ -101,7 +102,7 @@ class ExplicitLoopTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             accumulated = self.make_session(root / "accumulated")
-            base = accumulated.model.action_head.model.parametrizations.weight.original.detach().clone()
+            base = accumulated.model.action_head.model.base_model.model[0].base_layer.weight.detach().clone()
             # Repeat identical samples as a larger batch; disable stochastic noise
             # so each optimizer step represents exactly the same objective.
             combined = self.make_session(root / "combined", batch_size=2, accumulation=1)
@@ -111,7 +112,7 @@ class ExplicitLoopTests(unittest.TestCase):
                 self.run_main(combined)
             for a, b in zip(accumulated.model.parameters(), combined.model.parameters()):
                 torch.testing.assert_close(a, b)
-            torch.testing.assert_close(base, accumulated.model.action_head.model.parametrizations.weight.original)
+            torch.testing.assert_close(base, accumulated.model.action_head.model.base_model.model[0].base_layer.weight)
             self.assertEqual(accumulated.model.calls, 8)
             self.assertEqual(combined.model.calls, 4)
             self.assertEqual(accumulated.step, 4)
@@ -172,15 +173,40 @@ class ExplicitLoopTests(unittest.TestCase):
             inputs = torch.ones(1, 2)
             expected = session.model.action_head.model(inputs).detach()
             runtime.export_model(session)
+            self.assertTrue((root / "adapter/adapter_config.json").is_file())
+            self.assertTrue((root / "adapter/adapter_model.safetensors").is_file())
             adapter = torch.load(root / "lora_adapter.pt", weights_only=True)
             self.assertEqual(len(adapter["state_dict"]), 2)
             self.assertTrue(any(torch.count_nonzero(value) for name, value
-                                in adapter["state_dict"].items() if name.endswith(".B")))
+                                in adapter["state_dict"].items() if ".lora_B." in name))
             reloaded = TinyPolicy()
             reloaded.load_state_dict(torch.load(root / "inference/model.pt", weights_only=True))
             torch.testing.assert_close(reloaded.action_head.model(inputs), expected)
             self.assertTrue((root / "lora_run.json").is_file())
             session.pipeline.processor.save_pretrained.assert_called_with(root / "inference")
+
+    def test_analysis_export_reads_full_peft_checkpoint(self):
+        from src.analyze_groot import export_checkpoint
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session = self.make_session(root)
+            self.run_main(session)
+            (root / "lora_settings.json").write_text(json.dumps({
+                "backend": "peft", "rank": 1, "alpha": 2,
+            }))
+            (root / "processor_config.json").write_text("{}")
+            inputs = torch.ones(1, 2)
+            expected = session.model.action_head.model(inputs).detach()
+            args = SimpleNamespace(checkpoint=root / "checkpoint-4", base_model=root,
+                                   output_dir=root / "analysis")
+            modules = {name: ModuleType(name) for name in ("gr00t", "gr00t.model")}
+            with patch.dict(sys.modules, modules), \
+                 patch("transformers.AutoModel.from_pretrained", return_value=TinyPolicy()), \
+                 patch("transformers.AutoProcessor.from_pretrained", return_value=MagicMock()):
+                export_checkpoint(args)
+            reloaded = TinyPolicy()
+            reloaded.load_state_dict(torch.load(root / "analysis/model.pt", weights_only=True))
+            torch.testing.assert_close(reloaded.action_head.model(inputs), expected)
 
     def test_missing_resume_and_empty_dataloader_fail(self):
         with tempfile.TemporaryDirectory() as tmp:

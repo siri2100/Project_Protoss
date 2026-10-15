@@ -1,45 +1,42 @@
-"""LoRA on the action DiT's Linear weights; all pretrained parameters frozen."""
+"""PEFT LoRA on the action DiT; all pretrained parameters stay frozen."""
 import math
+import re
 from contextlib import contextmanager
 
-import torch
+from peft import LoraConfig, PeftModel, get_peft_model
 from torch import nn
-from torch.nn.utils import parametrize
-
-
-class LowRankWeight(nn.Module):
-    def __init__(self, weight, rank, alpha):
-        super().__init__()
-        if rank < 1 or alpha <= 0 or not math.isfinite(alpha):
-            raise ValueError("LoRA rank and alpha must be positive")
-        self.scale = alpha / rank
-        self.A = nn.Parameter(weight.new_empty(rank, weight.shape[1]))
-        self.B = nn.Parameter(weight.new_zeros(weight.shape[0], rank))
-        nn.init.kaiming_uniform_(self.A, a=math.sqrt(5))
-
-    def forward(self, original):
-        return original + self.scale * (self.B @ self.A)
 
 
 def install_lora(model, rank=8, alpha=16):
-    model.requires_grad_(False)
-    names = []
-    for name, module in list(model.action_head.model.named_modules()):
-        if isinstance(module, nn.Linear):
-            parametrize.register_parametrization(module, "weight", LowRankWeight(module.weight, rank, alpha))
-            names.append("action_head.model." + name)
-            print(name)
+    if rank < 1 or alpha <= 0 or not math.isfinite(alpha):
+        raise ValueError("LoRA rank and alpha must be positive")
+    dit = model.action_head.model
+    if isinstance(dit, PeftModel):
+        raise ValueError("LoRA is already installed on the action DiT")
+    names = [name for name, module in dit.named_modules()
+             if name and isinstance(module, nn.Linear)]
     if not names:
         raise ValueError("No Linear modules found in GR00T action DiT")
-    import sys
-    sys.exit()
-    return names
+
+    model.requires_grad_(False)
+    config = LoraConfig(
+        r=rank,
+        lora_alpha=alpha,
+        # Match exact paths, including output and timestep projections.
+        target_modules="(?:" + "|".join(re.escape(name) for name in names) + ")",
+        lora_dropout=0.0,
+        bias="none",
+        init_lora_weights=True,
+        use_rslora=False,
+    )
+    model.action_head.model = get_peft_model(dit, config)
+    return ["action_head.model." + name for name in names]
 
 
 def merge_lora(model):
-    for module in list(model.modules()):
-        if isinstance(module, nn.Linear) and parametrize.is_parametrized(module, "weight"):
-            parametrize.remove_parametrizations(module, "weight", leave_parametrized=True)
+    dit = model.action_head.model
+    if isinstance(dit, PeftModel):
+        model.action_head.model = dit.merge_and_unload(safe_merge=True)
 
 
 @contextmanager

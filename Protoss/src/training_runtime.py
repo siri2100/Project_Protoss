@@ -186,7 +186,7 @@ def update_weights(training):
 
 
 def save_checkpoint(training):
-    """Keep native parametrized model/optimizer/scheduler/RNG checkpoint format."""
+    """Keep full PEFT model/optimizer/scheduler/RNG checkpoints for resume."""
     from gr00t.experiment.utils import CheckpointFormatCallback
 
     trainer = training.trainer
@@ -210,6 +210,7 @@ def export_model(training):
     torch.save({"settings": training.lora_settings, "state_dict": {
         name: parameter.detach().cpu() for name, parameter in model.named_parameters()
         if parameter.requires_grad}}, output / "lora_adapter.pt")
+    model.action_head.model.save_pretrained(output / "adapter")
     merge_lora(model)
     export = output / "inference"
     model.save_pretrained(export)

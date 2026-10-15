@@ -19,6 +19,8 @@
 
 `train.py`의 `main()`에 실제 학습 반복문이 있다. 각 optimizer step에서 batch 전처리 결과를 GPU로 옮기고, 모델 forward로 loss를 계산하고, gradient accumulation 후 가중치를 갱신한다. 이미지·state·action 전처리는 기존 GR00T dataset/collator가 수행하므로 루프에서 중복 적용하지 않는다.
 
+`src/groot_lora.py`는 PEFT의 `LoraConfig`와 `get_peft_model()`로 DiT의 모든 Linear에 LoRA를 적용한다. 원본 모델은 동결하고 LoRA A/B만 학습한다. 병합은 PEFT `merge_and_unload()`를 사용한다. PEFT adapter는 `adapter/`에 저장하며, 이전 자체 구현 checkpoint에서 PEFT 학습으로 resume하는 것은 지원하지 않는다.
+
 `src/training_runtime.py`는 모델·데이터 준비, optimizer/scheduler, checkpoint/resume, LoRA 병합 저장을 담당한다. 현재 학습 루프는 CUDA GPU 한 개를 사용한다. Checkpoint는 기존 Trainer 형식의 모델·optimizer·scheduler·RNG 상태를 저장하며, resume 시 데이터는 기존 GR00T 방식대로 global step에 따라 reseed한다. 중단 전과 동일한 데이터 순서로 재개하는 방식은 아니다.
 
 나머지 CLI는 이 폴더에, 공통 구현은 `src/`, 테스트는 `src/tests/`에 있다. 서버에 복사할 때 `src/`도 함께 포함한다.

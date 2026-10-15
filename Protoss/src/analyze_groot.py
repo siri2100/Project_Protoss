@@ -133,6 +133,8 @@ def export_checkpoint(args):
     from .groot_lora import install_lora, merge_lora
     checkpoint = args.checkpoint.resolve()
     settings = json.loads((checkpoint.parent / 'lora_settings.json').read_text())
+    if settings.get('backend') != 'peft':
+        raise ValueError('Legacy custom-LoRA checkpoint: export with the previous implementation')
     if args.output_dir.exists() and any(args.output_dir.iterdir()):
         raise ValueError('Output must be empty')
     processor = processor_path(checkpoint) if ((checkpoint / 'processor_config.json').exists() or
@@ -159,8 +161,8 @@ def export_checkpoint(args):
     missing = set(expected) - loaded
     if missing:
         raise ValueError(f'Incomplete checkpoint; missing keys: {sorted(missing)[:10]}')
-    if not any('.parametrizations.weight.0.B' in k for k in loaded):
-        raise ValueError('Checkpoint has no custom LoRA weights')
+    if not any('.lora_B.default.weight' in k for k in loaded):
+        raise ValueError('Checkpoint has no PEFT LoRA weights')
     merge_lora(model)
     model.eval()
     model.save_pretrained(args.output_dir)

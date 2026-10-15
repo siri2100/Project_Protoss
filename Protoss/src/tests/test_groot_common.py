@@ -141,6 +141,13 @@ class CommonTests(unittest.TestCase):
                 # Refuse accidental rerun/overwrite, before calling the trainer.
                 with self.assertRaises(ValueError):
                     training.prepare_training(args)
+                settings_path = args.output_dir / "lora_settings.json"
+                legacy_settings = json.loads(settings_path.read_text())
+                legacy_settings.pop("backend")
+                settings_path.write_text(json.dumps(legacy_settings))
+                args.resume = True
+                with self.assertRaisesRegex(ValueError, "legacy custom-LoRA"):
+                    training.prepare_training(args)
             self.assertEqual(len(captured), 2)
             for i, style in enumerate(("a", "b")):
                 cfg = captured[i]

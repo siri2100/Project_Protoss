@@ -111,7 +111,7 @@ def prepare_training(args):
                "max_steps": args.max_steps, "gradient_accumulation": args.gradient_accumulation})
 
     config.model.tune_projector = False
-    lora_settings = {"variant": args.variant, "rank": args.lora_rank, "alpha": args.lora_alpha,
+    lora_settings = {"backend": "peft", "variant": args.variant, "rank": args.lora_rank, "alpha": args.lora_alpha,
                         "base_model": str(args.base_model.resolve()), "dataset": str(dataset),
                         "seed": args.seed, "loss": "FM",
                         "video_delta_indices": [0], "state_dropout_prob": args.state_dropout_prob}
@@ -121,6 +121,8 @@ def prepare_training(args):
         # Model 1 is the former name of the same FM experiment.
         if previous is not None and previous.get("variant") == "1":
             previous["variant"] = "FM"
+        if previous is not None and previous.get("backend") != "peft":
+            raise ValueError("PEFT training cannot resume legacy custom-LoRA checkpoints; use a new output directory")
         if previous != lora_settings:
             raise ValueError("LoRA resume settings differ or are missing; use the original experiment settings")
     write_json(settings_path, lora_settings)

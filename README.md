@@ -329,10 +329,11 @@ GR00T 기본 masked flow-matching MSE를 그대로 사용한다. FM의 velocity�
 
 산출물:
 
-- `checkpoint-*`: LoRA parametrization이 들어 있는 trainer checkpoint. 같은 학습 명령에 `--resume`을 추가해 재개한다. 기본 서버에 바로 전달하지 않는다.
-- `lora_adapter.pt`: 학습된 low-rank 행렬과 원본 모델·LoRA 설정. 작은 보관용 파일이며 standalone GR00T 모델은 아니다.
+- `checkpoint-*`: PEFT LoRA가 들어 있는 전체 trainer checkpoint. 같은 학습 명령에 `--resume`을 추가해 재개한다. 기본 서버에 바로 전달하지 않는다.
+- `adapter/`: PEFT 표준 `adapter_config.json`과 `adapter_model.safetensors`. 원본 DiT에 로드하는 adapter이며 standalone GR00T 모델은 아니다.
+- `lora_adapter.pt`: PEFT low-rank 행렬과 실험 설정을 담은 보관용 파일.
 - `inference/`: 학습 완료 후 LoRA를 weight에 merge한 원래 GR00T 형식의 모델+processor. 기본 서버와 평가에 사용한다. 이 export는 전체 모델 크기다.
-- `lora_settings.json`, `lora_run.json`: LoRA 설정과 적용 layer 목록. 다른 rank/alpha/base/data/seed로 resume하면 중단한다.
+- `lora_settings.json`, `lora_run.json`: LoRA backend(`peft`), 설정과 적용 layer 목록. 다른 backend/rank/alpha/base/data/seed로 resume하면 중단한다. 이전 자체 LoRA checkpoint는 PEFT 학습으로 resume할 수 없으며 새 output 경로를 사용한다. 기존 merged `inference/`는 계속 평가에 사용할 수 있다.
 
 단일 CUDA GPU 경로를 제공한다. LoRA는 trainable parameter와 optimizer 메모리를 줄이지만 전체 모델 weight와 action-head activation은 필요하다. 해당 구성의 GPU peak와 학습 시간은 아직 측정하지 않았다.
 
