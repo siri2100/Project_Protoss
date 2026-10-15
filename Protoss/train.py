@@ -4,6 +4,36 @@ import json
 from pathlib import Path
 import sys
 
+def configure_training(config, args):
+    """Apply model and trainer settings to the GR00T config."""
+    config.load_config_path = None
+    config.data.seed = args.seed
+    config.model.tune_llm = False
+    config.model.tune_visual = False
+    config.model.tune_projector = True
+    config.model.tune_diffusion_model = True
+    config.model.load_bf16 = False
+    config.model.reproject_vision = False
+    config.model.model_name = "nvidia/Cosmos-Reason2-2B"
+    config.model.backbone_trainable_params_fp32 = True
+    config.model.use_relative_action = True
+    config.training.start_from_checkpoint = str(args.base_model.resolve())
+    config.training.output_dir = str(args.output_dir.resolve())
+    # Upstream appends experiment_name to output_dir when it is non-None.
+    config.training.experiment_name = None
+    config.training.num_gpus = 1
+    config.training.global_batch_size = args.batch_size
+    config.training.gradient_accumulation_steps = args.gradient_accumulation
+    config.training.learning_rate = args.lr
+    config.training.max_steps = args.max_steps
+    config.training.save_steps = args.save_steps
+    config.training.save_total_limit = 3
+    config.training.dataloader_num_workers = args.workers
+    config.training.optim = "adamw_torch"
+    config.training.use_wandb = False
+    config.training.resume_from_checkpoint = args.resume
+
+
 def train(args):
     import torch
     from gr00t.configs.base_config import get_default_config
@@ -40,32 +70,7 @@ def train(args):
             load_training_modalities(args.base_model, EmbodimentTag.resolve(TAG).value))
         config.model.state_dropout_prob = args.state_dropout_prob
         print(f"v1.3 processor: video_delta_indices=[0], state_dropout_prob={args.state_dropout_prob}", flush=True)
-    config.load_config_path = None
-    config.data.seed = args.seed
-    config.model.tune_llm = False
-    config.model.tune_visual = False
-    config.model.tune_projector = True
-    config.model.tune_diffusion_model = True
-    config.model.load_bf16 = False
-    config.model.reproject_vision = False
-    config.model.model_name = "nvidia/Cosmos-Reason2-2B"
-    config.model.backbone_trainable_params_fp32 = True
-    config.model.use_relative_action = True
-    config.training.start_from_checkpoint = str(args.base_model.resolve())
-    config.training.output_dir = str(args.output_dir.resolve())
-    # Upstream appends experiment_name to output_dir when it is non-None.
-    config.training.experiment_name = None
-    config.training.num_gpus = 1
-    config.training.global_batch_size = args.batch_size
-    config.training.gradient_accumulation_steps = args.gradient_accumulation
-    config.training.learning_rate = args.lr
-    config.training.max_steps = args.max_steps
-    config.training.save_steps = args.save_steps
-    config.training.save_total_limit = 3
-    config.training.dataloader_num_workers = args.workers
-    config.training.optim = "adamw_torch"
-    config.training.use_wandb = False
-    config.training.resume_from_checkpoint = args.resume
+    configure_training(config, args)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     write_json(args.output_dir / "style_run.json", {"style": args.style, "base_model": str(args.base_model.resolve()),
                "dataset": str(dataset), "seed": args.seed, "loss": "native GR00T masked flow-matching MSE",
