@@ -145,7 +145,8 @@ def setup_training(config, args, lora_settings):
         pipeline = MODEL_REGISTRY[type(config.model)](config, cfg_dir)
         try:
             pipeline.setup()
-            pipeline.processor.save_pretrained(args.output_dir / "processor")
+            from .training_processor_settings import save_original_processor
+            save_original_processor(args.base_model, args.output_dir / "processor")
             train_dataset, _ = pipeline.return_dataset()
             if hasattr(train_dataset, "get_initial_actions"):
                 save_initial_actions_artifact(train_dataset, cfg_dir)
@@ -253,7 +254,11 @@ def export_model(training):
 
     output = training.args.output_dir
     training.model.action_head.model.save_pretrained(output / "adapter")
-    training.pipeline.processor.save_pretrained(output / "processor")
+    if training.lora_settings.get("processor_policy") == "pretrained-v1":
+        from .training_processor_settings import save_original_processor
+        save_original_processor(training.lora_settings["base_model"], output / "processor")
+    else:
+        training.pipeline.processor.save_pretrained(output / "processor")
     write_json(output / "inference/adapter_inference.json", {
         "format": "protoss-peft-v1",
         "base_model": training.lora_settings["base_model"],

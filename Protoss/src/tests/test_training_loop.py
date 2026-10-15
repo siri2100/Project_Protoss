@@ -244,6 +244,23 @@ class ExplicitLoopTests(unittest.TestCase):
             for mode in ("disabled", "unmerged", "merged"):
                 self.assertEqual(processors[mode], root.resolve() / "processor")
 
+    def test_preserved_processor_export_uses_original_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base = root / "original"
+            base.mkdir()
+            artifacts = {"processor_config.json": '{"processor_kwargs":{"original":true}}\n',
+                         "statistics.json": '{"droid":{"action":{"mean":[1.25]}}}\n'}
+            for name, content in artifacts.items():
+                (base / name).write_text(content)
+            session = self.make_session(root / "output")
+            session.lora_settings.update(base_model=str(base), processor_policy="pretrained-v1")
+            runtime.export_model(session)
+            for name in artifacts:
+                self.assertEqual((session.args.output_dir / "processor" / name).read_bytes(),
+                                 (base / name).read_bytes())
+            session.pipeline.processor.save_pretrained.assert_not_called()
+
     def test_native_pretrained_loading_is_unchanged(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

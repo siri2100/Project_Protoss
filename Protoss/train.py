@@ -9,15 +9,14 @@ def configure_training(config, args):
     """Apply model and trainer settings to the GR00T config."""
     config.load_config_path = None
     config.data.seed = args.seed
+    config.data.override_pretraining_statistics = False
     config.model.tune_llm = False
     config.model.tune_visual = False
-    config.model.tune_projector = True
+    config.model.tune_projector = False
+    config.model.tune_vlln = False
     config.model.tune_diffusion_model = True
     config.model.load_bf16 = False
-    config.model.reproject_vision = False
-    config.model.model_name = "nvidia/Cosmos-Reason2-2B"
     config.model.backbone_trainable_params_fp32 = True
-    config.model.use_relative_action = True
     config.training.start_from_checkpoint = str(args.base_model.resolve())
     config.training.output_dir = str(args.output_dir.resolve())
     # Upstream appends experiment_name to output_dir when it is non-None.
@@ -52,14 +51,10 @@ def parse_args():
     parser.add_argument("--lr", type=float, default=1e-5)
     parser.add_argument("--workers", type=int, default=2)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--state-dropout-prob", type=float, default=0.0,
-                        help="Probability of dropping the whole state during training; default off")
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
     if min(args.lora_rank, args.max_steps, args.save_steps, args.batch_size, args.gradient_accumulation) < 1 or args.lr <= 0 or args.lora_alpha <= 0 or args.workers < 0:
         parser.error("Invalid positive training/LoRA parameters")
-    if not 0 <= args.state_dropout_prob <= 1:
-        parser.error("state-dropout-prob must be between 0 and 1")
     report = json.loads((args.styles_dir / "styles.json").read_text())
     if report.get("synthetic") or report.get("style_method") != "original" or "train" not in report["splits"]:
         parser.error("Use the common original dataset prepared with --style-method original")
@@ -95,26 +90,23 @@ def prepare_training(args):
          "embodiment_tag": EmbodimentTag.resolve(TAG).value}]}})
 
     if __package__:
-        from .src.training_processor_settings import load_training_modalities
+        from .src.training_processor_settings import load_training_modalities, processor_contract
     else:
-        from src.training_processor_settings import load_training_modalities
+        from src.training_processor_settings import load_training_modalities, processor_contract
     from gr00t.data.utils import parse_modality_configs
-    config.data.modality_configs = parse_modality_configs(
-        load_training_modalities(args.base_model, EmbodimentTag.resolve(TAG).value))
-    config.model.state_dropout_prob = args.state_dropout_prob
-    print(f"v1.3 processor: video_delta_indices=[0], state_dropout_prob={args.state_dropout_prob}", flush=True)
+    modalities = load_training_modalities(args.base_model, EmbodimentTag.resolve(TAG).value)
+    config.data.modality_configs = parse_modality_configs(modalities)
+    config.model = type(config.model).from_pretrained(args.base_model)
     configure_training(config, args)
+    video_indices = modalities[EmbodimentTag.resolve(TAG).value]["video"]["delta_indices"]
+    print(f"Pretrained processor preserved: video_delta_indices={video_indices}, normalization=pretrained", flush=True)
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    write_json(args.output_dir / "style_run.json", {"style": args.style, "base_model": str(args.base_model.resolve()),
-               "dataset": str(dataset), "seed": args.seed, "loss": "native GR00T masked flow-matching MSE",
-               "selection": report, "batch_size": args.batch_size, "lr": args.lr,
-               "max_steps": args.max_steps, "gradient_accumulation": args.gradient_accumulation})
 
-    config.model.tune_projector = False
     lora_settings = {"backend": "peft", "variant": args.variant, "rank": args.lora_rank, "alpha": args.lora_alpha,
                         "base_model": str(args.base_model.resolve()), "dataset": str(dataset),
                         "seed": args.seed, "loss": "FM",
-                        "video_delta_indices": [0], "state_dropout_prob": args.state_dropout_prob}
+                        "processor_policy": "pretrained-v1", "processor_sha256": processor_contract(args.base_model),
+                        "video_delta_indices": video_indices, "override_pretraining_statistics": False}
     settings_path = args.output_dir / "lora_settings.json"
     if args.resume:
         previous = json.loads(settings_path.read_text()) if settings_path.exists() else None
@@ -125,6 +117,10 @@ def prepare_training(args):
             raise ValueError("PEFT training cannot resume legacy custom-LoRA checkpoints; use a new output directory")
         if previous != lora_settings:
             raise ValueError("LoRA resume settings differ or are missing; use the original experiment settings")
+    write_json(args.output_dir / "style_run.json", {"style": args.style, "base_model": str(args.base_model.resolve()),
+               "dataset": str(dataset), "seed": args.seed, "loss": "native GR00T masked flow-matching MSE",
+               "selection": report, "batch_size": args.batch_size, "lr": args.lr,
+               "max_steps": args.max_steps, "gradient_accumulation": args.gradient_accumulation})
     write_json(settings_path, lora_settings)
 
     return config, lora_settings

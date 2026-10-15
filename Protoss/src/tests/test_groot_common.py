@@ -103,10 +103,14 @@ class CommonTests(unittest.TestCase):
 
     def test_independent_training_uses_original_base_and_exact_output(self):
         captured = []
+        class ModelConfig(types.SimpleNamespace):
+            @classmethod
+            def from_pretrained(cls, path):
+                return cls(state_dropout_prob=0.25, model_name="original", use_relative_action=False)
         class Config:
             def __init__(self):
                 self.data = types.SimpleNamespace()
-                self.model = types.SimpleNamespace()
+                self.model = ModelConfig()
                 self.training = types.SimpleNamespace()
             def load_dict(self, value):
                 self.data.datasets = value["data"]["datasets"]
@@ -121,7 +125,8 @@ class CommonTests(unittest.TestCase):
         modules["gr00t.data.utils"] = types.ModuleType("gr00t.data.utils")
         modules["gr00t.data.utils"].parse_modality_configs = lambda value: value
         processor = types.ModuleType("src.training_processor_settings")
-        processor.load_training_modalities = lambda *args: {"video": "test"}
+        processor.load_training_modalities = lambda *args: {styles.TAG.lower(): {"video": {"delta_indices": [-15, 0]}}}
+        processor.processor_contract = lambda *args: {"statistics.json": "original-hash"}
         modules["src.training_processor_settings"] = processor
         with tempfile.TemporaryDirectory() as tmp, patch.dict(sys.modules, modules):
             root = Path(tmp).resolve()
@@ -143,6 +148,14 @@ class CommonTests(unittest.TestCase):
                     training.prepare_training(args)
                 settings_path = args.output_dir / "lora_settings.json"
                 legacy_settings = json.loads(settings_path.read_text())
+                original_style = (args.output_dir / "style_run.json").read_bytes()
+                old_policy = dict(legacy_settings)
+                old_policy.pop("processor_policy")
+                settings_path.write_text(json.dumps(old_policy))
+                args.resume = True
+                with self.assertRaisesRegex(ValueError, "resume settings differ"):
+                    training.prepare_training(args)
+                self.assertEqual((args.output_dir / "style_run.json").read_bytes(), original_style)
                 legacy_settings.pop("backend")
                 settings_path.write_text(json.dumps(legacy_settings))
                 args.resume = True
@@ -158,8 +171,11 @@ class CommonTests(unittest.TestCase):
                 self.assertFalse(cfg.model.tune_llm or cfg.model.tune_visual)
                 self.assertFalse(cfg.model.tune_projector)
                 self.assertTrue(cfg.model.tune_diffusion_model)
-                self.assertEqual(cfg.model.state_dropout_prob, 0.0)
-                self.assertEqual(cfg.data.modality_configs, {"video": "test"})
+                self.assertEqual(cfg.model.state_dropout_prob, 0.25)
+                self.assertFalse(cfg.data.override_pretraining_statistics)
+                self.assertEqual(cfg.model.model_name, "original")
+                self.assertFalse(cfg.model.use_relative_action)
+                self.assertEqual(cfg.data.modality_configs[styles.TAG.lower()]["video"]["delta_indices"], [-15, 0])
 
 if __name__ == "__main__":
     unittest.main()

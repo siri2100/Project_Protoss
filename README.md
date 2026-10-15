@@ -261,9 +261,9 @@ GR00T의 DROID 변환과 동일한 `[eef_9d(9), gripper(1), joint(7)]` LeRobot v
 - 학습 재개: 같은 PEFT 실험의 `checkpoint-*`에 모델·optimizer·scheduler·RNG 상태가 모두 있을 때만 기존 output 경로와 원래 학습 설정을 유지하고 `--resume`을 추가한다.
 - 설정 JSON만 있거나 이전 자체 LoRA/full fine-tuning checkpoint만 있는 폴더는 `--resume`으로 해결되지 않는다. 새 output 경로에서 pretrained 모델부터 시작한다.
 
-v1.3은 pretrained processor의 modality 정의를 가져온 뒤 영상 시점만 `[0]`으로 명시하고 state dropout 기본값을 `0.0`으로 설정한다. 이는 전체 state 입력을 무작위로 제거하는 augmentation을 끄는 옵션이며 DiT 내부 dropout과 별개다. 필요하면 `--state-dropout-prob 0.2`처럼 변경할 수 있다. Normalization 통계 정책은 이번 변경에서 바꾸지 않는다.
+현재 학습은 **원본 pretrained processor, normalization 통계, 영상 시점을 그대로 유지**한다. `override_pretraining_statistics=False`로 학습 subset 통계 덮어쓰기를 막고, pretrained processor를 추가 override 없이 직접 로드한다. 원본 영상 시점이 `[-15, 0]`이면 학습에서도 그대로 사용한다. 저장되는 `processor/`의 JSON 파일은 원본 파일을 그대로 복사한다. Model config도 원본 checkpoint에서 읽고 기존 파라미터는 동결한 채 선택한 LoRA A/B만 학습한다.
 
-기존 2프레임 v1.2 학습을 새 설정으로 `--resume`하지 않는다. 아래 명령이 생성하는 새 PEFT 경로에서 pretrained 모델부터 새로 학습한다. 원본 데이터는 그대로 재사용하며 재다운로드·변환은 필요 없다. 기존 inference의 processor만 1프레임으로 수정하지 않는다.
+이전 `[0]` 영상·subset normalization으로 학습한 checkpoint는 새 학습으로 `--resume`하지 않는다. 새 output에서 원본 pretrained 모델부터 다시 시작한다. 데이터는 기존 공통 `trainset/`을 재사용하며 재다운로드·변환은 필요 없다. `lora_settings.json`에 `processor_policy=pretrained-v1`, 원본 processor 파일 SHA256, 영상 시점, 통계 덮어쓰기 여부를 기록하고, 다르면 재개를 거부한다. `--state-dropout-prob` override 옵션은 제거했다.
 
 ### 6.1 Model-FM 학습
 
@@ -287,7 +287,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
   --base-model "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
   --output-dir "$OUTPUT_DIR" \
   --lora-rank 32 --lora-alpha 64 --max-steps 100 --save-steps 100 \
-  --batch-size 2 --gradient-accumulation 16 --lr 1e-5 --workers 2 --seed 42 --state-dropout-prob 0.0
+  --batch-size 2 --gradient-accumulation 16 --lr 1e-5 --workers 2 --seed 42
 )
 ```
 
@@ -339,7 +339,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
   --base-model "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
   --output-dir "$OUTPUT_DIR" \
   --lora-rank 32 --lora-alpha 64 --max-steps 2000 --save-steps 2000 \
-  --batch-size 2 --gradient-accumulation 16 --lr 1e-5 --workers 2 --seed 42 --state-dropout-prob 0.0
+  --batch-size 2 --gradient-accumulation 16 --lr 1e-5 --workers 2 --seed 42
 )
 ```
 
@@ -365,7 +365,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
   --base-model "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
   --output-dir "$(cat "$PROTOSS_ROOT/Protoss/checkpoint/latest_FM_lora_v15.txt")" \
   --lora-rank 32 --lora-alpha 64 --max-steps 1000 --save-steps 100 \
-  --batch-size 2 --gradient-accumulation 16 --lr 1e-5 --workers 2 --seed 42 --state-dropout-prob 0.0 \
+  --batch-size 2 --gradient-accumulation 16 --lr 1e-5 --workers 2 --seed 42 \
   --resume
 )
 ```

@@ -25,7 +25,7 @@
 
 나머지 CLI는 이 폴더에, 공통 구현은 `src/`, 테스트는 `src/tests/`에 있다. 서버에 복사할 때 `src/`도 함께 포함한다.
 
-v1.3: 영상은 현재 프레임 `[0]`, state dropout은 기본 `0.0`이다. 기존 데이터는 재사용하고 새 checkpoint 폴더에서 재학습한다.
+현재 학습은 원본 processor를 override 없이 로드하고 normalization 통계를 덮어쓰지 않으며, 원본 영상 시점을 유지한다. 저장되는 processor JSON은 원본과 동일한 파일이다. 기존 `[0]`/subset normalization 실험은 재개하지 않고, 기존 데이터로 새 output에서 pretrained 모델부터 LoRA만 다시 학습한다.
 
 학습 완료 시 모델 output 폴더에 `training_loss.png`와 원본 수치 `training_loss.csv`를 저장한다. X축은 optimizer step, Y축은 gradient accumulation batch들의 평균 flow-matching loss다. Loss 기록은 checkpoint에도 포함되어 `--resume` 시 이어진다. 이 기능 이전 checkpoint에 loss 기록이 없다면 재개 이후 기록만 표시한다.
 
@@ -34,3 +34,5 @@ v1.3: 영상은 현재 프레임 `[0]`, state dropout은 기본 `0.0`이다. 기
 서버는 `serve.py`로 실행한다. 서버·평가 실행기는 별도 GR00T checkout에 `patches/gr00t_adapter_inference.patch`를 자동 적용한다. 배포할 때 `src/`와 `patches/`를 함께 포함한다.
 
 추론 디버그 모드: `--lora-mode pretrained`는 원본 모델·원본 processor, `disabled`는 원본 모델·학습 processor, `unmerged`는 LoRA를 병합 없이 적용, `merged`는 LoRA를 병합하여 적용한다. 병합을 끄는 것은 LoRA를 끄는 것과 다르다.
+
+`lora_settings.json`의 `processor_policy=pretrained-v1`과 processor SHA256으로 새 학습을 구분한다. 데이터셋 생성 후 원본 normalization 통계가 바뀌면 학습을 중단한다.

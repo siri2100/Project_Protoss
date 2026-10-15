@@ -94,6 +94,10 @@ def training_pipeline(config, rank, alpha):
     holder = {}
 
     class LoRAPipeline(original):
+        def _create_dataset(self, save_cfg_dir):
+            from .training_processor_settings import create_training_dataset
+            return create_training_dataset(self, save_cfg_dir)
+
         def _create_model(self):
             model = super()._create_model()
             holder["targets"] = install_lora(model, rank, alpha)
