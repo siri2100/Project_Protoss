@@ -59,6 +59,8 @@ def install_lora(model, rank=8, alpha=16):
         f"mismatches: {mismatch_count}\n",
         flush=True,
     )
+    import sys
+    sys.exit()
     return ["action_head.model." + name for name in names]
 
 
