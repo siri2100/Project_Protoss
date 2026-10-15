@@ -28,8 +28,11 @@ def install_lora(model, rank=8, alpha=16):
         if isinstance(module, nn.Linear):
             parametrize.register_parametrization(module, "weight", LowRankWeight(module.weight, rank, alpha))
             names.append("action_head.model." + name)
+            print(name)
     if not names:
         raise ValueError("No Linear modules found in GR00T action DiT")
+    import sys
+    sys.exit()
     return names
 
 
