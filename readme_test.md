@@ -34,8 +34,6 @@ uv run --no-sync hf auth whoami
 
 새 Pod에 환경과 원본 `GR00T-N1.7-DROID`를 준비하고 2.1절에서 로그인한다. Adapter 저장소에는 원본 pretrained 가중치가 포함되지 않는다. 다운로드 폴더는 업로드한 run 구조 전체를 유지한다.
 
-#### Model-FM
-
 ```bash
 (
 set -e
@@ -47,44 +45,8 @@ unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 HF_ACCOUNT=$(uv run --no-sync python -c \
   'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
-uv run --no-sync hf download "$HF_ACCOUNT/protoss-v161-model-fm-step1000" \
-  --local-dir "$PROTOSS_ROOT/Protoss/checkpoint/v161_model_fm_step1000"
-)
-```
-
-#### Model-S
-
-```bash
-(
-set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
-export HF_HOME=/workspace/.cache/huggingface
-export HF_HUB_ENABLE_HF_TRANSFER=0
-export PATH="$HOME/.local/bin:$PATH"
-unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-HF_ACCOUNT=$(uv run --no-sync python -c \
-  'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
-uv run --no-sync hf download "$HF_ACCOUNT/protoss-v16-model-s-step1000" \
-  --local-dir "$PROTOSS_ROOT/Protoss/checkpoint/v16_model_s_step1000"
-)
-```
-
-#### Model-E
-
-```bash
-(
-set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
-export HF_HOME=/workspace/.cache/huggingface
-export HF_HUB_ENABLE_HF_TRANSFER=0
-export PATH="$HOME/.local/bin:$PATH"
-unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-HF_ACCOUNT=$(uv run --no-sync python -c \
-  'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
-uv run --no-sync hf download "$HF_ACCOUNT/protoss-v16-model-e-step1000" \
-  --local-dir "$PROTOSS_ROOT/Protoss/checkpoint/v16_model_e_step1000"
+uv run --no-sync hf download "$HF_ACCOUNT/protoss-v163-model-fm-step1000" \
+  --local-dir "$PROTOSS_ROOT/Protoss/checkpoint/v163_model_fm_step1000"
 )
 ```
 
@@ -94,134 +56,8 @@ uv run --no-sync hf download "$HF_ACCOUNT/protoss-v16-model-e-step1000" \
 
 검증: 전체 모델 및 PEFT run 업로드의 private 저장소 조건, 필수 artifact 검사, 원격 파일 누락 검사, dry-run을 CPU mock 테스트로 확인했다. 실제 업로드는 사용자가 서버에서 실행한다.
 
-## 3. 평가 데이터 다운로드
 
-이 문서 1절의 환경 준비와 2.1절 로그인 후 실행한다. 모델 저장소와 구분하기 위해 **`--repo-type dataset`**을 반드시 지정한다.
-
-```bash
-(
-set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
-export HF_HOME=/workspace/.cache/huggingface
-export HF_HUB_ENABLE_HF_TRANSFER=0
-export PATH="$HOME/.local/bin:$PATH"
-unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-HF_ACCOUNT=$(uv run --no-sync python -c \
-  'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
-uv run --no-sync hf download "$HF_ACCOUNT/protoss-groot-v16-shared-data" \
-  --repo-type dataset \
-  --local-dir "$PROTOSS_ROOT/Protoss/data"
-)
-```
-
-Open-loop 평가는 다운로드 후 이 문서 4절을 실행한다. 재학습하려면 [학습 문서 6절](readme_train.md#6-model-fmse-lora-학습)을 따른다. 이미 있는 다른 데이터와 섞이지 않게 비어 있는 대상 경로에 다운로드한다. 정확한 버전 재현에는 `--revision`으로 dataset commit SHA를 지정한다. `styles.json`의 source 경로는 최초 생성 서버의 기록이므로 새 Pod에서 존재하지 않아도 학습에는 문제가 없다.
-
-## 4. 네 모델의 공통 학습 데이터 평가
-
-`eval_groot_models.py`는 같은 trainset episode, seed 42/43/44, execution horizon=8, denoising steps=4로 GR00T open-loop 평가를 실행한다. 기본은 trainset 전체를 episode 끝까지 평가한다. 빠른 확인에는 `--traj-ids 0 --seeds 42 --steps 400`을 사용하고 최종 비교는 네 모델에 같은 설정을 사용한다.
-
-### baseline 평가
-
-```bash
-(
-set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
-export HF_HOME=/workspace/.cache/huggingface
-export HF_HUB_ENABLE_HF_TRANSFER=0
-export PATH="$HOME/.local/bin:$PATH"
-export CUDA_VISIBLE_DEVICES=0
-unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-uv run --no-sync python "$PROTOSS_ROOT/Protoss/eval_groot_models.py" \
-  --model baseline --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
-  --dataset-root "$PROTOSS_ROOT/Protoss/data" \
-  --model-path "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
-  --output-dir "$PROTOSS_ROOT/results/v1.3/baseline_run01" \
-  --seeds 42 43 44 --execution-horizon 8 --denoising-steps 4 --steps 100000
-)
-```
-
-### Model-FM 평가
-
-아래는 `latest_FM_lora_v16.txt`에 기록된 학습 output의 adapter를 원본 pretrained 모델에 적용하여 episode 0 하나를 seed 42에서 평가한다. `INFERENCE_STEPS`를 `100`, `500`, `800`, `1000` 등으로 지정하면 episode당 최대 평가 timestep이 바뀐다. Episode가 더 짧으면 실제 길이까지만 평가한다. 전체 episode와 세 seed를 비교하려면 `--traj-ids 0`을 제거하고 `--seeds 42 43 44`로 변경한다.
-
-`--model-path`에는 학습 output 폴더를 지정한다. 기존 PEFT output의 `adapter/`, `processor/`, `lora_settings.json`도 지원하므로 재학습 없이 추론 시 병합을 확인할 수 있다. 원본 pretrained 모델 위치가 달라졌다면 `--base-model-path /실제/pretrained/경로`를 추가한다. 새 output의 `inference/` 설정 폴더도 지원한다. 같은 step으로 재실행할 때는 결과 폴더의 `run02`를 `run03` 등 새 이름으로 바꾼다.
-
-```bash
-(
-set -e
-INFERENCE_STEPS=1000
-
-export PROTOSS_ROOT=/workspace/Project_Protoss
-export HF_HOME=/workspace/.cache/huggingface
-export HF_HUB_ENABLE_HF_TRANSFER=0
-export PATH="$HOME/.local/bin:$PATH"
-export CUDA_VISIBLE_DEVICES=0
-unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-
-cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-uv run --no-sync python "$PROTOSS_ROOT/Protoss/eval_groot_models.py" \
-  --model FM \
-  --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
-  --dataset-root "$PROTOSS_ROOT/Protoss/data" \
-  --model-path "$(cat "$PROTOSS_ROOT/Protoss/checkpoint/latest_FM_lora_v16.txt")" \
-  --output-dir "$PROTOSS_ROOT/experiment/DROID/model_FM_v1.6_${INFERENCE_STEPS}_run02" \
-  --traj-ids 0 --seeds 42 \
-  --execution-horizon 8 --denoising-steps 4 \
-  --seeds 42 43 44 --execution-horizon 8 --denoising-steps 4 --steps 100000
-)
-```
-
-### Model-S 평가
-
-```bash
-(
-set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
-export HF_HOME=/workspace/.cache/huggingface
-export HF_HUB_ENABLE_HF_TRANSFER=0
-export PATH="$HOME/.local/bin:$PATH"
-export CUDA_VISIBLE_DEVICES=0
-unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-uv run --no-sync python "$PROTOSS_ROOT/Protoss/eval_groot_models.py" \
-  --model S --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
-  --dataset-root "$PROTOSS_ROOT/Protoss/data" \
-  --model-path "$(cat "$PROTOSS_ROOT/Protoss/checkpoint/latest_S_lora_v16.txt")" \
-  --output-dir "$PROTOSS_ROOT/results/v1.3/model_S_run01" \
-  --seeds 42 43 44 --execution-horizon 8 --denoising-steps 4 --steps 100000
-)
-```
-
-### Model-E 평가
-
-```bash
-(
-set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
-export HF_HOME=/workspace/.cache/huggingface
-export HF_HUB_ENABLE_HF_TRANSFER=0
-export PATH="$HOME/.local/bin:$PATH"
-export CUDA_VISIBLE_DEVICES=0
-unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-uv run --no-sync python "$PROTOSS_ROOT/Protoss/eval_groot_models.py" \
-  --model E --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
-  --dataset-root "$PROTOSS_ROOT/Protoss/data" \
-  --model-path "$(cat "$PROTOSS_ROOT/Protoss/checkpoint/latest_E_lora_v16.txt")" \
-  --output-dir "$PROTOSS_ROOT/results/v1.3/model_E_run01" \
-  --seeds 42 43 44 --execution-horizon 8 --denoising-steps 4 --steps 100000
-)
-```
-
-baseline은 원본 pretrained 모델을 사용한다. Model-FM/S/E는 학습 output의 adapter와 학습 processor를 사용하고 추론 시작 시 pretrained 모델에 병합한다. 기존 `model_1_lora`에 저장된 Model-FM을 평가하려면 해당 명령의 `--model-path`만 기존 경로로 지정한다. 네 명령은 동일한 공통 trainset 전체와 평가 설정을 사용하며 결과는 모델별 폴더에 저장한다. 재평가할 때는 `run02`처럼 새 output 경로를 지정한다.
-
-`evaluation.json`에는 데이터 manifest SHA256, trajectory ID, seed, horizon과 모델 경로가 기록된다. Seed별 로그의 `Average MSE/MAE across all trajs`와 plot을 비교한다. 이 평가는 imitation 오차이며 물리적 smoothness, 완료 시간, task 성공률을 측정하지 않는다. baseline의 pretrained normalization과 fine-tuned processor 통계는 각 모델의 학습/추론 설정을 따른다. 실제 로봇 성능은 5절 closed-loop 평가가 필요하다. 결과 경로가 이미 있으면 중단한다.
-
-Model-FM의 성능 저하 진단은 [README_analysis.md](README_analysis.md)를 따른다. 초기 LoRA·merge·재로딩 출력 비교, processor 통계 비교와 중간 checkpoint 오차 추세를 별도로 확인한다.
-
-## 5. RoboLab closed-loop 평가 — 선택 사항
+## 3. RoboLab closed-loop 평가 — 선택 사항
 
 실제 simulator task 성공률이 필요하면 진행한다. Isaac Sim 5.1 EULA를 확인한 뒤 설치한다. RTX rendering을 지원하는 GPU와 NVIDIA graphics/Vulkan 라이브러리가 노출된 Linux 컨테이너가 필요하다. A100/H100에서 학습이 가능해도 simulator 실행이 가능한 것은 아니다. [Isaac Sim 요구사항](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/requirements.html).
 
@@ -284,7 +120,7 @@ export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
 export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-MODEL_PATH="$PROTOSS_ROOT/Protoss/checkpoint/v161_model_fm_step1000/inference"
+MODEL_PATH="$PROTOSS_ROOT/Protoss/checkpoint/v163_model_fm_step1000/inference"
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/serve.py" \
   --model-path "$MODEL_PATH" \
@@ -323,7 +159,7 @@ UV_PROJECT_ENVIRONMENT=.venv-51 uv run --no-sync --extra isaac51 \
   --task BananaOnPlateTask \
   --num-envs 2 --num-runs 5 --open-loop-horizon 8 \
   --instruction-type default --video-mode none \
-  --output-folder-name v1.6.1_mdoel_fm_step1000
+  --output-folder-name v1.6.3_mdoel_fm_step1000
 )
 ```
 
