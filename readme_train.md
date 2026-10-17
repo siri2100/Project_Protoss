@@ -267,7 +267,7 @@ GR00T의 DROID 변환과 동일한 `[eef_9d(9), gripper(1), joint(7)]` LeRobot v
 ```bash
 (
 set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss2
+export PROTOSS_ROOT=/workspace/Project_Protoss
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
@@ -275,13 +275,13 @@ export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 mkdir -p "$PROTOSS_ROOT/Protoss/checkpoint"
-OUTPUT_DIR="$PROTOSS_ROOT/Protoss/checkpoint/v164_model_fm_step1000"
+OUTPUT_DIR="$PROTOSS_ROOT/Protoss/checkpoint/v165_model_fm_step500"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
   --model FM --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
   --base-model "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
   --output-dir "$OUTPUT_DIR" \
-  --lora-rank 32 --lora-alpha 64 --max-steps 1000 --save-steps 1000 \
+  --lora-rank 32 --lora-alpha 64 --max-steps 500 --save-steps 500 \
   --batch-size 2 --gradient-accumulation 16 --lr 1e-5 --workers 2 --seed 42
 )
 ```
@@ -442,12 +442,10 @@ uv run --no-sync hf auth whoami
 
 **`--folder`에는 `/inference`를 붙이지 않는다.** PEFT output에는 전체 모델 `config.json`이 없으며, `adapter/adapter_config.json`과 adapter weight가 있다. `inference/`는 경로 설정뿐이므로 단독 업로드하지 않는다. 전체 run을 업로드하면 `processor/`, normalization 통계, `lora_settings.json`, `training_loss.png`·`training_loss.csv`, checkpoint의 loss 기록과 재개 상태가 함께 보관된다. 기존 loss log 복사 명령은 필요 없다.
 
-#### Model-FM
-
 ```bash
 (
 set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
+export PROTOSS_ROOT=/workspace/Project_Protoss2
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
@@ -456,46 +454,8 @@ cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 HF_ACCOUNT=$(uv run --no-sync python -c \
   'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/upload_checkpoint_hf.py" \
-  --folder "$PROTOSS_ROOT/Protoss/checkpoint/v163_model_fm_step1000" \
-  --repo-id "$HF_ACCOUNT/protoss-v163-model-fm-step1000" --workers 2
-)
-```
-
-#### Model-S
-
-```bash
-(
-set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
-export HF_HOME=/workspace/.cache/huggingface
-export HF_HUB_ENABLE_HF_TRANSFER=0
-export PATH="$HOME/.local/bin:$PATH"
-unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-HF_ACCOUNT=$(uv run --no-sync python -c \
-  'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
-uv run --no-sync python "$PROTOSS_ROOT/Protoss/upload_checkpoint_hf.py" \
-  --folder "$PROTOSS_ROOT/Protoss/checkpoint/v16_model_s_step1000" \
-  --repo-id "$HF_ACCOUNT/protoss-v16-model-s-step1000" --workers 2
-)
-```
-
-#### Model-E
-
-```bash
-(
-set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
-export HF_HOME=/workspace/.cache/huggingface
-export HF_HUB_ENABLE_HF_TRANSFER=0
-export PATH="$HOME/.local/bin:$PATH"
-unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-HF_ACCOUNT=$(uv run --no-sync python -c \
-  'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
-uv run --no-sync python "$PROTOSS_ROOT/Protoss/upload_checkpoint_hf.py" \
-  --folder "$PROTOSS_ROOT/Protoss/checkpoint/v16_model_e_step1000" \
-  --repo-id "$HF_ACCOUNT/protoss-v16-model-e-step1000" --workers 2
+  --folder "$PROTOSS_ROOT/Protoss/checkpoint/v164_model_fm_step1000" \
+  --repo-id "$HF_ACCOUNT/protoss-v164-model-fm-step1000" --workers 2
 )
 ```
 

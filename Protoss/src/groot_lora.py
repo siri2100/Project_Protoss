@@ -18,7 +18,7 @@ def install_lora(model, rank=8, alpha=16):
         if not name or not isinstance(param, nn.Linear):
             continue
         match = re.fullmatch(r"transformer_blocks\.(\d+)\.ff\..+", name)
-        if match and int(match.group(1)) % 2 == 1:
+        if match and int(match.group(1)) % 2 == 0:
             names.append(name)
             print(name)
 
