@@ -456,8 +456,8 @@ cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 HF_ACCOUNT=$(uv run --no-sync python -c \
   'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/upload_checkpoint_hf.py" \
-  --folder "$PROTOSS_ROOT/Protoss/checkpoint/v162_model_fm_step1000" \
-  --repo-id "$HF_ACCOUNT/protoss-v162-model-fm-step1000" --workers 2
+  --folder "$PROTOSS_ROOT/Protoss/checkpoint/v161_model_fm_step1000" \
+  --repo-id "$HF_ACCOUNT/protoss-v161-model-fm-step1000" --workers 2
 )
 ```
 
