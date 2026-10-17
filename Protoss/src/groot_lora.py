@@ -18,19 +18,18 @@ def install_lora(model, rank=8, alpha=16):
         print(name)
         if not name or not isinstance(param, nn.Linear):
             continue
-        if 'to_q' in name or 'to_v' in name:
+        match = re.fullmatch(r"transformer_blocks\.(\d+)\.attn1\.(to_q|to_k|to_v)", name)
+        if match and int(match.group(1)) % 2 == 1:
             names.append(name)
 
-    import sys
-    sys.exit()
     if not names:
-        raise ValueError("No Linear modules found in GR00T action DiT")
+        raise ValueError("No Q/K/V Linear modules found in odd-indexed GR00T DiT blocks")
 
     model.requires_grad_(False)
     config = LoraConfig(
         r=rank,
         lora_alpha=alpha,
-        # Match exact paths, including output and timestep projections.
+        # Match Q/K/V only in blocks 1, 3, 5, ... (zero-based indices).
         target_modules="(?:" + "|".join(re.escape(name) for name in names) + ")",
         lora_dropout=0.0,
         bias="none",

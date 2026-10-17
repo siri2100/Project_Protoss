@@ -11,19 +11,29 @@ from torch import nn
 from src.groot_lora import install_lora, merge_lora
 
 
+def make_test_dit():
+    def block():
+        return nn.Sequential(OrderedDict(attn1=nn.Sequential(OrderedDict(
+            to_q=nn.Linear(4, 4), to_k=nn.Linear(4, 4), to_v=nn.Linear(4, 4),
+            to_out=nn.Linear(4, 4),
+        ))))
+    return nn.Sequential(OrderedDict(transformer_blocks=nn.Sequential(*(block() for _ in range(4)))))
+
+
 class LoRATests(unittest.TestCase):
     def test_initial_equivalence_only_adapter_gradients_and_merge(self):
         torch.manual_seed(42)
         model = nn.Module()
         model.backbone = nn.Linear(4, 4)
         model.action_head = nn.Module()
-        model.action_head.model = nn.Sequential(OrderedDict(to_q=nn.Linear(4, 6), activation=nn.SiLU(), to_q_output=nn.Linear(6, 3)))
+        model.action_head.model = make_test_dit()
         x = torch.randn(5, 4)
         original = model.action_head.model(x).detach()
         base_dit = copy.deepcopy(model.action_head.model)
         targets = install_lora(model, 2, 4)
         self.assertIsInstance(model.action_head.model, PeftModel)
-        self.assertEqual(len(targets), 2)
+        self.assertEqual(targets, [f"action_head.model.transformer_blocks.{i}.attn1.{projection}"
+                                   for i in (1, 3) for projection in ("to_q", "to_k", "to_v")])
         torch.testing.assert_close(original, model.action_head.model(x))
         optimizer = torch.optim.SGD([p for p in model.parameters() if p.requires_grad], lr=.1)
         for _ in range(2):
@@ -42,7 +52,7 @@ class LoRATests(unittest.TestCase):
         merge_lora(model)
         torch.testing.assert_close(adapted, model.action_head.model(x))
         self.assertFalse(any("lora_" in key or "base_layer" in key for key in model.state_dict()))
-        reloaded = nn.Sequential(OrderedDict(to_q=nn.Linear(4, 6), activation=nn.SiLU(), to_q_output=nn.Linear(6, 3)))
+        reloaded = make_test_dit()
         reloaded.load_state_dict(model.action_head.model.state_dict())
         torch.testing.assert_close(adapted, reloaded(x))
 
@@ -68,7 +78,8 @@ class LoRATests(unittest.TestCase):
                       backbone_attention_mask=torch.ones(2, 4, dtype=torch.bool))
         expected = dit(**inputs).detach()
         targets = install_lora(model, 2, 4)
-        self.assertEqual(len(targets), 2)
+        self.assertEqual(targets, [f"action_head.model.transformer_blocks.1.attn1.{projection}"
+                                   for projection in ("to_q", "to_k", "to_v")])
         model.eval()
         torch.testing.assert_close(model.action_head.model(**inputs), expected)
         for name, parameter in model.named_parameters():

@@ -28,8 +28,12 @@ class TinyPolicy(nn.Module):
     def __init__(self):
         super().__init__()
         self.action_head = nn.Module()
-        self.action_head.model = nn.Sequential(OrderedDict(to_q=nn.Linear(2, 1, bias=False)))
-        self.action_head.model[0].weight.data.fill_(0.2)
+        self.action_head.model = nn.Sequential(OrderedDict(transformer_blocks=nn.Sequential(
+            nn.Identity(), nn.Sequential(OrderedDict(attn1=nn.Sequential(OrderedDict(
+                to_q=nn.Linear(2, 1, bias=False),
+            )))),
+        )))
+        self.action_head.model.transformer_blocks[1].attn1.to_q.weight.data.fill_(0.2)
         self.calls = 0
 
     def save_pretrained(self, directory):
@@ -111,7 +115,7 @@ class ExplicitLoopTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             accumulated = self.make_session(root / "accumulated")
-            base = accumulated.model.action_head.model.base_model.model[0].base_layer.weight.detach().clone()
+            base = accumulated.model.action_head.model.base_model.model.transformer_blocks[1].attn1.to_q.base_layer.weight.detach().clone()
             # Repeat identical samples as a larger batch; disable stochastic noise
             # so each optimizer step represents exactly the same objective.
             combined = self.make_session(root / "combined", batch_size=2, accumulation=1)
@@ -121,7 +125,7 @@ class ExplicitLoopTests(unittest.TestCase):
                 self.run_main(combined)
             for a, b in zip(accumulated.model.parameters(), combined.model.parameters()):
                 torch.testing.assert_close(a, b)
-            torch.testing.assert_close(base, accumulated.model.action_head.model.base_model.model[0].base_layer.weight)
+            torch.testing.assert_close(base, accumulated.model.action_head.model.base_model.model.transformer_blocks[1].attn1.to_q.base_layer.weight)
             self.assertEqual(accumulated.model.calls, 8)
             self.assertEqual(combined.model.calls, 4)
             self.assertEqual(accumulated.step, 4)
