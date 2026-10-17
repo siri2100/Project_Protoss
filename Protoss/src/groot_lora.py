@@ -17,8 +17,7 @@ def install_lora(model, rank=8, alpha=16):
     for name, param in dit.named_modules():
         if not name or not isinstance(param, nn.Linear):
             continue
-
-        if 'to_q' in name or 'to_k' in name or 'to_v' in name:
+        if 'to_q' in name:
             names.append(name)
             print(name)
     if not names:
@@ -47,18 +46,6 @@ def install_lora(model, rank=8, alpha=16):
             trainable_count += param.numel()
         else:
             frozen_count += param.numel()
-        print(
-            f"[{'OK' if matches else 'MISMATCH'}] "
-            f"{'LoRA' if is_lora else 'pretrained'} "
-            f"requires_grad={param.requires_grad} "
-            f"shape={tuple(param.shape)} {name}",
-            flush=True,
-        )
-    print(
-        f"Trainable: {trainable_count:,}; frozen: {frozen_count:,}; "
-        f"mismatches: {mismatch_count}\n",
-        flush=True,
-    )
     return ["action_head.model." + name for name in names]
 
 

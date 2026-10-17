@@ -284,7 +284,7 @@ export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
 export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-MODEL_PATH="$PROTOSS_ROOT/Protoss/checkpoint/v16_model_fm_step1000"
+MODEL_PATH="$PROTOSS_ROOT/Protoss/checkpoint/v16_model_fm_step1000/inference"
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/serve.py" \
   --model-path "$MODEL_PATH" \
@@ -323,7 +323,7 @@ UV_PROJECT_ENVIRONMENT=.venv-51 uv run --no-sync --extra isaac51 \
   --task BananaOnPlateTask \
   --num-envs 2 --num-runs 5 --open-loop-horizon 8 \
   --instruction-type default --video-mode none \
-  --output-folder-name model_FM_v1.6_1000
+  --output-folder-name v1.6_model_fm_step1000
 )
 ```
 
