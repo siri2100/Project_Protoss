@@ -38,7 +38,7 @@ class LoRATests(unittest.TestCase):
         self.assertIsInstance(model.action_head.model, PeftModel)
         self.assertEqual(targets, [f"action_head.model.transformer_blocks.{i}.{projection}"
                                    for i in range(4) for projection in
-                                   ("attn1.to_q", "attn1.to_k", "attn1.to_v", "ff.net.0.proj", "ff.net.2")])
+                                   ("attn1.to_q", "attn1.to_k", "attn1.to_v")])
         torch.testing.assert_close(original, model.action_head.model(x))
         optimizer = torch.optim.SGD([p for p in model.parameters() if p.requires_grad], lr=.1)
         for _ in range(2):
@@ -85,7 +85,7 @@ class LoRATests(unittest.TestCase):
         targets = install_lora(model, 2, 4)
         self.assertEqual(targets, [f"action_head.model.transformer_blocks.{i}.{projection}"
                                    for i in range(2) for projection in
-                                   ("attn1.to_q", "attn1.to_k", "attn1.to_v", "ff.net.0.proj", "ff.net.2")])
+                                   ("attn1.to_q", "attn1.to_k", "attn1.to_v")])
         model.eval()
         torch.testing.assert_close(model.action_head.model(**inputs), expected)
         for name, parameter in model.named_parameters():
