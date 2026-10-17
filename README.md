@@ -281,7 +281,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
   --base-model "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
   --output-dir "$OUTPUT_DIR" \
-  --lora-rank 32 --lora-alpha 64 --max-steps 100 --save-steps 100 \
+  --lora-rank 32 --lora-alpha 64 --max-steps 1000 --save-steps 1000 \
   --batch-size 2 --gradient-accumulation 16 --lr 1e-5 --workers 2 --seed 42
 )
 ```
@@ -581,7 +581,7 @@ UV_PROJECT_ENVIRONMENT=.venv-51 uv run --no-sync --extra isaac51 \
   --task BananaOnPlateTask \
   --num-envs 2 --num-runs 5 --open-loop-horizon 8 \
   --instruction-type default --video-mode none \
-  --output-folder-name model_FM_v1.6_100
+  --output-folder-name model_FM_v1.6_1000
 )
 ```
 
