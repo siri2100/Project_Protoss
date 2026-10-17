@@ -275,9 +275,7 @@ export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 mkdir -p "$PROTOSS_ROOT/Protoss/checkpoint"
-OUTPUT_DIR="$(mktemp -d "$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora_v16_peft_XXXXXXXX")"
-printf '%s\n' "$OUTPUT_DIR" > "$PROTOSS_ROOT/Protoss/checkpoint/latest_FM_lora_v16.txt"
-printf 'Training output: %s\n' "$OUTPUT_DIR"
+OUTPUT_DIR="$PROTOSS_ROOT/Protoss/checkpoint/v161_model_fm_step1000"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
   --model FM --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
