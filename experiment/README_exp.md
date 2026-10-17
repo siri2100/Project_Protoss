@@ -8,7 +8,7 @@
 setopt interactivecomments
 (
 set -e
-NAME=v1.6.8
+NAME=v1.6.12
 STEP=500
 EXP_ROOT="$HOME/Desktop/Project_Protoss/experiment/RoboLab"
 RUN_NAME="${NAME}_model_fm_step${STEP}"
@@ -19,6 +19,7 @@ mv -i "$HOME/Downloads/$RUN_NAME.zip" "$EXP_ROOT/"
 cd "$EXP_ROOT"
 unzip -n "$RUN_NAME.zip"
 test -f "$RUN_NAME/episode_results.jsonl"
+rm "$RUN_NAME.zip"
 
 # task별 분리: 입력에서 처음 등장한 task부터 RoboLab05, 06, ...으로 저장
 python3 split_episode_results.py "$RUN_NAME/episode_results.jsonl" 5 \

@@ -37,6 +37,7 @@ uv run --no-sync hf auth whoami
 ```bash
 (
 set -e
+NAME=v1611
 export PROTOSS_ROOT=/workspace/Project_Protoss
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
@@ -45,8 +46,8 @@ unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 HF_ACCOUNT=$(uv run --no-sync python -c \
   'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
-uv run --no-sync hf download "$HF_ACCOUNT/protoss-v168-model-fm-step500" \
-  --local-dir "$PROTOSS_ROOT/Protoss/checkpoint/v168_model_fm_step500"
+uv run --no-sync hf download "$HF_ACCOUNT/protoss-"$NAME"-model-fm-step500" \
+  --local-dir "$PROTOSS_ROOT/Protoss/checkpoint/"$NAME"_model_fm_step500"
 )
 ```
 
@@ -114,13 +115,14 @@ cp "$PROTOSS_ROOT/Protoss/src/robolab_gr00t_client.py" "$CLIENT"
 ```bash
 (
 set -e
+NAME=v1612
 export PROTOSS_ROOT=/workspace/Project_Protoss
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
 export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-MODEL_PATH="$PROTOSS_ROOT/Protoss/checkpoint/v168_model_fm_step500/inference"
+MODEL_PATH="$PROTOSS_ROOT/Protoss/checkpoint/"$NAME"_model_fm_step500/inference"
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/serve.py" \
   --model-path "$MODEL_PATH" \
@@ -147,6 +149,7 @@ GR00T 기본 서버를 원본(baseline) 또는 adapter output(Model-FM/S/E)로 �
 ```bash
 (
 set -e
+NAME=v1.6.12
 export PATH="$HOME/.local/bin:$PATH"
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV CUDA_VISIBLE_DEVICES
 export OMNI_KIT_ACCEPT_EULA=Y
@@ -159,7 +162,7 @@ UV_PROJECT_ENVIRONMENT=.venv-51 uv run --no-sync --extra isaac51 \
   --task BananaOnPlateTask \
   --num-envs 2 --num-runs 5 --open-loop-horizon 8 \
   --instruction-type default --video-mode none \
-  --output-folder-name v1.6.8_model_fm_step500
+  --output-folder-name "$NAME"_model_fm_step500
 )
 ```
 
