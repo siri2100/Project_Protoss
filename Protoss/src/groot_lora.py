@@ -15,11 +15,14 @@ def install_lora(model, rank=8, alpha=16):
         raise ValueError("LoRA is already installed on the action DiT")
     names = []
     for name, param in dit.named_modules():
+        print(name)
         if not name or not isinstance(param, nn.Linear):
             continue
         if 'to_q' in name or 'to_v' in name:
             names.append(name)
-        print(name)
+
+    import sys
+    sys.exit()
     if not names:
         raise ValueError("No Linear modules found in GR00T action DiT")
 
