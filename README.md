@@ -16,7 +16,6 @@
 RunPod의 Ubuntu 22.04/24.04, Linux x86_64, NVIDIA CUDA GPU와 Bash를 기준으로 한다. 명령의 프로젝트 경로는 `/workspace/Project_Protoss`이며 실제 위치가 다르면 모든 블록의 `PROTOSS_ROOT`를 변경한다. OS 설치 명령은 root 기준이고 일반 계정은 `apt-get`, `ldconfig`에 `sudo`를 붙인다. 아래 설치·학습 명령은 원격 Linux용이다.
 
 GR00T 소스는 `Issac-GR00T-N17/`, pretrained weight는 `Protoss/checkpoint/GR00T-N1.7-DROID/`, 데이터는 `Protoss/data/` 아래에 둔다. GPU 0을 기본으로 사용하며 모델별로 독립 실행한다. 괄호 안의 `set -e`는 오류 발생 시 해당 블록만 중단한다.
-
 ```bash
 (
 set -e
@@ -38,7 +37,6 @@ git lfs install
 ### 프로젝트 받기
 
 이미 프로젝트가 있으면 clone하지 않고 해당 경로를 사용한다. 서버에도 새 LoRA 학습·평가 코드가 포함된 revision을 준비한다.
-
 ```bash
 (
 set -e
@@ -52,10 +50,15 @@ test -f "$PROTOSS_ROOT/Protoss/prepare_droid.py"
 )
 ```
 
+프로젝트 저장소에서 원격 v1.6 브랜치를 기준으로 로컬 브랜치를 생성한다.
+```bash
+cd /workspace/Project_Protoss
+git checkout -b v1.6 origin/v1.6
+```
+
 ### 저장 폴더 준비
 
 로컬에는 order.md에 맞춘 폴더를 생성했다. 새 Pod에서는 다음 명령으로 준비한다.
-
 ```bash
 (
 set -e
@@ -172,7 +175,6 @@ Cosmos 접근 확인을 생략해도 N1.7 모델 로딩에서 같은 권한 오�
 새 서버 터미널에도 오래된 `HF_TOKEN`이 설정되어 있다면 해제하거나 승인된 토큰으로 교체한다.
 
 ## 3. 데이터 준비 의존성 확인
-
 GR00T 전용 `.venv`에서 다운로드·변환·학습을 모두 실행한다. 데이터 준비용 의존성을 같은 환경에 설치한다. `--no-sync`로 실행해 추가 설치한 패키지를 유지한다.
 
 ```bash
@@ -220,13 +222,6 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/prepare_droid.py" download \
 ## 5. 공통 원본 DROID 데이터 준비
 
 수정된 코드를 서버에 반영한 뒤 아래 경로에 생성한다. 이미 변형한 이전 데이터는 원래 궤적으로 되돌릴 수 없으므로 원본 `Protoss/data/source`에서 다시 변환한다. 원본 다운로드는 다시 하지 않는다. 기존 다운로드 폴더가 `droid_styles_source`라면 아래 `--dataset-dir`만 그 경로로 변경한다.
-
-프로젝트 저장소에서 원격 v1.6 브랜치를 기준으로 로컬 브랜치를 생성한다.
-
-```bash
-cd /workspace/Project_Protoss
-git checkout -b v1.6 origin/v1.6
-```
 
 ```bash
 (
