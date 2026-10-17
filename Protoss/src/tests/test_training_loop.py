@@ -261,6 +261,22 @@ class ExplicitLoopTests(unittest.TestCase):
                                  (base / name).read_bytes())
             session.pipeline.processor.save_pretrained.assert_not_called()
 
+    def test_nested_download_reports_actual_run_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = root / "inference"
+            (run / "adapter").mkdir(parents=True)
+            (run / "processor").mkdir()
+            (run / "adapter/adapter_config.json").write_text("{}")
+            (run / "adapter/adapter_model.safetensors").write_bytes(b"fixture")
+            (run / "processor/processor_config.json").write_text("{}")
+            (run / "lora_settings.json").write_text(json.dumps({"backend": "peft", "base_model": "/base"}))
+            with self.assertRaisesRegex(ValueError, "Set --model-path to") as error:
+                inference.resolve_inference_paths(root, "/base")
+            self.assertIn(str(run), str(error.exception))
+            base, adapter, processor = inference.resolve_inference_paths(run, "/base")
+            self.assertEqual((base, adapter, processor), ("/base", run / "adapter", run / "processor"))
+
     def test_native_pretrained_loading_is_unchanged(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -5,6 +5,10 @@ from pathlib import Path
 
 def resolve_inference_paths(model_path, base_model_path=None):
     root = Path(model_path)
+    if (root / "inference/adapter/adapter_config.json").is_file():
+        raise ValueError(f"The downloaded run is nested under inference/. "
+                         f"Set --model-path to {root / 'inference'} "
+                         "(the folder containing adapter/ and processor/).")
     manifest = root / "adapter_inference.json"
     if not manifest.is_file() and (root / "inference/adapter_inference.json").is_file():
         manifest = root / "inference/adapter_inference.json"
