@@ -269,3 +269,25 @@ def export_model(training):
         **training.lora_settings, "targets": training.targets,
         "inference_path": str((output / "inference").resolve()),
     })
+
+
+def save_training_distribution_plot(args):
+    """Compare the final saved adapter with pretrained after training resources release."""
+    import gc
+    from argparse import Namespace
+    import torch
+    from .action_distribution import compare
+    from .gr00t_adapter_patch import ensure_adapter_inference
+
+    gc.collect()
+    torch.cuda.empty_cache()
+    ensure_adapter_inference(args.groot_root)
+    print("Training complete; generating action distribution plot...", flush=True)
+    return compare(Namespace(
+        groot_root=args.groot_root, base_model=args.base_model,
+        model_path=args.output_dir, dataset_root=args.styles_dir,
+        output_dir=args.output_dir, split="train", traj_ids=[0],
+        frames_per_trajectory=32, bins=40, seed=args.seed,
+        denoising_steps=4, lora_mode="unmerged", device="cuda:0",
+        tag="OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT",
+    ))

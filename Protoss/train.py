@@ -130,12 +130,12 @@ def main(args):
     if __package__:
         from .src.training_runtime import (
             setup_training, preprocess, update_weights, save_checkpoint, export_model,
-            record_training_loss, save_training_loss_plot,
+            record_training_loss, save_training_loss_plot, save_training_distribution_plot,
         )
     else:
         from src.training_runtime import (
             setup_training, preprocess, update_weights, save_checkpoint, export_model,
-            record_training_loss, save_training_loss_plot,
+            record_training_loss, save_training_loss_plot, save_training_distribution_plot,
         )
 
     config, lora_settings = prepare_training(args)
@@ -161,6 +161,10 @@ def main(args):
 
         export_model(training)
         save_training_loss_plot(training)
+
+    # Release the training model, optimizer and workers before loading inference models.
+    del model, training
+    save_training_distribution_plot(args)
 
 
 if __name__ == "__main__":

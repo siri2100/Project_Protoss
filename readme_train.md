@@ -375,6 +375,14 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
 
 단일 CUDA GPU 경로를 제공한다. LoRA는 trainable parameter와 optimizer 메모리를 줄이지만 전체 모델 weight와 action-head activation은 필요하다. 해당 구성의 GPU peak와 학습 시간은 아직 측정하지 않았다.
 
+### 6.5 학습 완료 후 자동 그래프 저장
+
+`train.py`는 마지막 checkpoint와 adapter export, `training_loss.png` 저장을 마친 뒤 학습 모델·optimizer를 해제하고 pretrained와 최종 adapter를 순차 로드해 action 분포를 비교한다. 별도 명령 없이 `--output-dir`로 지정한 모델 저장 폴더에 **`distribution_plot.png`**가 생성된다.
+
+학습 데이터의 trajectory 0에서 최대 32개 프레임을 균등 선택하고, 같은 관측과 샘플별 seed로 학습 전후 추론 action의 차원별 분포를 그린다. 원본 processor의 역정규화된 action 값이며, 전체 예측 chunk를 사용한다. 추론은 `unmerged`, denoising 4 steps로 실행한다. 이 단계에는 추가 추론 시간이 들며, 중단된 학습에서는 실행하지 않는다. 그래프 생성 중 오류가 나도 이미 저장된 checkpoint와 adapter는 유지된다.
+
+분석 조건을 바꾸거나 저장된 모델로 그래프만 다시 생성하려면 [추론 문서 4절](readme_test.md#4-학습-전후-action-distribution-비교)의 명령을 사용한다.
+
 ## 7. 코드와 검증
 
 | 파일 | 역할 |

@@ -29,11 +29,11 @@ class TinyPolicy(nn.Module):
         super().__init__()
         self.action_head = nn.Module()
         self.action_head.model = nn.Sequential(OrderedDict(transformer_blocks=nn.Sequential(
-            nn.Identity(), nn.Sequential(OrderedDict(attn1=nn.Sequential(OrderedDict(
-                to_q=nn.Linear(2, 1, bias=False),
+            nn.Sequential(OrderedDict(ff=nn.Sequential(OrderedDict(
+                proj=nn.Linear(2, 1, bias=False),
             )))),
         )))
-        self.action_head.model.transformer_blocks[1].attn1.to_q.weight.data.fill_(0.2)
+        self.action_head.model.transformer_blocks[0].ff.proj.weight.data.fill_(0.2)
         self.calls = 0
 
     def save_pretrained(self, directory):
@@ -97,6 +97,7 @@ class ExplicitLoopTests(unittest.TestCase):
              patch.object(runtime, "setup_training", setup), \
              patch.object(runtime.TrainingSession, "autocast", lambda self: nullcontext()), \
              patch.object(runtime, "export_model") as export, \
+             patch.object(runtime, "save_training_distribution_plot") as distribution, \
              patch.object(Trainer, "train", side_effect=AssertionError("hidden loop called")), \
              self.checkpoint_callback():
             original = runtime.save_checkpoint
@@ -107,15 +108,17 @@ class ExplicitLoopTests(unittest.TestCase):
                 with patch.object(runtime, "save_checkpoint", interrupt):
                     with self.assertRaises(InterruptedError):
                         entry.main(session.args)
+                distribution.assert_not_called()
             else:
                 entry.main(session.args)
                 export.assert_called_once_with(session)
+                distribution.assert_called_once_with(session.args)
 
     def test_accumulation_matches_larger_batch_and_base_stays_frozen(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             accumulated = self.make_session(root / "accumulated")
-            base = accumulated.model.action_head.model.base_model.model.transformer_blocks[1].attn1.to_q.base_layer.weight.detach().clone()
+            base = accumulated.model.action_head.model.base_model.model.transformer_blocks[0].ff.proj.base_layer.weight.detach().clone()
             # Repeat identical samples as a larger batch; disable stochastic noise
             # so each optimizer step represents exactly the same objective.
             combined = self.make_session(root / "combined", batch_size=2, accumulation=1)
@@ -125,7 +128,7 @@ class ExplicitLoopTests(unittest.TestCase):
                 self.run_main(combined)
             for a, b in zip(accumulated.model.parameters(), combined.model.parameters()):
                 torch.testing.assert_close(a, b)
-            torch.testing.assert_close(base, accumulated.model.action_head.model.base_model.model.transformer_blocks[1].attn1.to_q.base_layer.weight)
+            torch.testing.assert_close(base, accumulated.model.action_head.model.base_model.model.transformer_blocks[0].ff.proj.base_layer.weight)
             self.assertEqual(accumulated.model.calls, 8)
             self.assertEqual(combined.model.calls, 4)
             self.assertEqual(accumulated.step, 4)

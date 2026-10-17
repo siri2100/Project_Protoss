@@ -170,6 +170,8 @@ UV_PROJECT_ENVIRONMENT=.venv-51 uv run --no-sync --extra isaac51 \
 
 ## 4. 학습 전후 action distribution 비교
 
+학습 완료 시 `train.py`가 모델 저장 폴더에 `distribution_plot.png`를 자동 생성한다. 아래 명령은 기존 모델에서 그래프만 다시 생성하거나 분석 조건을 바꿀 때 사용한다.
+
 동일한 데이터 관측과 난수 seed로 원본 pretrained와 학습된 LoRA의 **추론 action 출력 분포**를 비교한다. 가중치 분포나 학습 loss가 아니라, processor가 역정규화한 action 값이다. 각 action 차원을 별도 패널로 표시하며 두 모델에 같은 histogram 구간을 사용한다. 선택한 관측의 전체 예측 action chunk를 모은 주변 분포이므로 이 그래프만으로 task 성공률을 판단하지 않는다.
 
 ```bash
