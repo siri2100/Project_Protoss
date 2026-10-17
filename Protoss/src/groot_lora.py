@@ -17,16 +17,15 @@ def install_lora(model, rank=8, alpha=16):
     for name, param in dit.named_modules():
         if not name or not isinstance(param, nn.Linear):
             continue
-        match = re.fullmatch(r"transformer_blocks\.(\d+)\.ff\..+", name)
-        # if match and int(match.group(1)) % 2 == 1:
-        #     names.append(name)
-        #     print(name)
+        match = re.fullmatch(
+            r"transformer_blocks\.\d+\.(?:attn1\.(?:to_q|to_k|to_v)|ff\..+)", name
+        )
         if match:
             names.append(name)
             print(name)
 
     if not names:
-        raise ValueError("No FFN Linear modules found in odd-indexed GR00T DiT blocks")
+        raise ValueError("No Q/K/V or FFN Linear modules found in GR00T DiT blocks")
 
     model.requires_grad_(False)
     config = LoraConfig(
