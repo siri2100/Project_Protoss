@@ -501,6 +501,8 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/upload_checkpoint_hf.py" \
 
 파일 검증만 하려면 업로드 명령에 `--dry-run`을 추가한다. 스크립트의 dry-run은 네트워크 요청을 하지 않지만, 위 계정명 조회는 네트워크를 사용한다. 실제 업로드는 private 저장소만 허용하며, 완료 후 원격 파일 목록을 확인한다. 중단 시 같은 폴더·저장소로 다시 실행하고 `.cache/huggingface`를 유지한다.
 
+`committed: N/N`인데 원격 검증에서 파일이 누락되면, SDK의 이전 업로드 상태와 현재 저장소가 어긋났을 수 있다. 수정된 업로드 코드는 누락 파일만 `upload_file`로 정확한 원격 경로에 다시 전송하고 재검증한다. 같은 명령으로 재실행하면 되며, 전체 캐시 삭제나 기존 원격 파일 삭제는 필요 없다. 끝까지 누락되면 성공으로 처리하지 않고 저장소 URL과 누락 경로를 출력한다.
+
 ## 9. 공통 데이터를 Hugging Face에 보관
 
 `Protoss/upload_dataset_hf.py`로 **`Protoss/data`의 변환된 학습·평가 데이터**를 private dataset 저장소에 업로드한다. trainset의 parquet, 영상, metadata/통계 및 `styles.json`이 모두 포함된다. 5절이 `Prepared train=300`으로 완료된 뒤 실행한다. 코드가 metadata의 episode 수와 필요한 파일의 존재/빈 파일 여부를 검사하며, 생성 중이거나 불완전한 폴더는 업로드 전에 중단한다. 영상 decode나 parquet 내용 검증은 하지 않는다.

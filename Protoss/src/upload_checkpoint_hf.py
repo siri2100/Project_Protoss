@@ -70,8 +70,21 @@ def upload(args, api=None, *, validator=inventory, repo_type="model"):
     missing = sorted(p.relative_to(folder).as_posix() for p in files
                      if p.relative_to(folder).as_posix() not in remote)
     if missing:
-        raise RuntimeError(f"Upload verification: missing files: {missing[:10]}. "
-                           "Check a root .gitignore or rerun the upload.")
+        # Large-upload metadata can report files as committed even when the
+        # selected repository lacks them (e.g. copied cache / changed repo-id).
+        # Upload exact inventory paths directly; do not trust that cached state.
+        print(f"Remote verification found {len(missing)} missing files. "
+              "Repairing with direct uploads (bypassing large-upload cache).", flush=True)
+        for relative_path in missing:
+            print(f"Uploading missing file: {relative_path}", flush=True)
+            api.upload_file(repo_id=args.repo_id, repo_type=repo_type,
+                            path_or_fileobj=str(folder / relative_path), path_in_repo=relative_path)
+        remote = set(api.list_repo_files(repo_id=args.repo_id, repo_type=repo_type))
+        missing = sorted(p.relative_to(folder).as_posix() for p in files
+                         if p.relative_to(folder).as_posix() not in remote)
+        if missing:
+            raise RuntimeError(f"Upload verification still missing {len(missing)} files "
+                               f"after direct upload: {missing[:10]}. Destination: {url}")
     print(f"Upload complete: {url}")
 
 

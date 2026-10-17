@@ -76,6 +76,32 @@ class UploadTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "normalization statistics missing"):
                 inventory(root)
 
+    def test_stale_large_upload_cache_is_repaired_at_exact_remote_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            names = ("config.json", "model.safetensors", "checkpoint-1000/trainer_state.json")
+            for name in names:
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"fixture")
+            args = argparse.Namespace(folder=root, repo_id="user/new-destination", workers=2, dry_run=False)
+            api = Mock()
+            api.model_info.return_value = types.SimpleNamespace(private=True)
+            # The large uploader returns successfully but files only exist under
+            # an obsolete prefix, as with reused metadata or a previous layout.
+            remote = {"inference/" + name for name in names}
+            api.list_repo_files.side_effect = lambda **kwargs: sorted(remote)
+            def direct_upload(**kwargs):
+                self.assertEqual(kwargs["repo_id"], args.repo_id)
+                self.assertEqual(Path(kwargs["path_or_fileobj"]).read_bytes(), b"fixture")
+                remote.add(kwargs["path_in_repo"])
+            api.upload_file.side_effect = direct_upload
+            upload(args, api)
+            self.assertEqual({call.kwargs["path_in_repo"] for call in api.upload_file.call_args_list}, set(names))
+            self.assertTrue(set(names).issubset(remote))
+            self.assertEqual(api.list_repo_files.call_count, 2)
+            api.delete_file.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
