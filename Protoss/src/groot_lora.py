@@ -25,14 +25,10 @@ def install_lora(model, rank=8, alpha=16):
     if not names:
         raise ValueError("No Q/K/V Linear modules found in odd-indexed GR00T DiT blocks")
 
-    import sys
-    sys.exit()
-
     model.requires_grad_(False)
     config = LoraConfig(
         r=rank,
         lora_alpha=alpha,
-        # Match Q/K/V only in blocks 1, 3, 5, ... (zero-based indices).
         target_modules="(?:" + "|".join(re.escape(name) for name in names) + ")",
         lora_dropout=0.0,
         bias="none",
