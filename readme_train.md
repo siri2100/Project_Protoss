@@ -267,7 +267,7 @@ GR00T의 DROID 변환과 동일한 `[eef_9d(9), gripper(1), joint(7)]` LeRobot v
 ```bash
 (
 set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
+export PROTOSS_ROOT=/workspace/Project_Protoss2
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
@@ -275,7 +275,7 @@ export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 mkdir -p "$PROTOSS_ROOT/Protoss/checkpoint"
-OUTPUT_DIR="$PROTOSS_ROOT/Protoss/checkpoint/v165_model_fm_step500"
+OUTPUT_DIR="$PROTOSS_ROOT/Protoss/checkpoint/v166_model_fm_step500"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
   --model FM --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
