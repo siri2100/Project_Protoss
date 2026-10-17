@@ -1,4 +1,4 @@
-"""Upload a complete GR00T checkpoint/run folder to a private Hugging Face model repo.
+"""Upload a complete GR00T checkpoint or PEFT adapter run to a private Hugging Face model repo.
 
 Authenticate with `hf auth login` or HF_TOKEN. No token is accepted on the CLI.
 Large uploads keep resumable state under the source folder's .cache directory.
@@ -16,8 +16,23 @@ def inventory(folder):
         raise ValueError(f"Checkpoint folder does not exist: {folder}")
     files = [p for p in folder.rglob("*") if p.is_file()
              and not any(part in (".git", ".cache", ".DS_Store") for part in p.relative_to(folder).parts)]
-    if not any(p.name == "config.json" for p in files):
-        raise ValueError("No config.json found; specify a GR00T checkpoint or training output folder")
+    if (folder / "adapter_inference.json").is_file():
+        raise ValueError(f"inference/ contains only a manifest, not the adapter and processor. "
+                         f"Upload the complete run folder instead: {folder.parent}")
+    if (folder / "adapter/adapter_config.json").is_file():
+        from .inference_loading import resolve_inference_paths
+        base, adapter, processor = resolve_inference_paths(folder)
+        if adapter is None:
+            raise ValueError("Adapter run metadata missing; upload the complete training output "
+                             "including lora_settings.json or inference/adapter_inference.json")
+        for path in (adapter, processor):
+            if not path.resolve().is_relative_to(folder.resolve()):
+                raise ValueError(f"Adapter/processor is outside upload folder: {path}")
+        if not (processor / "statistics.json").is_file():
+            raise ValueError(f"Pretrained normalization statistics missing: {processor / 'statistics.json'}")
+    elif not any(p.name == "config.json" for p in files):
+        raise ValueError("No GR00T config.json or complete PEFT adapter run found; "
+                         "specify the training output folder, not inference/")
     if not any(p.name.endswith(".safetensors") or p.name.startswith("pytorch_model") and p.suffix == ".bin"
                for p in files):
         raise ValueError("No model weights found; checkpoint saving may be incomplete")

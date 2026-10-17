@@ -617,11 +617,7 @@ uv run --no-sync python -m unittest discover \
 
 ## 10. Hugging Face에 checkpoint 보관
 
-현재 PEFT 실험은 `adapter/`, `processor/`, `inference/adapter_inference.json`, `lora_settings.json`을 함께 보관한다. `inference/`만 업로드하면 adapter와 processor가 빠지므로 학습 output 전체를 `--folder`로 지정한다. 다운로드한 output을 서버의 `--model-path`에 지정하고, 원본 pretrained 경로는 `--base-model-path`로 설정한다. 아래 v1.3 merged 모델 보관·다운로드 예시는 과거 결과용이다.
-
-`Protoss/upload_checkpoint_hf.py`로 모델별 산출물을 각각 **private 모델 저장소**에 업로드한다. 지정한 폴더의 모델 weight, processor/config 및 optimizer/scheduler/RNG 상태를 함께 보관한다. `.cache`, `.git`, `.DS_Store`는 제외한다. 학습 코드와 데이터는 이 업로드에 포함되지 않는다.
-
-학습의 checkpoint 저장이 완료된 폴더를 사용한다. 업로드하는 동안 해당 폴더를 수정하거나 trainer의 checkpoint 정리로 삭제하지 않도록 학습 완료 후 실행한다. `--folder`에 전체 `model_FM_lora_v13` output을 지정하면 그 안의 여러 checkpoint도 모두 올라가므로, 아래는 최신 checkpoint의 loss log를 `inference/loss_logs/`에 복사한 뒤 merged `inference/`를 지정한다. 학습 재개용은 `model_FM_lora_v13` 전체(LoRA 설정, processor, checkpoint 포함)를 별도 저장소에 업로드한다. 모델별 저장소는 별도 이름을 사용한다.
+현재 PEFT 실험은 학습 완료 후 **run 폴더 전체**를 private 모델 저장소에 업로드한다. 원본 pretrained 모델은 포함하지 않는다. `adapter/`, `processor/`, `inference/adapter_inference.json`과 실험 설정·loss 기록을 함께 보관한다. 업로드 중에는 해당 폴더를 수정하지 않는다.
 
 ### 10.1 로그인
 
@@ -643,11 +639,11 @@ uv run --no-sync hf auth whoami
 
 기존 `HF_TOKEN` 환경변수가 있으면 저장된 로그인보다 우선하므로 올바른 write 권한의 토큰인지 확인한다.
 
-### 10.2 모델별 추론 모델과 loss log 업로드
+### 10.2 모델별 adapter output 업로드
 
-10.1절 로그인 후, 학습이 완료된 모델의 명령을 각각 실행한다. 로그인된 실제 계정명을 자동으로 조회한다. Organization에 업로드할 때는 조회 명령 대신 `HF_ACCOUNT`에 write 권한이 있는 organization 이름을 지정한다. 코드가 private 저장소를 생성하며, 이미 같은 이름의 public 저장소가 있으면 업로드하지 않고 중단한다.
+10.1절 로그인 후 실행한다. 아래 Model-FM은 이름을 변경한 `v16_model_fm_step1000` 폴더를 사용한다. S/E의 폴더와 step은 실제 학습 결과에 맞춘다. Organization은 `HF_ACCOUNT`를 해당 이름으로 지정한다.
 
-Loss log는 최신 `checkpoint-STEP/trainer_state.json`의 `log_history`를 사용한다. 아래 명령은 step 번호가 가장 큰 checkpoint를 선택하고 `loss` 기록이 있는지 확인한 뒤, 원본 JSON을 `inference/loss_logs/trainer_state.json`으로 복사한다. 기록이 없으면 업로드 전에 중단한다. JSON에는 기록된 step별 loss와 learning rate 등 trainer 상태가 포함되며, 매 step의 loss나 터미널 출력 전체를 보관하는 것은 아니다. 학습 완료 후 실행하고, 재실행할 때도 같은 모델의 최신 기록을 복사한다.
+**`--folder`에는 `/inference`를 붙이지 않는다.** PEFT output에는 전체 모델 `config.json`이 없으며, `adapter/adapter_config.json`과 adapter weight가 있다. `inference/`는 경로 설정뿐이므로 단독 업로드하지 않는다. 전체 run을 업로드하면 `processor/`, normalization 통계, `lora_settings.json`, `training_loss.png`·`training_loss.csv`, checkpoint의 loss 기록과 재개 상태가 함께 보관된다. 기존 loss log 복사 명령은 필요 없다.
 
 #### Model-FM
 
@@ -662,34 +658,9 @@ unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 HF_ACCOUNT=$(uv run --no-sync python -c \
   'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
-uv run --no-sync python - "$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora_v13" <<'PYLOSS'
-import json
-import shutil
-import sys
-from pathlib import Path
-
-run = Path(sys.argv[1])
-checkpoints = [p for p in run.glob("checkpoint-*")
-               if p.is_dir() and p.name.removeprefix("checkpoint-").isdigit()]
-if not checkpoints:
-    raise SystemExit(f"No checkpoint found: {run}")
-latest = max(checkpoints, key=lambda p: int(p.name.split("-")[-1]))
-source = latest / "trainer_state.json"
-if not source.is_file():
-    raise SystemExit(f"Missing loss log: {source}")
-state = json.loads(source.read_text())
-if not any("loss" in entry for entry in state.get("log_history", [])):
-    raise SystemExit(f"No loss history found: {source}")
-if not (run / "inference").is_dir():
-    raise SystemExit(f"Missing inference export: {run / 'inference'}")
-target = run / "inference" / "loss_logs"
-target.mkdir(exist_ok=True)
-shutil.copy2(source, target / "trainer_state.json")
-print(f"Loss log copied from {latest.name}")
-PYLOSS
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/upload_checkpoint_hf.py" \
-  --folder "$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora_v13/inference" \
-  --repo-id "$HF_ACCOUNT/protoss-groot-v13-model-fm-lora-inference" --workers 2
+  --folder "$PROTOSS_ROOT/Protoss/checkpoint/v16_model_fm_step1000" \
+  --repo-id "$HF_ACCOUNT/protoss-v16-model-fm-step1000" --workers 2
 )
 ```
 
@@ -706,34 +677,9 @@ unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 HF_ACCOUNT=$(uv run --no-sync python -c \
   'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
-uv run --no-sync python - "$PROTOSS_ROOT/Protoss/checkpoint/model_S_lora_v13" <<'PYLOSS'
-import json
-import shutil
-import sys
-from pathlib import Path
-
-run = Path(sys.argv[1])
-checkpoints = [p for p in run.glob("checkpoint-*")
-               if p.is_dir() and p.name.removeprefix("checkpoint-").isdigit()]
-if not checkpoints:
-    raise SystemExit(f"No checkpoint found: {run}")
-latest = max(checkpoints, key=lambda p: int(p.name.split("-")[-1]))
-source = latest / "trainer_state.json"
-if not source.is_file():
-    raise SystemExit(f"Missing loss log: {source}")
-state = json.loads(source.read_text())
-if not any("loss" in entry for entry in state.get("log_history", [])):
-    raise SystemExit(f"No loss history found: {source}")
-if not (run / "inference").is_dir():
-    raise SystemExit(f"Missing inference export: {run / 'inference'}")
-target = run / "inference" / "loss_logs"
-target.mkdir(exist_ok=True)
-shutil.copy2(source, target / "trainer_state.json")
-print(f"Loss log copied from {latest.name}")
-PYLOSS
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/upload_checkpoint_hf.py" \
-  --folder "$PROTOSS_ROOT/Protoss/checkpoint/model_S_lora_v13/inference" \
-  --repo-id "$HF_ACCOUNT/protoss-groot-v13-model-s-lora-inference" --workers 2
+  --folder "$PROTOSS_ROOT/Protoss/checkpoint/v16_model_s_step1000" \
+  --repo-id "$HF_ACCOUNT/protoss-v16-model-s-step1000" --workers 2
 )
 ```
 
@@ -750,46 +696,17 @@ unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 HF_ACCOUNT=$(uv run --no-sync python -c \
   'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
-uv run --no-sync python - "$PROTOSS_ROOT/Protoss/checkpoint/model_E_lora_v13" <<'PYLOSS'
-import json
-import shutil
-import sys
-from pathlib import Path
-
-run = Path(sys.argv[1])
-checkpoints = [p for p in run.glob("checkpoint-*")
-               if p.is_dir() and p.name.removeprefix("checkpoint-").isdigit()]
-if not checkpoints:
-    raise SystemExit(f"No checkpoint found: {run}")
-latest = max(checkpoints, key=lambda p: int(p.name.split("-")[-1]))
-source = latest / "trainer_state.json"
-if not source.is_file():
-    raise SystemExit(f"Missing loss log: {source}")
-state = json.loads(source.read_text())
-if not any("loss" in entry for entry in state.get("log_history", [])):
-    raise SystemExit(f"No loss history found: {source}")
-if not (run / "inference").is_dir():
-    raise SystemExit(f"Missing inference export: {run / 'inference'}")
-target = run / "inference" / "loss_logs"
-target.mkdir(exist_ok=True)
-shutil.copy2(source, target / "trainer_state.json")
-print(f"Loss log copied from {latest.name}")
-PYLOSS
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/upload_checkpoint_hf.py" \
-  --folder "$PROTOSS_ROOT/Protoss/checkpoint/model_E_lora_v13/inference" \
-  --repo-id "$HF_ACCOUNT/protoss-groot-v13-model-e-lora-inference" --workers 2
+  --folder "$PROTOSS_ROOT/Protoss/checkpoint/v16_model_e_step1000" \
+  --repo-id "$HF_ACCOUNT/protoss-v16-model-e-step1000" --workers 2
 )
 ```
 
-baseline은 원본 pretrained 모델을 사용하므로 별도 업로드가 필요하지 않다. 파일 수/용량만 확인하려면 업로드 명령에 `--dry-run`을 추가한다. 업로드 스크립트는 네트워크 요청을 하지 않지만, 앞의 계정명 조회는 네트워크를 사용한다.
-
-대용량 전송은 SDK의 `upload_large_folder`를 사용한다. 중단되면 **같은 폴더와 같은 저장소**로 재실행한다. 로컬 `.cache/huggingface`의 전송 상태를 유지하면 완료한 작업을 재사용한다. 성공하면 원격 파일 목록에서 업로드 대상 파일의 존재를 검사하고 `Upload complete: ...`를 출력한다. 이 검사는 파일 존재 확인이며 checkpoint 로딩 검증이나 독립 hash 검증은 아니다. 다른 학습 실험/step은 새 저장소 이름을 사용하면 서로의 파일이 덮어써지거나 이전 파일이 남는 혼동을 피할 수 있다. [Hugging Face 업로드 안내](https://huggingface.co/docs/huggingface_hub/v0.34.0/guides/upload#upload-a-large-folder).
+파일 검증만 하려면 업로드 명령에 `--dry-run`을 추가한다. 스크립트의 dry-run은 네트워크 요청을 하지 않지만, 위 계정명 조회는 네트워크를 사용한다. 실제 업로드는 private 저장소만 허용하며, 완료 후 원격 파일 목록을 확인한다. 중단 시 같은 폴더·저장소로 다시 실행하고 `.cache/huggingface`를 유지한다.
 
 ### 10.3 새 Pod에서 모델별 다운로드
 
-새 Pod에 1~3절 환경을 설치하고 10.1절에서 로그인한 후, 평가할 모델의 명령만 실행한다. 각 저장소는 10.2절에서 업로드가 완료돼 있어야 한다. 계정명은 로그인된 계정에서 자동 조회한다. 다른 계정이나 organization의 저장소라면 조회 명령 대신 `HF_ACCOUNT`에 실제 저장소 소유자 이름을 지정한다.
-
-기존 v1.2의 `model_1_lora`/`model_FM_lora` 폴더와 `protoss-groot-v12-model1-lora-inference`/`protoss-groot-v12-model-fm-lora-inference` 저장소는 유지한다. 과거 결과 재평가에는 기존 저장소를 기존 버전 폴더로 다운로드한다. 아래 v1.3 다운로드는 새 학습 모델의 업로드가 완료된 후 사용한다. 2프레임 v1.2 checkpoint를 v1.3 학습 설정으로 resume할 수 없다.
+새 Pod에 환경과 원본 `GR00T-N1.7-DROID`를 준비하고 10.1절에서 로그인한다. Adapter 저장소에는 원본 pretrained 가중치가 포함되지 않는다. 다운로드 폴더는 업로드한 run 구조 전체를 유지한다.
 
 #### Model-FM
 
@@ -804,8 +721,8 @@ unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 HF_ACCOUNT=$(uv run --no-sync python -c \
   'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
-uv run --no-sync hf download "$HF_ACCOUNT/protoss-groot-v13-model-fm-lora-inference" \
-  --local-dir "$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora_v13/inference"
+uv run --no-sync hf download "$HF_ACCOUNT/protoss-v16-model-fm-step1000" \
+  --local-dir "$PROTOSS_ROOT/Protoss/checkpoint/v16_model_fm_step1000"
 )
 ```
 
@@ -822,8 +739,8 @@ unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 HF_ACCOUNT=$(uv run --no-sync python -c \
   'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
-uv run --no-sync hf download "$HF_ACCOUNT/protoss-groot-v13-model-s-lora-inference" \
-  --local-dir "$PROTOSS_ROOT/Protoss/checkpoint/model_S_lora_v13/inference"
+uv run --no-sync hf download "$HF_ACCOUNT/protoss-v16-model-s-step1000" \
+  --local-dir "$PROTOSS_ROOT/Protoss/checkpoint/v16_model_s_step1000"
 )
 ```
 
@@ -840,18 +757,16 @@ unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 HF_ACCOUNT=$(uv run --no-sync python -c \
   'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
-uv run --no-sync hf download "$HF_ACCOUNT/protoss-groot-v13-model-e-lora-inference" \
-  --local-dir "$PROTOSS_ROOT/Protoss/checkpoint/model_E_lora_v13/inference"
+uv run --no-sync hf download "$HF_ACCOUNT/protoss-v16-model-e-step1000" \
+  --local-dir "$PROTOSS_ROOT/Protoss/checkpoint/v16_model_e_step1000"
 )
 ```
 
-10.2절 명령으로 업로드했다면 위 다운로드에 `inference/loss_logs/trainer_state.json`도 포함된다. 해당 JSON의 `log_history`에서 `loss`가 있는 항목의 `step`과 `loss`를 확인한다.
+서버 명령은 8절을 사용하되 `MODEL_PATH`를 다운로드한 run 루트(예: `/workspace/Project_Protoss/Protoss/checkpoint/v16_model_fm_step1000`)로 지정하고, `--base-model-path`에는 새 Pod의 원본 pretrained checkpoint 경로를 지정한다. 폴더 이름을 바꿔도 `adapter/`·`processor/` 상대 경로는 유지된다. 저장된 원래 서버의 pretrained 절대 경로는 `--base-model-path`로 대체한다.
 
-baseline은 2절의 `nvidia/GR00T-N1.7-DROID` 다운로드 명령을 사용한다. RoboLab 평가만 진행한다면 다운로드 후 8절의 모델 서버와 평가 명령을 실행한다. 서버의 `MODEL_PATH`에는 다운로드한 해당 모델의 `inference/` 경로를 지정한다.
+재현하려면 `hf download`에 `--revision COMMIT_SHA`를 추가한다. 재개 학습에는 run의 `checkpoint-*`, optimizer/scheduler/RNG 상태, 원본 pretrained 모델과 동일 데이터가 필요하다. 이전 서버의 절대 경로가 기록된 학습 재개 설정은 추론의 경로 override와 별개다.
 
-재현하려면 `hf download`에 모델 저장소의 commit SHA를 `--revision SHA`로 지정한다. 다운로드 후 7절 평가/서버 실행에서 해당 경로를 사용한다. 학습 재개용 전체 output을 보관했다면 원본 pretrained weight와 `Protoss/data` 데이터도 준비하고 같은 설정과 output 경로로 6절 명령에 `--resume`을 추가한다. Merged inference/만 다운로드해서 LoRA 학습을 resume할 수는 없다. Optimizer 상태가 없는 최종 추론 모델 폴더는 학습 재개용 checkpoint를 대신하지 않는다.
-
-검증: 업로드 코드는 CPU mock 테스트로 private 저장소 조건, 전체 checkpoint 전송 호출, 원격 누락 검사와 dry-run을 확인했다. 실제 계정으로 대용량 업로드는 이 작업에서 실행하지 않았다.
+검증: 전체 모델 및 PEFT run 업로드의 private 저장소 조건, 필수 artifact 검사, 원격 파일 누락 검사, dry-run을 CPU mock 테스트로 확인했다. 실제 업로드는 사용자가 서버에서 실행한다.
 
 ## 11. 공통 데이터를 Hugging Face에 보관
 

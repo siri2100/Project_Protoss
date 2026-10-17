@@ -1,3 +1,4 @@
+import json
 import argparse
 from pathlib import Path
 import tempfile
@@ -5,7 +6,7 @@ import types
 import unittest
 from unittest.mock import Mock
 
-from src.upload_checkpoint_hf import upload
+from src.upload_checkpoint_hf import upload, inventory
 
 
 class UploadTests(unittest.TestCase):
@@ -45,6 +46,35 @@ class UploadTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 upload(args, api)
             api.create_repo.assert_not_called()
+
+    def test_adapter_run_upload_includes_processor_and_loss_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "v16_model_fm_step1000"
+            files = {
+                "adapter/adapter_config.json": '{}',
+                "adapter/adapter_model.safetensors": 'weights',
+                "processor/processor_config.json": '{}',
+                "processor/statistics.json": '{}',
+                "inference/adapter_inference.json": json.dumps({"format": "protoss-peft-v1",
+                    "base_model": "/old/pretrained", "adapter": "../adapter", "processor": "../processor"}),
+                "training_loss.csv": 'step,loss\n1000,0.1\n',
+                "checkpoint-1000/trainer_state.json": '{"log_history":[{"step":1000,"loss":0.1}]}',
+            }
+            for name, content in files.items():
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content)
+            args = argparse.Namespace(folder=root, repo_id="user/adapter", workers=2, dry_run=False)
+            api = Mock()
+            api.model_info.return_value = types.SimpleNamespace(private=True)
+            api.list_repo_files.return_value = list(files)
+            upload(args, api)
+            self.assertEqual(api.upload_large_folder.call_args.kwargs["folder_path"], str(root.resolve()))
+            with self.assertRaisesRegex(ValueError, "complete run folder"):
+                inventory(root / "inference")
+            (root / "processor/statistics.json").unlink()
+            with self.assertRaisesRegex(ValueError, "normalization statistics missing"):
+                inventory(root)
 
 
 if __name__ == "__main__":
