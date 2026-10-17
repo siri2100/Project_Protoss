@@ -19,7 +19,7 @@ def install_lora(model, rank=8, alpha=16):
             continue
         if 'to_q' in name or 'to_v' in name:
             names.append(name)
-            print(name)
+        print(name)
     if not names:
         raise ValueError("No Linear modules found in GR00T action DiT")
 
