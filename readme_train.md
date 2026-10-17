@@ -267,7 +267,7 @@ GR00T의 DROID 변환과 동일한 `[eef_9d(9), gripper(1), joint(7)]` LeRobot v
 ```bash
 (
 set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
+export PROTOSS_ROOT=/workspace/Project_Protoss2
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
@@ -275,14 +275,14 @@ export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 mkdir -p "$PROTOSS_ROOT/Protoss/checkpoint"
-OUTPUT_DIR="$PROTOSS_ROOT/Protoss/checkpoint/v167_model_fm_step500"
+OUTPUT_DIR="$PROTOSS_ROOT/Protoss/checkpoint/v168_model_fm_step500"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
   --model FM --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
   --base-model "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
   --output-dir "$OUTPUT_DIR" \
   --lora-rank 32 --lora-alpha 64 --max-steps 500 --save-steps 500 \
-  --batch-size 2 --gradient-accumulation 16 --lr 1e-5 --workers 2 --seed 42
+  --batch-size 2 --gradient-accumulation 16 --lr 1e-6 --workers 2 --seed 42
 )
 ```
 
@@ -453,7 +453,7 @@ uv run --no-sync hf auth whoami
 ```bash
 (
 set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
+export PROTOSS_ROOT=/workspace/Project_Protoss2
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
@@ -462,8 +462,8 @@ cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 HF_ACCOUNT=$(uv run --no-sync python -c \
   'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/upload_checkpoint_hf.py" \
-  --folder "$PROTOSS_ROOT/Protoss/checkpoint/v165_model_fm_step500" \
-  --repo-id "$HF_ACCOUNT/protoss-v165-model-fm-step500" --workers 2
+  --folder "$PROTOSS_ROOT/Protoss/checkpoint/v168_model_fm_step500" \
+  --repo-id "$HF_ACCOUNT/protoss-v168-model-fm-step500" --workers 2
 )
 ```
 

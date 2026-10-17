@@ -45,8 +45,8 @@ unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 HF_ACCOUNT=$(uv run --no-sync python -c \
   'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
-uv run --no-sync hf download "$HF_ACCOUNT/protoss-v165-model-fm-step500" \
-  --local-dir "$PROTOSS_ROOT/Protoss/checkpoint/v165_model_fm_step500"
+uv run --no-sync hf download "$HF_ACCOUNT/protoss-v168-model-fm-step500" \
+  --local-dir "$PROTOSS_ROOT/Protoss/checkpoint/v168_model_fm_step500"
 )
 ```
 
@@ -120,7 +120,7 @@ export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
 export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-MODEL_PATH="$PROTOSS_ROOT/Protoss/checkpoint/v165_model_fm_step500/inference"
+MODEL_PATH="$PROTOSS_ROOT/Protoss/checkpoint/v168_model_fm_step500/inference"
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/serve.py" \
   --model-path "$MODEL_PATH" \
@@ -159,7 +159,7 @@ UV_PROJECT_ENVIRONMENT=.venv-51 uv run --no-sync --extra isaac51 \
   --task BananaOnPlateTask \
   --num-envs 2 --num-runs 5 --open-loop-horizon 8 \
   --instruction-type default --video-mode none \
-  --output-folder-name v1.6.5_mdoel_fm_step500
+  --output-folder-name v1.6.8_model_fm_step500
 )
 ```
 
@@ -202,35 +202,3 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/plot_distribution.py" \
 
 데이터가 없는 추론 전용 Pod라면 먼저 학습 문서의 데이터를 준비한다. 기본 예시는 `trainset`의 trajectory 0에서 최대 32개 프레임을 균등 선택한다. 더 넓게 비교하려면 `--traj-ids 0 1 2`처럼 늘린다. 별도 testset이 있는 경우 `--split test`를 사용한다. 두 모델에는 동일한 영상 시점·state·instruction이 전달되고, 샘플별 seed도 동일하게 설정된다. 실행에는 GR00T 환경의 `matplotlib`이 필요하다.
 
-## 5. Pretrained 모델의 FM loss 측정
-
-LoRA 없이 원본 pretrained 모델을 학습 데이터에 forward해 **학습 코드와 동일한 native masked flow-matching loss**를 계산한다. `get_action()`으로 생성한 action과 정답의 MSE가 아니라, 정답 action에 noise와 timestep을 샘플링하고 velocity 예측 오차를 action mask로 집계한 loss다. Optimizer·backward·가중치 업데이트는 없다.
-
-```bash
-(
-set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
-export HF_HOME=/workspace/.cache/huggingface
-export HF_HUB_ENABLE_HF_TRANSFER=0
-export PATH="$HOME/.local/bin:$PATH"
-export CUDA_VISIBLE_DEVICES=0
-unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-uv run --no-sync python "$PROTOSS_ROOT/Protoss/evaluate_fm_loss.py" \
-  --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
-  --base-model "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
-  --dataset-root "$PROTOSS_ROOT/Protoss/data" \
-  --output-dir "$PROTOSS_ROOT/Protoss/checkpoint/pretrained_fm_baseline" \
-  --split train --batches 100 --batch-size 2 --seed 42 \
-  --model-mode train --device cuda:0
-)
-```
-
-마지막 출력의 `Pretrained FM loss = ...`가 전체 유효 action 원소에 대한 가중 평균이고, `mean batch loss = ...`는 배치별 native loss의 산술 평균이다. 학습 로그의 loss와 비교할 때는 `mean batch loss`도 함께 확인한다. 결과는 다음 파일에 저장되며 재실행하면 덮어쓴다.
-
-- `checkpoint/pretrained_fm_baseline/pretrained_fm_loss.json`: 집계 loss, 실제 배치·샘플 수, seed, precision, processor 해시 및 측정 조건
-- `checkpoint/pretrained_fm_baseline/pretrained_fm_loss.csv`: 배치별 loss와 mask 원소 수
-
-기본은 최대 100배치(배치 크기 2), BF16 autocast, 학습과 같은 train 모드 및 processor augmentation이다. 원본 processor의 normalization·영상 시점은 유지한다. 학습 중 데이터 샘플링 경로를 사용하므로 전체 데이터셋의 각 샘플을 한 번씩 평가한 값은 아니다. `--model-mode eval`은 모델 dropout을 끄지만 FM noise·timestep 샘플링과 processor의 학습 augmentation은 유지한다. `--fp32`는 autocast를 끈다. 별도 testset이 있으면 `--split test`로 측정할 수 있다.
-
-FM loss는 데이터, noise, timestep, batch 크기와 precision에 따라 달라지므로 pretrained에 고정된 단일 숫자가 있는 것은 아니다. 실제 값은 위 명령을 실행해 확인한다. 학습 후 loss와 비교할 때도 데이터와 측정 조건을 동일하게 맞춘다.
