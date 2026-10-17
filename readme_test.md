@@ -167,3 +167,35 @@ UV_PROJECT_ENVIRONMENT=.venv-51 uv run --no-sync --extra isaac51 \
 
 성공률, 성공 episode의 완료 시간, 실제 joint trajectory의 속도/가속도/jerk RMS를 함께 비교한다. 현재 코드의 motion metric은 학습 시연 command metric이며 RoboLab 실제 joint trajectory의 metric을 자동 수집하는 기능은 포함하지 않는다.
 
+
+## 4. 학습 전후 action distribution 비교
+
+동일한 데이터 관측과 난수 seed로 원본 pretrained와 학습된 LoRA의 **추론 action 출력 분포**를 비교한다. 가중치 분포나 학습 loss가 아니라, processor가 역정규화한 action 값이다. 각 action 차원을 별도 패널로 표시하며 두 모델에 같은 histogram 구간을 사용한다. 선택한 관측의 전체 예측 action chunk를 모은 주변 분포이므로 이 그래프만으로 task 성공률을 판단하지 않는다.
+
+```bash
+(
+set -e
+export PROTOSS_ROOT=/workspace/Project_Protoss
+export HF_HOME=/workspace/.cache/huggingface
+export HF_HUB_ENABLE_HF_TRANSFER=0
+export PATH="$HOME/.local/bin:$PATH"
+export CUDA_VISIBLE_DEVICES=0
+unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
+RUN_PATH="$PROTOSS_ROOT/Protoss/checkpoint/v164_model_fm_step1000"
+# 서버 실행 때와 동일하게 adapter manifest를 찾을 수 있는 경로를 지정한다.
+MODEL_PATH="$RUN_PATH/inference"
+cd "$PROTOSS_ROOT/Issac-GR00T-N17"
+uv run --no-sync python "$PROTOSS_ROOT/Protoss/plot_distribution.py" \
+  --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
+  --base-model "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
+  --model-path "$MODEL_PATH" \
+  --dataset-root "$PROTOSS_ROOT/Protoss/data" \
+  --output-dir "$RUN_PATH" \
+  --split train --traj-ids 0 --frames-per-trajectory 32 \
+  --lora-mode unmerged --denoising-steps 4 --seed 42 --device cuda:0
+)
+```
+
+출력: `Protoss/checkpoint/v164_model_fm_step1000/distribution_plot.png`. 다시 실행하면 같은 이미지 파일을 덮어쓴다. `RUN_PATH`는 실제 모델 저장 폴더로 바꾼다. `MODEL_PATH`는 서버에서 사용한 경로를 지정하며, run 루트에 manifest가 있으면 `$RUN_PATH`를 사용한다. 두 모델은 GPU에 순차 로드한다.
+
+데이터가 없는 추론 전용 Pod라면 먼저 학습 문서의 데이터를 준비한다. 기본 예시는 `trainset`의 trajectory 0에서 최대 32개 프레임을 균등 선택한다. 더 넓게 비교하려면 `--traj-ids 0 1 2`처럼 늘린다. 별도 testset이 있는 경우 `--split test`를 사용한다. 두 모델에는 동일한 영상 시점·state·instruction이 전달되고, 샘플별 seed도 동일하게 설정된다. 실행에는 GR00T 환경의 `matplotlib`이 필요하다.
