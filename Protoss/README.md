@@ -9,7 +9,7 @@
 | Model-S | LoRA | FM (현재 Model-FM과 동일) |
 | Model-E | LoRA | FM (현재 Model-FM과 동일) |
 
-설치부터 데이터 준비·학습·평가·Hugging Face 보관까지는 [README.md](../README.md)를 따른다. Model-FM/S/E는 현재 같은 FM loss로 각각 학습하며 향후 보조 loss를 추가할 수 있다.
+설치·데이터 준비·학습·업로드는 [readme_train.md](../readme_train.md), 모델 다운로드·추론·평가는 [readme_test.md](../readme_test.md)를 따른다. Model-FM/S/E는 현재 같은 FM loss로 각각 학습하며 향후 보조 loss를 추가할 수 있다.
 
 - 공통 데이터 준비: `prepare_groot_dataset.py`
 - Model-FM/S/E LoRA 학습: `train.py --model FM|S|E`

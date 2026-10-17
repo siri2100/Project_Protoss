@@ -1,5 +1,7 @@
 # Model-FM 성능 저하 진단
 
+학습·업로드는 [readme_train.md](readme_train.md), 모델 다운로드·추론·평가는 [readme_test.md](readme_test.md)를 따른다.
+
 현재 DROID held-out 결과는 baseline 대비 Model-FM MAE 약 20.2%, MSE 약 33.6% 증가다. 다음 세 검증으로 구현·processor·학습 추세를 구분한다. 진단 구현은 `Protoss/src/analyze_groot.py`, CLI는 `Protoss/analyze_groot.py`다. 기존 학습 파일을 덮어쓰지 않고 별도 analysis 경로에 export한다.
 
 ## 1. 실행 환경 준비
