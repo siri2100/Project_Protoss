@@ -284,7 +284,7 @@ export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
 export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-MODEL_PATH="$(cat "$PROTOSS_ROOT/Protoss/checkpoint/latest_FM_lora_v16.txt")"
+MODEL_PATH="$PROTOSS_ROOT/Protoss/checkpoint/v16_model_fm_step1000"
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/serve.py" \
   --model-path "$MODEL_PATH" \
