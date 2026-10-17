@@ -4,6 +4,7 @@ import importlib.util
 from pathlib import Path
 import tempfile
 import unittest
+from diffusers.models.attention import FeedForward
 from peft import PeftModel
 import torch
 from torch import nn
@@ -13,10 +14,13 @@ from src.groot_lora import install_lora, merge_lora
 
 def make_test_dit():
     def block():
-        return nn.Sequential(OrderedDict(attn1=nn.Sequential(OrderedDict(
+        attention = nn.Sequential(OrderedDict(
             to_q=nn.Linear(4, 4), to_k=nn.Linear(4, 4), to_v=nn.Linear(4, 4),
             to_out=nn.Linear(4, 4),
-        ))))
+        ))
+        return nn.Sequential(OrderedDict(
+            attn1=attention, ff=FeedForward(4, activation_fn="gelu"),
+        ))
     return nn.Sequential(OrderedDict(transformer_blocks=nn.Sequential(*(block() for _ in range(4)))))
 
 
@@ -32,8 +36,8 @@ class LoRATests(unittest.TestCase):
         base_dit = copy.deepcopy(model.action_head.model)
         targets = install_lora(model, 2, 4)
         self.assertIsInstance(model.action_head.model, PeftModel)
-        self.assertEqual(targets, [f"action_head.model.transformer_blocks.{i}.attn1.{projection}"
-                                   for i in (1, 3) for projection in ("to_q", "to_k", "to_v")])
+        self.assertEqual(targets, [f"action_head.model.transformer_blocks.{i}.ff.{projection}"
+                                   for i in (1, 3) for projection in ("net.0.proj", "net.2")])
         torch.testing.assert_close(original, model.action_head.model(x))
         optimizer = torch.optim.SGD([p for p in model.parameters() if p.requires_grad], lr=.1)
         for _ in range(2):
@@ -78,8 +82,8 @@ class LoRATests(unittest.TestCase):
                       backbone_attention_mask=torch.ones(2, 4, dtype=torch.bool))
         expected = dit(**inputs).detach()
         targets = install_lora(model, 2, 4)
-        self.assertEqual(targets, [f"action_head.model.transformer_blocks.1.attn1.{projection}"
-                                   for projection in ("to_q", "to_k", "to_v")])
+        self.assertEqual(targets, [f"action_head.model.transformer_blocks.1.ff.{projection}"
+                                   for projection in ("net.0.proj", "net.2")])
         model.eval()
         torch.testing.assert_close(model.action_head.model(**inputs), expected)
         for name, parameter in model.named_parameters():
