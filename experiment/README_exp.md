@@ -4,10 +4,11 @@
 
 아래 명령은 Mac에서 다운로드한 결과 ZIP을 풀고, task별 JSONL 분리와 metric 평균 계산을 수행한다. `NAME`과 `STEP`은 실제 결과 파일명에 맞게 수정한다. ZIP에는 `${NAME}_model_fm_step${STEP}/episode_results.jsonl` 구조가 있어야 한다.
 
-```bash
+```zsh
+setopt interactivecomments
 (
 set -e
-NAME=v1.6.10
+NAME=v1.6.8
 STEP=500
 EXP_ROOT="$HOME/Desktop/Project_Protoss/experiment/RoboLab"
 RUN_NAME="${NAME}_model_fm_step${STEP}"
@@ -29,5 +30,7 @@ python3 calculate_metric_averages.py "$RUN_NAME/RoboLab05.jsonl"
 ```
 
 분리 결과는 해당 실험 폴더에 `RoboLab05.jsonl`, `RoboLab06.jsonl`, …으로 저장된다. 번호는 고정 task ID가 아니라 입력의 task 등장 순서이므로, 분리 스크립트 출력에서 task 이름을 확인한다. 다른 task의 평균은 마지막 명령의 파일명을 바꿔 계산한다. `--overwrite`는 기존 분리 JSONL을 덮어쓴다.
+
+Mac의 대화형 zsh에서는 `setopt interactivecomments`를 먼저 실행해야 붙여넣은 `#` 주석을 인식한다. 따옴표 안의 `~`는 홈 경로로 확장되지 않으므로 `$HOME`을 사용한다.
 
 ZIP을 이미 이동했다면 `mv` 줄을 생략한다. 압축 해제까지 끝났다면 분리·평균 계산 명령만 실행한다.
