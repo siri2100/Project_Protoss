@@ -267,7 +267,7 @@ GR00T의 DROID 변환과 동일한 `[eef_9d(9), gripper(1), joint(7)]` LeRobot v
 ```bash
 (
 set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss2
+export PROTOSS_ROOT=/workspace/Project_Protoss3
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"

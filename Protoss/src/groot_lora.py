@@ -15,15 +15,18 @@ def install_lora(model, rank=8, alpha=16):
         raise ValueError("LoRA is already installed on the action DiT")
     names = []
     for name, param in dit.named_modules():
-        print(name)
         if not name or not isinstance(param, nn.Linear):
             continue
         match = re.fullmatch(r"transformer_blocks\.(\d+)\.attn1\.(to_q|to_k|to_v)", name)
         if match and int(match.group(1)) % 2 == 1:
             names.append(name)
+            print(name)
 
     if not names:
         raise ValueError("No Q/K/V Linear modules found in odd-indexed GR00T DiT blocks")
+
+    import sys
+    sys.exit()
 
     model.requires_grad_(False)
     config = LoraConfig(
