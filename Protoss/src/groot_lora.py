@@ -19,7 +19,8 @@ def install_lora(model, rank=8, alpha=16):
             continue
         match = re.fullmatch(r"transformer_blocks\.(\d+)\.ff\..+", name)
         # if match and int(match.group(1)) % 2 == 0:
-        names.append(name)
+        if match:
+            names.append(name)
         print(name)
 
     if not names:

@@ -45,8 +45,8 @@ unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 HF_ACCOUNT=$(uv run --no-sync python -c \
   'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
-uv run --no-sync hf download "$HF_ACCOUNT/protoss-v164-model-fm-step1000" \
-  --local-dir "$PROTOSS_ROOT/Protoss/checkpoint/v164_model_fm_step1000"
+uv run --no-sync hf download "$HF_ACCOUNT/protoss-v165-model-fm-step500" \
+  --local-dir "$PROTOSS_ROOT/Protoss/checkpoint/v165_model_fm_step500"
 )
 ```
 
@@ -120,7 +120,7 @@ export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
 export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-MODEL_PATH="$PROTOSS_ROOT/Protoss/checkpoint/v164_model_fm_step1000/inference"
+MODEL_PATH="$PROTOSS_ROOT/Protoss/checkpoint/v165_model_fm_step500/inference"
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/serve.py" \
   --model-path "$MODEL_PATH" \
@@ -159,7 +159,7 @@ UV_PROJECT_ENVIRONMENT=.venv-51 uv run --no-sync --extra isaac51 \
   --task BananaOnPlateTask \
   --num-envs 2 --num-runs 5 --open-loop-horizon 8 \
   --instruction-type default --video-mode none \
-  --output-folder-name v1.6.4_mdoel_fm_step1000
+  --output-folder-name v1.6.5_mdoel_fm_step500
 )
 ```
 
