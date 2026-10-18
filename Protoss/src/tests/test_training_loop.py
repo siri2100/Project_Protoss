@@ -91,8 +91,8 @@ class ExplicitLoopTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             session = self.make_session(root)
-            session.smoothness = ModelSLoss(ModelSConfig(calibration_steps=2), torch.ones(7), torch.zeros(7))
-            session.smoothness.finish_step({"fm_loss": 2., "jerk_loss": 4.})
+            session.smoothness = ModelSLoss(ModelSConfig(jerk_reference=1.0, calibration_steps=2), torch.ones(7), torch.zeros(7))
+            session.smoothness.finish_step({"fm_loss": 2., "raw_jerk_loss": 4., "target_jerk_loss": 1.})
             session.step = 1
             with self.checkpoint_callback():
                 runtime.save_checkpoint(session)
@@ -101,7 +101,7 @@ class ExplicitLoopTests(unittest.TestCase):
                 restored = ModelSLoss(session.smoothness.config, torch.ones(7), torch.zeros(7))
                 restored.load_state_dict(json.loads(path.read_text()))
                 self.assertEqual(restored.state_dict(), session.smoothness.state_dict())
-                restored.finish_step({"fm_loss": 4., "jerk_loss": 8.})
+                restored.finish_step({"fm_loss": 4., "raw_jerk_loss": 8., "target_jerk_loss": 1.})
                 self.assertEqual(restored.weight, .005)
 
     def make_session(self, root, resume=False, batch_size=1, accumulation=2):

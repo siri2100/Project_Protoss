@@ -43,4 +43,6 @@ Model-S 실험 코드는 `src/model_s_loss.py`에 모았다. 기본값은 `Model
 
 Model-S 학습 완료 시 `training_loss.png`에 가중치를 곱하기 전의 `fm_loss`, `jerk_loss`, 그리고 `total_loss = fm_weight × fm_loss + jerk_weight × jerk_loss`를 세 개의 패널로 저장한다. 각 패널은 optimizer step을 공유하고 Y축은 독립적이다. `training_loss.csv`에도 세 값과 각 가중치·가중 loss를 기록하며 기존 `loss` 열은 `total_loss`와 같다. 학습 재개 시 checkpoint의 이전 기록도 포함한다.
 
-FM 가중치는 학습 명령의 `--s-fm-weight 0.5`로 조정하며 기본값은 `1.0`이다. Jerk 자동 보정은 `jerk_weight = jerk_ratio × fm_weight × sum(fm_loss) / sum(jerk_loss)`를 사용한다. 따라서 FM 대비 jerk의 상대 비율까지 직접 바꾸려면 `--s-jerk-ratio`를 조정하거나 `--s-jerk-weight`를 고정한다. FM을 완전히 끄려면 `--s-fm-weight 0 --s-jerk-weight 값`으로 명시한다. 재개 시 원래 FM 가중치를 유지해야 하며, 이 옵션 도입 전 checkpoint는 `1.0`으로 해석한다.
+FM 가중치는 `--s-fm-weight 0.5`로 조정하며 기본값은 `1.0`이다. Jerk 자동 보정은 `jerk_ratio × fm_weight × mean(FM) / mean(normalized jerk)`를 사용한다. FM 대비 jerk의 상대 비율을 바꾸려면 `--s-jerk-ratio`를 조정하거나 `--s-jerk-weight`를 고정한다. FM을 끄려면 `--s-fm-weight 0 --s-jerk-weight 값`을 지정한다.
+
+Jerk는 `jerk_loss = raw_jerk_loss / J_ref²`로 무차원화한다. 기본 첫 10 optimizer step의 정답 action에서 jerk RMS를 추정하고 이후 고정한다. 최소 기준값은 `1 rad/s³`다. 기준값 확정 전에는 jerk 항을 적용하지 않고 정규화 로그는 비워 둔다. `--s-jerk-reference 300`처럼 RMS를 직접 지정할 수 있으며, 고정 jerk 가중치까지 함께 지정하면 처음부터 적용한다. CSV에는 원래 값 `raw_jerk_loss`, 정답 값 `target_jerk_loss`와 `jerk_reference`도 기록한다. 기준값과 누적 통계는 checkpoint에 저장한다. 기존 비정규화 checkpoint를 새 loss로 재개하지 않고 새 output에서 학습한다.

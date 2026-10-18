@@ -310,19 +310,19 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
 
 실험 구현은 `Protoss/src/model_s_loss.py`에 모았다. `ModelSConfig`는 기본 설정, `joint_affine()`는 action 표현·역정규화, `clean_action_endpoint()`는 clean action 추정, `masked_jerk_loss()`는 정규화 항, `ModelSLoss`는 최종 조합·가중치 보정을 담당한다. 학습 루프의 Model-S 분기는 `Protoss/train.py`에 있다.
 
-- 목적 함수는 `L = L_FM + λ × L_jerk`이며 기존 GR00T masked FM loss를 유지한다.
+- 목적 함수는 `L = fm_weight × L_FM + jerk_weight × L_jerk_norm`이며 기존 GR00T masked FM loss를 유지한다.
 - 같은 forward의 연속 timestep과 noisy action으로 `â = x_t + (1-t)vθ`를 복원한다. DiT velocity 자체에는 jerk를 적용하지 않으며 추가 flow integration은 없다.
 - DROID `[EEF(9), gripper(1), joints(7)]` 중 joint 7개만 pretrained 통계로 역정규화한다. Joint action은 현재 관절 위치에 대한 offset이며 연속 timestep 간 delta가 아니다. Chunk의 공통 기준 관절값은 3차 차분에서 상쇄된다. Gripper·EEF 회전·padding은 제외한다.
-- `L_jerk = mean((Δ³q / dt³)²)`. 네 점 모두 mask가 유효한 window만 사용한다. 기본 `dt=1/15`초이며 평균 제곱 jerk 단위는 `rad²/s⁶`다. 데이터 주기가 바뀌면 `--s-dt`도 바꾼다.
+- `raw_jerk_loss = mean((Δ³q / dt³)²)`, `jerk_loss = raw_jerk_loss / J_ref²`로 무차원화한다. 네 점 모두 mask가 유효한 window만 사용한다. 기본 `dt=1/15`초이며 raw 값의 단위는 `rad²/s⁶`다. 데이터 주기가 바뀌면 `--s-dt`도 바꾼다.
 - 학습 중 min/max 역정규화는 gradient 유지를 위해 clipping 없는 affine 변환을 사용한다. 배포 processor는 clipping하므로 이 값은 clean endpoint의 smoothness surrogate이며 실제 multi-step 추론·rollout jerk와 동일하지 않다.
-- 기본 첫 10 optimizer step은 FM만 학습하면서 FM·jerk를 측정한다. 이후 `λ = jerk_ratio × sum(FM) / sum(jerk)`로 고정한다. `--s-jerk-ratio` 기본값은 `0.01`이며 총 step 수는 calibration step보다 커야 한다.
-- 처음부터 고정 가중치를 쓰려면 `--s-jerk-weight 0.000001`처럼 지정한다. 예시값이며 최적값이 아니다. 이 경우 calibration을 생략한다. `--s-jerk-weight 0`으로 FM-only 대조 실험도 가능하다.
+- 기본 첫 10 optimizer step 동안 정답 action을 역정규화해 jerk를 측정하고 `J_ref = sqrt(mean(target_jerk_loss))`를 구한 뒤 고정한다. 이 값은 전체 데이터가 아닌 초기 학습 batch에서 추정한 RMS이며, 정지 시연을 위해 최소 `1 rad/s³`를 적용한다. 기준값이 정해질 때까지 jerk 가중치는 0이고 정규화 jerk 로그는 비워 둔다. 이후 자동 가중치는 `jerk_ratio × fm_weight × sum(FM) / (sum(raw_jerk) / J_ref²)`로 정한다. `--s-jerk-ratio` 기본값은 `0.01`이다.
+- `--s-jerk-reference 300`으로 기준 RMS를 직접 지정할 수 있다. `--s-jerk-weight 0.01`까지 함께 지정하면 calibration 없이 첫 step부터 적용한다. 가중치만 지정하고 기준값을 생략하면 기준값 측정을 위한 calibration은 진행한다. 이 숫자는 사용 예시이며 최적값이 아니다. FM-only 대조 실험에는 `--s-jerk-weight 0`을 사용한다.
 - `--s-gradient-diagnostics`를 추가하면 매 optimizer step 첫 microbatch의 FM·jerk LoRA gradient norm을 기록한다. 추가 autograd 비용이 있다. `λ × jerk_grad_norm`과 `fm_grad_norm`을 비교한다.
-- `training_loss.csv`와 checkpoint의 `trainer_state.json`에 total/FM/jerk/weighted jerk/사용한 λ를 기록한다. Gradient norm은 옵션 활성화 시 기록한다. `model_s_loss.json`에는 고정 λ와 calibration 누적값을 저장하고 재개 시 복원한다. Calibration 완료 다음 step부터 보정값을 적용한다.
+- `training_loss.csv`와 checkpoint의 `trainer_state.json`에 FM, normalized jerk, raw jerk, target jerk, 기준 RMS, total과 각 가중치를 기록한다. `training_loss.png`에는 FM/normalized jerk/total 세 패널을 저장한다. `model_s_loss.json`에는 기준 RMS와 calibration 누적값, 고정 가중치를 함께 저장하고 재개 시 복원한다. Calibration 완료 다음 step부터 정규화 항을 적용한다.
 
 아래 명령은 All QKV, rank/alpha=32/64, LR=1e-6, 500 steps로 학습한다. 강도·보정 기간·주기는 `--s-jerk-ratio 0.01 --s-calibration-steps 10 --s-dt 0.06666666666666667`로 지정할 수 있으며 아래 명령은 이 기본값을 사용한다.
 
-기존 FM-only Model-S checkpoint는 새 목적 함수로 `--resume`하지 않는다. Pretrained부터 새 run을 시작한다. 새 Model-S를 재개할 때는 원래 loss 옵션도 동일하게 전달해야 한다. 실험별로 `NAME`을 바꾸고 FM과 비교할 때 LoRA/rank/alpha/LR/batch/seed/step을 맞춘다. Chunk 내부 jerk 감소만으로 성공률·SPARC·ISJ 개선을 판단하지 않으며 rollout 전체와 chunk 실행 경계도 평가한다.
+기존 FM-only 또는 비정규화 jerk Model-S checkpoint는 새 loss로 `--resume`하지 않는다. 새 `NAME`과 output 경로로 pretrained부터 시작한다. 정규화 모델 재개 시 원래 loss 옵션도 동일하게 전달한다. FM과 비교할 때 LoRA/rank/alpha/LR/batch/seed/step을 맞추고 실제 rollout 성공률과 smoothness, chunk 실행 경계도 평가한다.
 
 ```bash
 (

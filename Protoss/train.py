@@ -59,6 +59,8 @@ def parse_args():
                         help="Multiplier for native FM loss in Model-S")
     smooth.add_argument("--s-jerk-weight", type=float, default=None,
                         help="Fixed lambda; omit to calibrate from initial FM/jerk losses")
+    smooth.add_argument("--s-jerk-reference", type=float, default=None,
+                        help="Fixed jerk RMS in rad/s^3; omit to estimate from calibration targets")
     smooth.add_argument("--s-jerk-ratio", type=float, default=0.01)
     smooth.add_argument("--s-calibration-steps", type=int, default=10)
     smooth.add_argument("--s-dt", type=float, default=1 / 15, help="Action interval in seconds")
@@ -78,8 +80,8 @@ def parse_args():
             config_from_args(args)
         except ValueError as exc:
             parser.error(str(exc))
-        if args.s_jerk_weight is None and args.max_steps <= args.s_calibration_steps:
-            parser.error("Model-S max-steps must exceed calibration-steps or specify --s-jerk-weight")
+        if (args.s_jerk_weight is None or args.s_jerk_reference is None) and args.max_steps <= args.s_calibration_steps:
+            parser.error("Model-S max-steps must exceed calibration-steps or specify both --s-jerk-weight and --s-jerk-reference")
     args.style = args.variant
     sys.path.insert(0, str(args.groot_root.resolve()))
     return args
@@ -135,7 +137,7 @@ def prepare_training(args):
             from .src.model_s_loss import config_from_args
         else:
             from src.model_s_loss import config_from_args
-        lora_settings["loss"] = "FM+joint_jerk-v1"
+        lora_settings["loss"] = "FM+normalized_joint_jerk-v2"
         lora_settings["model_s"] = asdict(config_from_args(args))
     settings_path = args.output_dir / "lora_settings.json"
     if args.resume:
