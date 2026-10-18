@@ -199,8 +199,6 @@ def main(args):
             training.step = step
             record_training_loss(training, step_loss, **step_metrics)
             print(f"step={step}/{args.max_steps} loss={step_loss:.6f}", flush=True)
-            if step_metrics:
-                print("Model-S " + " ".join(f"{key}={value:.8g}" for key, value in step_metrics.items()), flush=True)
             if step % args.save_steps == 0 or step == args.max_steps:
                 save_checkpoint(training)
 
