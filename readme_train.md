@@ -261,7 +261,7 @@ GR00T의 DROID 변환과 동일한 `[eef_9d(9), gripper(1), joint(7)]` LeRobot v
 
 ## 6. Model-FM/S/E LoRA 학습
 
-Model-FM은 `NAME`·`STEP`으로 run 폴더를 정하고, Model-S/E는 `mktemp -d`로 매번 고유한 빈 PEFT 실험 폴더를 생성한다. 생성 경로는 터미널과 `../checkpoint/latest_*_lora_v16.txt`에 기록한다. 데이터는 5절의 `Protoss/data`를 재사용한다.
+Model-FM/S는 `NAME`·`STEP`으로 run 폴더를 정하고, Model-E는 `mktemp -d`로 매번 고유한 빈 PEFT 실험 폴더를 생성한다. 생성 경로는 터미널과 `../checkpoint/latest_*_lora_v16.txt`에 기록한다. 데이터는 5절의 `Protoss/data`를 재사용한다.
 
 `ValueError: Output is nonempty; choose a new path or --resume`는 지정한 output 폴더에 파일이 있어 덮어쓰기를 막았다는 뜻이다. 이전 실행이 학습 전에 중단되어 설정 JSON만 남아 있어도 발생한다. 같은 명령을 반복하면 같은 오류가 난다.
 
@@ -311,7 +311,12 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
 ```bash
 (
 set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
+NAME=v1614
+STEP=500
+LR=1e-6
+FOLDER=Project_Protoss
+
+export PROTOSS_ROOT=/workspace/"$FOLDER"
 export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
@@ -320,16 +325,15 @@ export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 mkdir -p "$CHECKPOINT_ROOT"
-OUTPUT_DIR="$(mktemp -d "$CHECKPOINT_ROOT/model_S_lora_v16_peft_XXXXXXXX")"
+OUTPUT_DIR="$CHECKPOINT_ROOT/${NAME}_model_s_step${STEP}"
 printf '%s\n' "$OUTPUT_DIR" > "$CHECKPOINT_ROOT/latest_S_lora_v16.txt"
-printf 'Training output: %s\n' "$OUTPUT_DIR"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
   --model S --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
   --base-model "$CHECKPOINT_ROOT/GR00T-N1.7-DROID" \
   --output-dir "$OUTPUT_DIR" \
-  --lora-rank 32 --lora-alpha 64 --max-steps 2000 --save-steps 2000 \
-  --batch-size 2 --gradient-accumulation 16 --lr 1e-5 --workers 1 --seed 42
+  --lora-rank 32 --lora-alpha 64 --max-steps "$STEP" --save-steps "$STEP" \
+  --batch-size 2 --gradient-accumulation 16 --lr "$LR" --workers 1 --seed 42
 )
 ```
 
