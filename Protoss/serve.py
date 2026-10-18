@@ -19,9 +19,17 @@ def main():
     parser.add_argument("--hf-revision", default="main")
     parser.add_argument("--hf-base-repo-id", default="nvidia/GR00T-N1.7-DROID")
     parser.add_argument("--hf-base-revision", default="main")
+    parser.add_argument("--checkpoint-step", type=int,
+                        help="Use checkpoint-N from the downloaded/local run instead of the final adapter")
     args, remaining = parser.parse_known_args()
     if args.hf_repo_id:
         remaining = download_for_server(args, remaining)
+    if args.checkpoint_step is not None:
+        if __package__:
+            from .src.inference_loading import checkpoint_inference_args
+        else:
+            from src.inference_loading import checkpoint_inference_args
+        remaining = checkpoint_inference_args(remaining, args.checkpoint_step)
     sys.argv = [sys.argv[0], *remaining]
     root = Path(__file__).resolve().parents[1] / "Issac-GR00T-N17"
     ensure_adapter_inference(root)

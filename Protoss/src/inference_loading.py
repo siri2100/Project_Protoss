@@ -3,6 +3,23 @@ import json
 from pathlib import Path
 
 
+def checkpoint_inference_args(arguments, step):
+    """Select an exact saved step after downloading the complete run."""
+    from argparse import ArgumentParser
+    if step < 1:
+        raise ValueError("--checkpoint-step must be positive")
+    parser = ArgumentParser(add_help=False)
+    parser.add_argument("--model-path", required=True, type=Path)
+    paths, remaining = parser.parse_known_args(arguments)
+    checkpoint = paths.model_path / f"checkpoint-{step}"
+    if not (checkpoint / "adapter/adapter_config.json").is_file():
+        available = sorted(p.name for p in paths.model_path.glob("checkpoint-*") if p.is_dir())
+        raise FileNotFoundError(f"Requested checkpoint is missing: {checkpoint}. "
+                                f"Available: {available}. Old checkpoints may have been rotated out.")
+    print(f"Inference checkpoint: {checkpoint}", flush=True)
+    return ["--model-path", str(checkpoint), *remaining]
+
+
 def resolve_inference_paths(model_path, base_model_path=None):
     root = Path(model_path)
     if (root / "inference/adapter/adapter_config.json").is_file():
@@ -19,6 +36,23 @@ def resolve_inference_paths(model_path, base_model_path=None):
         base = base_model_path or settings["base_model"]
         adapter = (manifest.parent / settings["adapter"]).resolve()
         processor = (manifest.parent / settings["processor"]).resolve()
+    elif (root.name.startswith("checkpoint-") and root.name.removeprefix("checkpoint-").isdigit()
+          and (root / "adapter/adapter_config.json").is_file()):
+        # A saved training step has its own adapter; never load the final run adapter.
+        settings_path = root.parent / "lora_settings.json"
+        settings = json.loads(settings_path.read_text()) if settings_path.is_file() else {}
+        if settings and settings.get("backend") != "peft":
+            raise ValueError("Only PEFT checkpoints are supported")
+        base = base_model_path or settings.get("base_model")
+        if not base:
+            raise ValueError("Checkpoint inference requires --base-model-path or parent lora_settings.json")
+        adapter = root / "adapter"
+        if (root / "processor/processor_config.json").is_file():
+            processor = root / "processor"
+        elif (root / "processor_config.json").is_file():
+            processor = root  # Upstream CheckpointFormatCallback copies files here.
+        else:
+            processor = root.parent / "processor"
     elif (root / "adapter/adapter_config.json").is_file() and (root / "lora_settings.json").is_file():
         # Support existing PEFT runs without retraining or using their merged export.
         settings = json.loads((root / "lora_settings.json").read_text())
