@@ -49,6 +49,43 @@ class TinyPolicy(nn.Module):
 
 
 class ExplicitLoopTests(unittest.TestCase):
+    def test_model_s_plot_shows_raw_fm_jerk_and_total_with_resumed_history(self):
+        from matplotlib.backends.backend_agg import FigureCanvasAgg
+        from PIL import Image
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            history = [
+                {"step": 1, "loss": 3., "fm_loss": 1., "jerk_loss": 20., "jerk_weight": .1},
+                {"step": 2, "loss": 4.},  # Older logs may have no component losses.
+                {"step": 3, "loss": 5., "fm_loss": 3., "jerk_loss": 40., "jerk_weight": .05},
+                {"step": 4, "loss": 99., "fm_loss": 99., "jerk_loss": 99.},
+            ]
+            session = SimpleNamespace(args=SimpleNamespace(output_dir=root), step=3,
+                                      smoothness=object(), trainer=SimpleNamespace(
+                                          state=SimpleNamespace(log_history=history)))
+            figures = []
+            original = FigureCanvasAgg.print_png
+
+            def save_png(canvas, path):
+                figures.append(canvas.figure)
+                original(canvas, path)
+
+            with patch.object(FigureCanvasAgg, "print_png", autospec=True, side_effect=save_png):
+                runtime.save_training_loss_plot(session)
+            axes = figures[0].axes
+            self.assertEqual([axis.get_title() for axis in axes], ["fm_loss", "jerk_loss", "total_loss"])
+            self.assertEqual(list(axes[0].lines[0].get_xdata()), [1, 3])
+            self.assertEqual(list(axes[0].lines[0].get_ydata()), [1., 3.])
+            self.assertEqual(list(axes[1].lines[0].get_ydata()), [20., 40.])
+            self.assertEqual(list(axes[2].lines[0].get_ydata()), [3., 4., 5.])
+            with (root / "training_loss.csv").open() as stream:
+                rows = list(csv.DictReader(stream))
+            self.assertEqual([row["total_loss"] for row in rows], ["3.0", "4.0", "5.0"])
+            self.assertEqual(rows[1]["jerk_loss"], "")
+            with Image.open(root / "training_loss.png") as image:
+                self.assertEqual(image.size, (1350, 1500))
+                image.verify()
+
     def test_model_s_calibration_state_saved_with_checkpoint_and_export(self):
         from src.model_s_loss import ModelSConfig, ModelSLoss
         with tempfile.TemporaryDirectory() as tmp:

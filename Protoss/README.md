@@ -40,3 +40,5 @@
 모델 저장 위치는 프로젝트 바로 상위의 `checkpoint/`다. 예: `/workspace/Project_Protoss`의 모델은 `/workspace/checkpoint`에 저장한다. 학습 문서의 `CHECKPOINT_ROOT` 설정으로 원본 pretrained와 학습 run을 저장하고, 완료된 run 전체를 Hugging Face private 모델 저장소에 업로드한다. 추론 서버에서는 추론 문서에 따라 원본 pretrained와 업로드한 run을 Hugging Face에서 같은 `checkpoint/` 아래로 내려받고, `--model-path`에 다운로드한 run을, `--base-model-path`에 원본 pretrained 경로를 지정한다.
 
 Model-S 실험 코드는 `src/model_s_loss.py`에 모았다. 기본값은 `ModelSConfig`, 계산식은 `clean_action_endpoint()`와 `masked_jerk_loss()`, 가중치 보정은 `ModelSLoss`에서 수정한다. 실험 옵션과 재개 조건은 학습 문서 6.2절을 따른다.
+
+Model-S 학습 완료 시 `training_loss.png`에 `fm_loss`, 가중치를 곱하기 전의 `jerk_loss`, `total_loss = fm_loss + λ × jerk_loss`를 세 개의 패널로 저장한다. 각 패널은 optimizer step을 공유하고 Y축은 독립적이다. `training_loss.csv`에도 세 값을 기록하며 기존 `loss` 열은 `total_loss`와 같다. 학습 재개 시 checkpoint의 이전 기록도 포함한다.

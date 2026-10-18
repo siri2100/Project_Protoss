@@ -242,24 +242,40 @@ def save_training_loss_plot(training):
     losses = {row["step"]: row["loss"] for row in training.trainer.state.log_history
               if "step" in row and "loss" in row and row["step"] <= training.step}
     steps = sorted(losses)
+    components = {row["step"]: row for row in training.trainer.state.log_history
+                  if "step" in row and "fm_loss" in row and row["step"] <= training.step}
+    model_s = training.smoothness is not None or bool(components)
     output = training.args.output_dir
     with (output / "training_loss.csv").open("w", newline="") as stream:
         writer = csv.writer(stream)
-        components = {row["step"]: row for row in training.trainer.state.log_history if "fm_loss" in row}
-        keys = ["fm_loss", "jerk_loss", "jerk_weight", "weighted_jerk_loss", "fm_grad_norm", "jerk_grad_norm"] if components else []
+        keys = ["fm_loss", "jerk_loss", "total_loss", "jerk_weight", "weighted_jerk_loss", "fm_grad_norm", "jerk_grad_norm"] if model_s else []
         writer.writerow(["step", "loss", *keys])
-        writer.writerows((step, losses[step], *(components.get(step, {}).get(key, "") for key in keys)) for step in steps)
+        for step in steps:
+            row = {**components.get(step, {}), "total_loss": losses[step]}
+            writer.writerow([step, losses[step], *(row.get(key, "") for key in keys)])
 
-    figure = Figure(figsize=(9, 5), layout="constrained")
-    axis = figure.subplots()
-    if steps:
-        axis.plot(steps, [losses[step] for step in steps], linewidth=1.2)
+    figure = Figure(figsize=(9, 10) if model_s else (9, 5), layout="constrained")
+    if model_s:
+        axes = figure.subplots(3, 1, sharex=True)
+        series = [("fm_loss", "Mean FM loss"),
+                  ("jerk_loss", "Mean squared jerk (rad²/s⁶)"),
+                  ("total_loss", "FM + weighted jerk")]
     else:
-        axis.text(0.5, 0.5, "No recorded step losses in this checkpoint",
-                  ha="center", va="center", transform=axis.transAxes)
-    axis.set(title="Training loss", xlabel="Optimizer step", ylabel="Mean training objective")
-    axis.xaxis.set_major_locator(MaxNLocator(integer=True))
-    axis.grid(True, alpha=0.3)
+        axes = [figure.subplots()]
+        series = [("loss", "Mean training objective")]
+    for axis, (key, label) in zip(axes, series):
+        values = losses if key in ("loss", "total_loss") else {
+            step: row[key] for step, row in components.items() if key in row}
+        recorded_steps = sorted(values)
+        if recorded_steps:
+            axis.plot(recorded_steps, [values[step] for step in recorded_steps], linewidth=1.2)
+        else:
+            axis.text(0.5, 0.5, "No recorded losses in this checkpoint",
+                      ha="center", va="center", transform=axis.transAxes)
+        axis.set(title=key if model_s else "Training loss", ylabel=label)
+        axis.xaxis.set_major_locator(MaxNLocator(integer=True))
+        axis.grid(True, alpha=0.3)
+    axes[-1].set_xlabel("Optimizer step")
     figure.set_dpi(150)
     path = output / "training_loss.png"
     FigureCanvasAgg(figure).print_png(path)
