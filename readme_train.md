@@ -1,4 +1,4 @@
-# Project Protoss v1.6 — 학습
+# Project Protoss v1.7 — 학습
 
 네 모델은 분할하지 않은 같은 원본 DROID 데이터 전체을 사용한다. baseline은 원본 pretrained 평가 전용이며, Model-FM/S/E는 같은 pretrained 모델에서 독립적으로 LoRA 학습한다.
 
@@ -6,10 +6,10 @@
 |---|---|---|---|
 | baseline | 없음 | 없음 | 원본 평가 가능 |
 | Model-FM | LoRA | FM | 학습·평가 실행 경로 제공 |
-| Model-S | LoRA | FM (현재 Model-FM과 동일) | 학습·평가 실행 가능 |
+| Model-S | LoRA | FM + clean joint trajectory jerk | 학습·평가 실행 가능 |
 | Model-E | LoRA | FM (현재 Model-FM과 동일) | 학습·평가 실행 가능 |
 
-현재 Model-FM/S/E는 같은 FM loss, 데이터, LoRA 설정으로 독립 학습한다. Model-S/E는 향후 보조 loss를 추가하기 위한 실험 이름이며 현재 smoothness/efficiency loss는 적용하지 않는다. 같은 seed와 설정에서는 같은 결과가 나올 수 있고, 이 단계의 차이를 동작 특성 개선으로 해석하지 않는다.
+Model-FM(v1.6.14)은 All QKV, LR=1e-6의 FM 기준 모델이다. Model-S(v1.7)는 같은 pretrained 모델에서 독립적으로 FM + jerk를 학습한다. Model-E는 현재 FM-only이며 efficiency loss는 아직 적용하지 않는다. Jerk regularization의 효과는 RoboLab 성공률과 실제 rollout smoothness를 Model-FM과 비교해 확인한다.
 
 이 문서는 환경 설치, 데이터 준비, LoRA 학습·재개와 Hugging Face 업로드를 다룬다. 추론·평가·모델 다운로드는 [readme_test.md](readme_test.md)를 따른다.
 
@@ -308,10 +308,26 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
 
 ### 6.2 Model-S 학습
 
+실험 구현은 `Protoss/src/model_s_loss.py`에 모았다. `ModelSConfig`는 기본 설정, `joint_affine()`는 action 표현·역정규화, `clean_action_endpoint()`는 clean action 추정, `masked_jerk_loss()`는 정규화 항, `ModelSLoss`는 최종 조합·가중치 보정을 담당한다. 학습 루프의 Model-S 분기는 `Protoss/train.py`에 있다.
+
+- 목적 함수는 `L = L_FM + λ × L_jerk`이며 기존 GR00T masked FM loss를 유지한다.
+- 같은 forward의 연속 timestep과 noisy action으로 `â = x_t + (1-t)vθ`를 복원한다. DiT velocity 자체에는 jerk를 적용하지 않으며 추가 flow integration은 없다.
+- DROID `[EEF(9), gripper(1), joints(7)]` 중 joint 7개만 pretrained 통계로 역정규화한다. Joint action은 현재 관절 위치에 대한 offset이며 연속 timestep 간 delta가 아니다. Chunk의 공통 기준 관절값은 3차 차분에서 상쇄된다. Gripper·EEF 회전·padding은 제외한다.
+- `L_jerk = mean((Δ³q / dt³)²)`. 네 점 모두 mask가 유효한 window만 사용한다. 기본 `dt=1/15`초이며 평균 제곱 jerk 단위는 `rad²/s⁶`다. 데이터 주기가 바뀌면 `--s-dt`도 바꾼다.
+- 학습 중 min/max 역정규화는 gradient 유지를 위해 clipping 없는 affine 변환을 사용한다. 배포 processor는 clipping하므로 이 값은 clean endpoint의 smoothness surrogate이며 실제 multi-step 추론·rollout jerk와 동일하지 않다.
+- 기본 첫 10 optimizer step은 FM만 학습하면서 FM·jerk를 측정한다. 이후 `λ = jerk_ratio × sum(FM) / sum(jerk)`로 고정한다. `--s-jerk-ratio` 기본값은 `0.01`이며 총 step 수는 calibration step보다 커야 한다.
+- 처음부터 고정 가중치를 쓰려면 `--s-jerk-weight 0.000001`처럼 지정한다. 예시값이며 최적값이 아니다. 이 경우 calibration을 생략한다. `--s-jerk-weight 0`으로 FM-only 대조 실험도 가능하다.
+- `--s-gradient-diagnostics`를 추가하면 매 optimizer step 첫 microbatch의 FM·jerk LoRA gradient norm을 기록한다. 추가 autograd 비용이 있다. `λ × jerk_grad_norm`과 `fm_grad_norm`을 비교한다.
+- `training_loss.csv`와 checkpoint의 `trainer_state.json`에 total/FM/jerk/weighted jerk/사용한 λ를 기록한다. Gradient norm은 옵션 활성화 시 기록한다. `model_s_loss.json`에는 고정 λ와 calibration 누적값을 저장하고 재개 시 복원한다. Calibration 완료 다음 step부터 보정값을 적용한다.
+
+아래 명령은 All QKV, rank/alpha=32/64, LR=1e-6, 500 steps로 학습한다. 강도·보정 기간·주기는 `--s-jerk-ratio 0.01 --s-calibration-steps 10 --s-dt 0.06666666666666667`로 지정할 수 있으며 아래 명령은 이 기본값을 사용한다.
+
+기존 FM-only Model-S checkpoint는 새 목적 함수로 `--resume`하지 않는다. Pretrained부터 새 run을 시작한다. 새 Model-S를 재개할 때는 원래 loss 옵션도 동일하게 전달해야 한다. 실험별로 `NAME`을 바꾸고 FM과 비교할 때 LoRA/rank/alpha/LR/batch/seed/step을 맞춘다. Chunk 내부 jerk 감소만으로 성공률·SPARC·ISJ 개선을 판단하지 않으며 rollout 전체와 chunk 실행 경계도 평가한다.
+
 ```bash
 (
 set -e
-NAME=v1614
+NAME=v170
 STEP=500
 LR=1e-6
 FOLDER=Project_Protoss
@@ -364,7 +380,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
 )
 ```
 
-GR00T 기본 masked flow-matching MSE를 그대로 사용한다. FM의 velocity는 물리적 관절 속도가 아니다. Model-FM/S/E는 같은 LoRA rank/alpha, train 데이터, seed, batch, optimizer, step 수와 FM loss를 사용한다. 각 명령은 해당 모델 하나만 학습하고 종료한다. 원본 pretrained checkpoint에서 각각 시작하며 서로의 학습 weight를 이어받지 않는다. 모델 이름과 저장 경로만 다르다.
+GR00T 기본 masked flow-matching MSE를 그대로 사용한다. FM의 velocity는 물리적 관절 속도가 아니다. Model-FM/S 비교는 LoRA rank/alpha, train 데이터, seed, batch, optimizer와 step 수를 맞추고 loss만 FM과 FM+jerk로 구분한다. Model-E 예시 설정은 별도 실험이다. 각 명령은 해당 모델 하나만 학습하고 종료한다. 원본 pretrained checkpoint에서 각각 시작하며 서로의 학습 weight를 이어받지 않는다. Model-S에는 추가 jerk 목적 함수가 적용된다.
 
 ### 6.4 중단된 PEFT 학습 재개
 
@@ -439,13 +455,13 @@ uv run --no-sync python -m unittest discover \
 
 검증: CPU mock 테스트로 dataset repo type/private 생성, 전체 trainset 전송 파일 목록, 불완전한 영상/episode 수 검사, dry-run을 확인했다. 실제 계정으로 데이터 업로드·다운로드는 이 작업에서 실행하지 않았다.
 
-LoRA 검증 범위: CPU에서 초기 출력 일치, adapter만의 gradient, merge 전후 출력 일치와 native Linear state reload를 확인한다. 실제 GR00T LoRA GPU 학습/merged checkpoint 로딩은 이 작업 환경에서 실행하지 않았다. Model-S/E도 현재 FM-only 학습을 지원한다. 별도 보조 loss는 수식 지정 후 추가한다.
+LoRA 검증 범위: CPU에서 초기 출력 일치, adapter만의 gradient, merge 전후 출력 일치와 native Linear state reload를 확인한다. 실제 GR00T LoRA GPU 학습/merged checkpoint 로딩은 이 작업 환경에서 실행하지 않았다. Model-S는 FM+jerk를 사용하며 Model-E는 FM-only다.
 
 이번 변경 검증: 데이터·학습 설정 4개, LoRA gradient/merge 1개, 네 모델의 공통 평가 조건 1개로 총 6개 CPU 테스트를 통과했다. 평가 조건 테스트는 subprocess를 mock하며 실제 VLA inference는 실행하지 않는다.
 
 폴더 정리 후 현재 데이터·LoRA·평가·업로드 테스트 총 10개를 통과했다. 이전 blending/refiner, 스타일 데이터 변형과 A/B 전용 진입점은 삭제했다.
 
-Model-S/E FM-only 활성화 검증: 세 variant가 동일한 train/base/LoRA/seed/학습 설정으로 공통 trainer에 전달되고 모델 이름과 저장 경로만 다름을 CPU mock 테스트로 확인했다.
+Model-S endpoint 복원, 3차 차분과 mask 처리, LoRA gradient 전달, calibration과 resume는 CPU 테스트로 검증한다. 실제 GPU 학습과 rollout 개선 여부는 별도로 확인한다.
 
 
 ## 8. Hugging Face에 checkpoint 보관

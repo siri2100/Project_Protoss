@@ -54,12 +54,30 @@ def parse_args():
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--hf-repo-id", help="Upload destination ACCOUNT/REPO (default: logged-in account/output folder name)")
     parser.add_argument("--no-hf-upload", action="store_true", help="Disable automatic upload for offline training")
+    smooth = parser.add_argument_group("Model-S smoothness experiment")
+    smooth.add_argument("--s-jerk-weight", type=float, default=None,
+                        help="Fixed lambda; omit to calibrate from initial FM/jerk losses")
+    smooth.add_argument("--s-jerk-ratio", type=float, default=0.01)
+    smooth.add_argument("--s-calibration-steps", type=int, default=10)
+    smooth.add_argument("--s-dt", type=float, default=1 / 15, help="Action interval in seconds")
+    smooth.add_argument("--s-gradient-diagnostics", action="store_true")
     args = parser.parse_args()
     if min(args.lora_rank, args.max_steps, args.save_steps, args.batch_size, args.gradient_accumulation) < 1 or args.lr <= 0 or args.lora_alpha <= 0 or args.workers < 0:
         parser.error("Invalid positive training/LoRA parameters")
     report = json.loads((args.styles_dir / "styles.json").read_text())
     if report.get("synthetic") or report.get("style_method") != "original" or "train" not in report["splits"]:
         parser.error("Use the common original dataset prepared with --style-method original")
+    if args.variant == "S":
+        if __package__:
+            from .src.model_s_loss import config_from_args
+        else:
+            from src.model_s_loss import config_from_args
+        try:
+            config_from_args(args)
+        except ValueError as exc:
+            parser.error(str(exc))
+        if args.s_jerk_weight is None and args.max_steps <= args.s_calibration_steps:
+            parser.error("Model-S max-steps must exceed calibration-steps or specify --s-jerk-weight")
     args.style = args.variant
     sys.path.insert(0, str(args.groot_root.resolve()))
     return args
@@ -109,6 +127,14 @@ def prepare_training(args):
                         "seed": args.seed, "loss": "FM",
                         "processor_policy": "pretrained-v1", "processor_sha256": processor_contract(args.base_model),
                         "video_delta_indices": video_indices, "override_pretraining_statistics": False}
+    if args.variant == "S":
+        from dataclasses import asdict
+        if __package__:
+            from .src.model_s_loss import config_from_args
+        else:
+            from src.model_s_loss import config_from_args
+        lora_settings["loss"] = "FM+joint_jerk-v1"
+        lora_settings["model_s"] = asdict(config_from_args(args))
     settings_path = args.output_dir / "lora_settings.json"
     if args.resume:
         previous = json.loads(settings_path.read_text()) if settings_path.exists() else None
@@ -120,7 +146,7 @@ def prepare_training(args):
         if previous != lora_settings:
             raise ValueError("LoRA resume settings differ or are missing; use the original experiment settings")
     write_json(args.output_dir / "style_run.json", {"style": args.style, "base_model": str(args.base_model.resolve()),
-               "dataset": str(dataset), "seed": args.seed, "loss": "native GR00T masked flow-matching MSE",
+               "dataset": str(dataset), "seed": args.seed, "loss": lora_settings["loss"],
                "selection": report, "batch_size": args.batch_size, "lr": args.lr,
                "max_steps": args.max_steps, "gradient_accumulation": args.gradient_accumulation})
     write_json(settings_path, lora_settings)
@@ -151,19 +177,32 @@ def main(args):
         model = training.model
         for step in range(training.step + 1, args.max_steps + 1):
             step_loss = 0.0
+            step_metrics = {}
             # One optimizer step accumulates gradients from several batches.
-            for batch in training.batches(args.gradient_accumulation):
+            for microstep, batch in enumerate(training.batches(args.gradient_accumulation)):
                 inputs = preprocess(batch, training)
                 with training.autocast():
-                    model_output = model(**inputs)
-                    loss = model_output["loss"] / args.gradient_accumulation
+                    if training.smoothness is None:
+                        model_output = model(**inputs)
+                        loss = model_output["loss"] / args.gradient_accumulation
+                    else:
+                        total, metrics = training.smoothness.forward(model, inputs, diagnostics=microstep == 0)
+                        loss = total / args.gradient_accumulation
+                        for key, value in metrics.items():
+                            # Gradient diagnostics are sampled once per optimizer step.
+                            divisor = 1 if key.endswith("grad_norm") else args.gradient_accumulation
+                            step_metrics[key] = step_metrics.get(key, 0.0) + value / divisor
                 loss.backward()
                 step_loss += loss.detach().item()
 
             update_weights(training)
             training.step = step
-            record_training_loss(training, step_loss)
+            if training.smoothness is not None:
+                training.smoothness.finish_step(step_metrics)
+            record_training_loss(training, step_loss, **step_metrics)
             print(f"step={step}/{args.max_steps} loss={step_loss:.6f}", flush=True)
+            if step_metrics:
+                print("Model-S " + " ".join(f"{key}={value:.8g}" for key, value in step_metrics.items()), flush=True)
             if step % args.save_steps == 0 or step == args.max_steps:
                 save_checkpoint(training)
 

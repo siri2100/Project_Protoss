@@ -29,11 +29,11 @@ class TinyPolicy(nn.Module):
         super().__init__()
         self.action_head = nn.Module()
         self.action_head.model = nn.Sequential(OrderedDict(transformer_blocks=nn.Sequential(
-            nn.Sequential(OrderedDict(ff=nn.Sequential(OrderedDict(
-                proj=nn.Linear(2, 1, bias=False),
+            nn.Sequential(OrderedDict(attn1=nn.Sequential(OrderedDict(
+                to_q=nn.Linear(2, 1, bias=False),
             )))),
         )))
-        self.action_head.model.transformer_blocks[0].ff.proj.weight.data.fill_(0.2)
+        self.action_head.model.transformer_blocks[0].attn1.to_q.weight.data.fill_(0.2)
         self.calls = 0
 
     def save_pretrained(self, directory):
@@ -49,6 +49,24 @@ class TinyPolicy(nn.Module):
 
 
 class ExplicitLoopTests(unittest.TestCase):
+    def test_model_s_calibration_state_saved_with_checkpoint_and_export(self):
+        from src.model_s_loss import ModelSConfig, ModelSLoss
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session = self.make_session(root)
+            session.smoothness = ModelSLoss(ModelSConfig(calibration_steps=2), torch.ones(7), torch.zeros(7))
+            session.smoothness.finish_step({"fm_loss": 2., "jerk_loss": 4.})
+            session.step = 1
+            with self.checkpoint_callback():
+                runtime.save_checkpoint(session)
+            runtime.export_model(session)
+            for path in (root / "checkpoint-1/model_s_loss.json", root / "model_s_loss.json"):
+                restored = ModelSLoss(session.smoothness.config, torch.ones(7), torch.zeros(7))
+                restored.load_state_dict(json.loads(path.read_text()))
+                self.assertEqual(restored.state_dict(), session.smoothness.state_dict())
+                restored.finish_step({"fm_loss": 4., "jerk_loss": 8.})
+                self.assertEqual(restored.weight, .005)
+
     def make_session(self, root, resume=False, batch_size=1, accumulation=2):
         torch.manual_seed(42)
         random.seed(42)
@@ -65,6 +83,7 @@ class ExplicitLoopTests(unittest.TestCase):
         trainer = Trainer(model=model, args=arguments)
         trainer.create_optimizer_and_scheduler(num_training_steps=4)
         args = SimpleNamespace(output_dir=root, resume=resume, max_steps=4,
+                               no_hf_upload=True, variant="FM",
                                gradient_accumulation=accumulation, save_steps=2)
         config = SimpleNamespace(training=SimpleNamespace(bf16=False, max_grad_norm=1.0))
         checkpoint = runtime.restore_checkpoint(trainer, args)
@@ -118,7 +137,7 @@ class ExplicitLoopTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             accumulated = self.make_session(root / "accumulated")
-            base = accumulated.model.action_head.model.base_model.model.transformer_blocks[0].ff.proj.base_layer.weight.detach().clone()
+            base = accumulated.model.action_head.model.base_model.model.transformer_blocks[0].attn1.to_q.base_layer.weight.detach().clone()
             # Repeat identical samples as a larger batch; disable stochastic noise
             # so each optimizer step represents exactly the same objective.
             combined = self.make_session(root / "combined", batch_size=2, accumulation=1)
@@ -128,7 +147,7 @@ class ExplicitLoopTests(unittest.TestCase):
                 self.run_main(combined)
             for a, b in zip(accumulated.model.parameters(), combined.model.parameters()):
                 torch.testing.assert_close(a, b)
-            torch.testing.assert_close(base, accumulated.model.action_head.model.base_model.model.transformer_blocks[0].ff.proj.base_layer.weight)
+            torch.testing.assert_close(base, accumulated.model.action_head.model.base_model.model.transformer_blocks[0].attn1.to_q.base_layer.weight)
             self.assertEqual(accumulated.model.calls, 8)
             self.assertEqual(combined.model.calls, 4)
             self.assertEqual(accumulated.step, 4)

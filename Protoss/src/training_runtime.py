@@ -18,6 +18,7 @@ class TrainingSession:
     targets: list
     dataloader: object = None
     iterator: object = None
+    smoothness: object = None
 
     @property
     def model(self):
@@ -157,6 +158,18 @@ def setup_training(config, args, lora_settings):
             trainer.model.train()
             trainer.optimizer.zero_grad(set_to_none=True)
             session = TrainingSession(trainer, pipeline, config, args, lora_settings, holder["targets"])
+            if args.variant == "S":
+                import json
+                from .groot_common import TAG
+                from .model_s_loss import ModelSLoss, config_from_args, joint_affine
+                from gr00t.data.embodiment_tags import EmbodimentTag
+                scale, offset = joint_affine(pipeline.processor, EmbodimentTag.resolve(TAG).value)
+                session.smoothness = ModelSLoss(config_from_args(args), scale, offset)
+                if checkpoint is not None:
+                    state_path = Path(checkpoint) / "model_s_loss.json"
+                    if not state_path.is_file():
+                        raise ValueError("Model-S resume requires model_s_loss.json; start a new run for FM-only checkpoints")
+                    session.smoothness.load_state_dict(json.loads(state_path.read_text()))
             # GR00T reseeds its dataset using global_step instead of skipping samples.
             session.dataloader = trainer.get_train_dataloader()
             session.iterator = iter(session.dataloader)
@@ -202,6 +215,9 @@ def save_checkpoint(training):
     trainer._save_optimizer_and_scheduler(str(checkpoint))
     trainer._save_rng_state(str(checkpoint))
     trainer.state.save_to_json(str(checkpoint / "trainer_state.json"))
+    if training.smoothness is not None:
+        from .groot_common import write_json
+        write_json(checkpoint / "model_s_loss.json", training.smoothness.state_dict())
     CheckpointFormatCallback(
         run_name=training.args.output_dir.name,
         exp_cfg_dir=training.args.output_dir / "experiment_cfg",
@@ -210,9 +226,9 @@ def save_checkpoint(training):
     trainer._rotate_checkpoints(use_mtime=False, output_dir=str(training.args.output_dir))
 
 
-def record_training_loss(training, loss):
+def record_training_loss(training, loss, **metrics):
     """Persist every optimizer-step mean loss in the resumable Trainer state."""
-    training.trainer.state.log_history.append({"step": training.step, "loss": float(loss)})
+    training.trainer.state.log_history.append({"step": training.step, "loss": float(loss), **metrics})
 
 
 def save_training_loss_plot(training):
@@ -229,8 +245,10 @@ def save_training_loss_plot(training):
     output = training.args.output_dir
     with (output / "training_loss.csv").open("w", newline="") as stream:
         writer = csv.writer(stream)
-        writer.writerow(["step", "loss"])
-        writer.writerows((step, losses[step]) for step in steps)
+        components = {row["step"]: row for row in training.trainer.state.log_history if "fm_loss" in row}
+        keys = ["fm_loss", "jerk_loss", "jerk_weight", "weighted_jerk_loss", "fm_grad_norm", "jerk_grad_norm"] if components else []
+        writer.writerow(["step", "loss", *keys])
+        writer.writerows((step, losses[step], *(components.get(step, {}).get(key, "") for key in keys)) for step in steps)
 
     figure = Figure(figsize=(9, 5), layout="constrained")
     axis = figure.subplots()
@@ -239,7 +257,7 @@ def save_training_loss_plot(training):
     else:
         axis.text(0.5, 0.5, "No recorded step losses in this checkpoint",
                   ha="center", va="center", transform=axis.transAxes)
-    axis.set(title="Training loss", xlabel="Optimizer step", ylabel="Mean flow-matching loss")
+    axis.set(title="Training loss", xlabel="Optimizer step", ylabel="Mean training objective")
     axis.xaxis.set_major_locator(MaxNLocator(integer=True))
     axis.grid(True, alpha=0.3)
     figure.set_dpi(150)
@@ -253,6 +271,8 @@ def export_model(training):
     from .groot_common import write_json
 
     output = training.args.output_dir
+    if training.smoothness is not None:
+        write_json(output / "model_s_loss.json", training.smoothness.state_dict())
     training.model.action_head.model.save_pretrained(output / "adapter")
     if training.lora_settings.get("processor_policy") == "pretrained-v1":
         from .training_processor_settings import save_original_processor
