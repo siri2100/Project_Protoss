@@ -10,7 +10,7 @@ from torch import nn
 
 from src.model_s_loss import (
     ModelSConfig, ModelSLoss, capture_flow_forward, clean_action_endpoint,
-    joint_affine, masked_jerk_loss,
+    joint_affine, masked_jerk_loss, unnormalize_joints,
 )
 
 
@@ -186,9 +186,48 @@ class ModelSLossTests(unittest.TestCase):
         scale, offset = joint_affine(processor, "droid")
         torch.testing.assert_close(scale, torch.full((7,), 3.))
         torch.testing.assert_close(offset, torch.ones(7))
+        # Relative stats preserve horizon, including timestep-dependent offsets.
+        params["min"] = [[float(t)] * 7 for t in range(8)]
+        params["max"] = [[float(t + 2)] * 7 for t in range(8)]
+        scale, offset = joint_affine(processor, "droid")
+        self.assertEqual(scale.shape, (8, 7))
+        torch.testing.assert_close(offset[:, 0], torch.arange(1., 9.))
         cfg.rep = Rep.DELTA
         with self.assertRaisesRegex(ValueError, "POSITION"):
             joint_affine(processor, "droid")
+
+    def test_horizon_normalization_recovers_physical_trajectory_and_gradient(self):
+        t = torch.arange(8.).reshape(8, 1)
+        scale = (1 + t).expand(8, 7)
+        offset = (t**3).expand(8, 7)
+        # Constant physical joint trajectory; normalized values are NOT smooth.
+        expected = torch.full((2, 8, 7), 2.)
+        normalized = ((expected - offset) / scale).requires_grad_()
+        mask = torch.ones_like(normalized)
+        physical = unnormalize_joints(normalized, mask, scale, offset)
+        torch.testing.assert_close(physical, expected)
+        torch.testing.assert_close(masked_jerk_loss(physical, mask, 1.), torch.tensor(0.), atol=1e-8, rtol=0)
+        physical.sum().backward()
+        torch.testing.assert_close(normalized.grad, scale.expand_as(normalized))
+
+    def test_short_stats_allow_only_masked_padding(self):
+        values = torch.zeros(2, 10, 7)
+        mask = torch.ones_like(values)
+        mask[:, 8:] = 0
+        scale, offset = torch.ones(8, 7), torch.arange(8.).reshape(8, 1).expand(8, 7)
+        physical = unnormalize_joints(values, mask, scale, offset)
+        self.assertEqual(physical.shape, values.shape)
+        torch.testing.assert_close(masked_jerk_loss(physical, mask, 1.), torch.tensor(0.))
+        mask[0, 8, 0] = 1
+        with self.assertRaisesRegex(ValueError, "valid joints extend"):
+            unnormalize_joints(values, mask, scale, offset)
+
+    def test_singleton_and_longer_stats_broadcast_and_slice(self):
+        values = torch.randn(2, 8, 7)
+        mask = torch.ones_like(values)
+        for shape in ((7,), (1, 7), (8, 7), (10, 7)):
+            physical = unnormalize_joints(values, mask, torch.full(shape, 2.), torch.ones(shape))
+            torch.testing.assert_close(physical, 2 * values + 1)
 
 
 if __name__ == "__main__":

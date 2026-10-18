@@ -66,11 +66,32 @@ def joint_affine(processor, tag):
         low, high = torch.as_tensor(params["min"]), torch.as_tensor(params["max"])
         scale, offset = (high - low) / 2, (high + low) / 2
     scale, offset = torch.as_tensor(scale).float(), torch.as_tensor(offset).float()
-    if scale.shape != (7,) or offset.shape != (7,):
-        raise ValueError("Model-S requires per-joint, horizon-independent normalization")
+    # GR00T relative stats reduce over chunks, retaining the horizon axis.
+    # Keep each timestep's own scale AND offset before taking differences.
+    if (scale.shape != offset.shape or scale.ndim not in (1, 2)
+            or scale.shape[-1] != 7 or scale.numel() == 0):
+        raise ValueError(f"Model-S normalization must be (7,) or (H, 7); "
+                         f"got scale={tuple(scale.shape)}, offset={tuple(offset.shape)}")
     if not torch.isfinite(scale).all() or not torch.isfinite(offset).all() or (scale < 0).any():
         raise ValueError("Invalid pretrained joint normalization")
     return scale, offset
+
+
+def unnormalize_joints(normalized, mask, scale, offset):
+    """Apply per-joint or per-horizon affine stats, respecting padded horizons."""
+    scale, offset = scale.to(normalized), offset.to(normalized)
+    if scale.ndim == 1 or scale.shape[0] == 1:
+        return normalized * scale + offset
+    horizon = normalized.shape[1]
+    covered = min(horizon, scale.shape[0])
+    if covered < horizon and mask[:, covered:].bool().any():
+        raise ValueError(f"Model-S has {scale.shape[0]} normalization timesteps "
+                         f"but valid joints extend into the {horizon}-step horizon")
+    physical = normalized[:, :covered] * scale[:covered] + offset[:covered]
+    if covered < horizon:
+        # No valid actions here; don't invent normalization for padded timesteps.
+        physical = torch.cat((physical, torch.zeros_like(normalized[:, covered:])), dim=1)
+    return physical
 
 
 def clean_action_endpoint(noisy_action, timestep, predicted_velocity):
@@ -149,9 +170,9 @@ class ModelSLoss:
         velocity = flow["velocity"][:, -horizon:]
         clean = clean_action_endpoint(flow["noisy"], flow["t"], velocity)
         # DROID: EEF 0:9, gripper 9, joint positions 10:17, then padding.
-        joints = clean[..., 10:17]
-        joints = joints * self.scale.to(joints) + self.offset.to(joints)
-        jerk = masked_jerk_loss(joints, output["action_mask"][..., 10:17], self.config.dt)
+        mask = output["action_mask"][..., 10:17]
+        joints = unnormalize_joints(clean[..., 10:17], mask, self.scale, self.offset)
+        jerk = masked_jerk_loss(joints, mask, self.config.dt)
         fm = output["loss"]  # Keep upstream masking and reduction unchanged.
         weight = self.weight if self.weight is not None else 0.0
         total = fm + weight * jerk
