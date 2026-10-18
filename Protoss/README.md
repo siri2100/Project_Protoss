@@ -36,3 +36,5 @@
 추론 디버그 모드: `--lora-mode pretrained`는 원본 모델·원본 processor, `disabled`는 원본 모델·학습 processor, `unmerged`는 LoRA를 병합 없이 적용, `merged`는 LoRA를 병합하여 적용한다. 병합을 끄는 것은 LoRA를 끄는 것과 다르다.
 
 `lora_settings.json`의 `processor_policy=pretrained-v1`과 processor SHA256으로 새 학습을 구분한다. 데이터셋 생성 후 원본 normalization 통계가 바뀌면 학습을 중단한다.
+
+모델 저장 위치는 프로젝트 바로 상위의 `checkpoint/`다. 예: `/workspace/Project_Protoss`의 모델은 `/workspace/checkpoint`에 저장한다. 학습 문서의 `CHECKPOINT_ROOT` 설정으로 원본 pretrained와 학습 run을 저장하고, 완료된 run 전체를 Hugging Face private 모델 저장소에 업로드한다. 추론 서버에서는 추론 문서에 따라 원본 pretrained와 업로드한 run을 Hugging Face에서 같은 `checkpoint/` 아래로 내려받고, `--model-path`에 다운로드한 run을, `--base-model-path`에 원본 pretrained 경로를 지정한다.

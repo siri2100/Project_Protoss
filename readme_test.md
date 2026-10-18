@@ -10,48 +10,34 @@
 
 ## 2. Hugging Face 모델 다운로드
 
-### 2.1 로그인
+### 2.1 초기 설정의 로그인 재사용
 
-[Hugging Face 토큰 설정](https://huggingface.co/settings/tokens)에서 모델 저장소를 생성하고 파일을 쓸 수 있는 토큰을 준비한다. 토큰은 로그인 프롬프트에 입력하며 코드나 Git에 저장하지 않는다. 아래 모든 명령은 같은 `HF_HOME`을 사용한다.
+[학습 문서 2절](readme_train.md#2-gr00t-n17-설치와-weight-다운로드)에서 로그인한다. 추론에서는 원본 gated 모델과 private run 저장소의 읽기 권한이 필요하다. 모든 터미널에서 같은 `HF_HOME`을 사용한다. `HF_TOKEN`이 설정되어 있으면 저장된 로그인보다 우선한다.
+
+### 2.2 모델 다운로드와 서버 자동 다운로드
+
+새 Pod에 환경과 원본 `GR00T-N1.7-DROID`를 준비하고 초기 설정에서 로그인한다. Adapter 저장소에는 원본 pretrained 가중치가 포함되지 않는다. 다운로드 폴더는 업로드한 run 구조 전체를 유지한다. `HF_ACCOUNT`는 업로드한 저장소 소유자이며, 다른 계정이나 organization에서 업로드했다면 해당 이름으로 지정한다. 3절 서버는 시작 전에 모델을 자동 다운로드하므로 아래 수동 다운로드는 선택 사항이다. 기본 자동 업로드 저장소 이름은 `로그인계정/output폴더명`이다.
 
 ```bash
 (
 set -e
+NAME=v1614
 export PROTOSS_ROOT=/workspace/Project_Protoss
+export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-uv run --no-sync hf auth login
-uv run --no-sync hf auth whoami
-)
-```
-
-기존 `HF_TOKEN` 환경변수가 있으면 저장된 로그인보다 우선하므로 올바른 write 권한의 토큰인지 확인한다.
-
-### 2.2 새 Pod에서 모델별 다운로드
-
-새 Pod에 환경과 원본 `GR00T-N1.7-DROID`를 준비하고 2.1절에서 로그인한다. Adapter 저장소에는 원본 pretrained 가중치가 포함되지 않는다. 다운로드 폴더는 업로드한 run 구조 전체를 유지한다.
-
-```bash
-(
-set -e
-NAME=v1611
-export PROTOSS_ROOT=/workspace/Project_Protoss
-export HF_HOME=/workspace/.cache/huggingface
-export HF_HUB_ENABLE_HF_TRANSFER=0
-export PATH="$HOME/.local/bin:$PATH"
-unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-cd "$PROTOSS_ROOT/Issac-GR00T-N17"
+mkdir -p "$CHECKPOINT_ROOT"
 HF_ACCOUNT=$(uv run --no-sync python -c \
   'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
-uv run --no-sync hf download "$HF_ACCOUNT/protoss-"$NAME"-model-fm-step500" \
-  --local-dir "$PROTOSS_ROOT/Protoss/checkpoint/"$NAME"_model_fm_step500"
+uv run --no-sync hf download "$HF_ACCOUNT/${NAME}_model_fm_step500" \
+  --local-dir "$CHECKPOINT_ROOT/"$NAME"_model_fm_step500"
 )
 ```
 
-서버 명령은 5절을 사용하되 `MODEL_PATH`를 다운로드한 run 루트(예: `/workspace/Project_Protoss/Protoss/checkpoint/v16_model_fm_step1000`)로 지정하고, `--base-model-path`에는 새 Pod의 원본 pretrained checkpoint 경로를 지정한다. 폴더 이름을 바꿔도 `adapter/`·`processor/` 상대 경로는 유지된다. 저장된 원래 서버의 pretrained 절대 경로는 `--base-model-path`로 대체한다.
+서버 명령은 3절을 사용하되 `MODEL_PATH`를 다운로드한 run 루트(예: `/workspace/checkpoint/v16_model_fm_step1000`)로 지정하고, `--base-model-path`에는 새 Pod의 원본 pretrained checkpoint 경로를 지정한다. 폴더 이름을 바꿔도 `adapter/`·`processor/` 상대 경로는 유지된다. 저장된 원래 서버의 pretrained 절대 경로는 `--base-model-path`로 대체한다.
 
 재현하려면 `hf download`에 `--revision COMMIT_SHA`를 추가한다. 재개 학습에는 run의 `checkpoint-*`, optimizer/scheduler/RNG 상태, 원본 pretrained 모델과 동일 데이터가 필요하다. 이전 서버의 절대 경로가 기록된 학습 재개 설정은 추론의 경로 override와 별개다.
 
@@ -96,6 +82,7 @@ v1.3 학습은 baseline과 동일하게 카메라마다 현재 프레임 `[0]` �
 (
 set -e
 export PROTOSS_ROOT=/workspace/Project_Protoss
+export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
 CLIENT=/workspace/RoboLab/policies/gr00t/client.py
 test -f "$CLIENT"
 test -f "$PROTOSS_ROOT/Protoss/src/robolab_gr00t_client.py"
@@ -110,28 +97,34 @@ cp "$PROTOSS_ROOT/Protoss/src/robolab_gr00t_client.py" "$CLIENT"
 
 ### baseline / Model-FM/S/E 평가
 
-다른 터미널에서 아래 Model-FM 서버를 먼저 실행한다. baseline은 `MODEL_PATH`를 원본 pretrained checkpoint 경로로 바꾸고 `--base-model-path`를 제거한다. Model-FM은 `latest_FM_lora_v16.txt`에 기록된 학습 output 경로를 사용한다. S/E도 각 학습 output 경로를 사용한다. 서버는 원본 pretrained 모델과 저장된 adapter를 로드한다. `unmerged`와 `merged` 모두 LoRA가 적용되며, 원본 비교에는 `pretrained` 모드를 사용한다. `Protoss/serve.py`가 별도 GR00T checkout에 `Protoss/patches/gr00t_adapter_inference.patch`를 자동 적용하므로 `Protoss/patches/`도 함께 복사한다. baseline 서버 실행 시에는 `--base-model-path`를 빼고 `--model-path`에 원본 checkpoint를 지정한다.
+다른 터미널에서 아래 Model-FM 서버를 먼저 실행한다. baseline은 `MODEL_PATH`를 원본 pretrained checkpoint 경로로 바꾸고 `--base-model-path`를 제거한다. Model-FM은 2.2절에서 Hugging Face로부터 다운로드한 run 폴더를 사용한다. S/E도 업로드한 해당 저장소에서 전체 run을 다운로드한 뒤 그 경로를 사용한다. 서버는 원본 pretrained 모델과 저장된 adapter를 로드한다. `unmerged`와 `merged` 모두 LoRA가 적용되며, 원본 비교에는 `pretrained` 모드를 사용한다. `Protoss/serve.py`가 별도 GR00T checkout에 `Protoss/patches/gr00t_adapter_inference.patch`를 자동 적용하므로 `Protoss/patches/`도 함께 복사한다. baseline 서버 실행 시에는 `--base-model-path`를 빼고 `--model-path`에 원본 checkpoint를 지정한다.
 
 ```bash
 (
 set -e
-NAME=v1612
+NAME=v1614
 export PROTOSS_ROOT=/workspace/Project_Protoss
+export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
 export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-MODEL_PATH="$PROTOSS_ROOT/Protoss/checkpoint/"$NAME"_model_fm_step500/inference"
+MODEL_PATH="$CHECKPOINT_ROOT/${NAME}_model_fm_step500"
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
+HF_ACCOUNT=$(uv run --no-sync python -c \
+  'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/serve.py" \
+  --hf-repo-id "$HF_ACCOUNT/${NAME}_model_fm_step500" \
   --model-path "$MODEL_PATH" \
-  --base-model-path "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
+  --base-model-path "$CHECKPOINT_ROOT/GR00T-N1.7-DROID" \
   --lora-mode unmerged \
   --embodiment-tag OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT \
   --device cuda:0 --host 127.0.0.1 --port 5557 --use-sim-policy-wrapper
 )
 ```
+
+서버는 `--hf-repo-id`의 run과 `nvidia/GR00T-N1.7-DROID`를 지정한 로컬 경로에 다운로드한 뒤 실행한다. 재실행 시 다운로드 캐시를 재사용한다. 다른 소유자가 업로드했다면 `HF_ACCOUNT`를 해당 계정·organization으로 지정한다. `--hf-revision COMMIT_SHA`와 `--hf-base-revision COMMIT_SHA`로 revision을 고정할 수 있다. 로컬 모델만 사용하려면 `--hf-repo-id`를 생략한다. baseline 실행 시에도 이 옵션을 생략하고 초기 설정에서 다운로드한 원본을 사용한다.
 
 디버깅할 때 위 명령의 `--lora-mode`만 바꾸고 서버를 재시작한다. `model.action_head.model = dit`는 **LoRA가 켜진 상태**다. 병합 줄을 주석 처리해도 pretrained-only가 되지 않는다.
 
@@ -149,7 +142,7 @@ GR00T 기본 서버를 원본(baseline) 또는 adapter output(Model-FM/S/E)로 �
 ```bash
 (
 set -e
-NAME=v1.6.12
+NAME=v1.6.14
 export PATH="$HOME/.local/bin:$PATH"
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV CUDA_VISIBLE_DEVICES
 export OMNI_KIT_ACCEPT_EULA=Y
@@ -181,18 +174,19 @@ UV_PROJECT_ENVIRONMENT=.venv-51 uv run --no-sync --extra isaac51 \
 (
 set -e
 export PROTOSS_ROOT=/workspace/Project_Protoss
+export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
 export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-RUN_PATH="$PROTOSS_ROOT/Protoss/checkpoint/v164_model_fm_step1000"
+RUN_PATH="$CHECKPOINT_ROOT/v164_model_fm_step1000"
 # 서버 실행 때와 동일하게 adapter manifest를 찾을 수 있는 경로를 지정한다.
 MODEL_PATH="$RUN_PATH/inference"
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/plot_distribution.py" \
   --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
-  --base-model "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
+  --base-model "$CHECKPOINT_ROOT/GR00T-N1.7-DROID" \
   --model-path "$MODEL_PATH" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
   --output-dir "$RUN_PATH" \
@@ -201,7 +195,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/plot_distribution.py" \
 )
 ```
 
-출력: `Protoss/checkpoint/v164_model_fm_step1000/distribution_plot.png`. 다시 실행하면 같은 이미지 파일을 덮어쓴다. `RUN_PATH`는 실제 모델 저장 폴더로 바꾼다. `MODEL_PATH`는 서버에서 사용한 경로를 지정하며, run 루트에 manifest가 있으면 `$RUN_PATH`를 사용한다. 두 모델은 GPU에 순차 로드한다.
+출력: `../checkpoint/v164_model_fm_step1000/distribution_plot.png`. 다시 실행하면 같은 이미지 파일을 덮어쓴다. `RUN_PATH`는 실제 모델 저장 폴더로 바꾼다. `MODEL_PATH`는 서버에서 사용한 경로를 지정하며, run 루트에 manifest가 있으면 `$RUN_PATH`를 사용한다. 두 모델은 GPU에 순차 로드한다.
 
 데이터가 없는 추론 전용 Pod라면 먼저 학습 문서의 데이터를 준비한다. 기본 예시는 `trainset`의 trajectory 0에서 최대 32개 프레임을 균등 선택한다. 더 넓게 비교하려면 `--traj-ids 0 1 2`처럼 늘린다. 별도 testset이 있는 경우 `--split test`를 사용한다. 두 모델에는 동일한 영상 시점·state·instruction이 전달되고, 샘플별 seed도 동일하게 설정된다. 실행에는 GR00T 환경의 `matplotlib`이 필요하다.
 

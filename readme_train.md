@@ -17,7 +17,7 @@
 
 RunPod의 Ubuntu 22.04/24.04, Linux x86_64, NVIDIA CUDA GPU와 Bash를 기준으로 한다. 명령의 프로젝트 경로는 `/workspace/Project_Protoss`이며 실제 위치가 다르면 모든 블록의 `PROTOSS_ROOT`를 변경한다. OS 설치 명령은 root 기준이고 일반 계정은 `apt-get`, `ldconfig`에 `sudo`를 붙인다. 아래 설치·학습 명령은 원격 Linux용이다.
 
-GR00T 소스는 `Issac-GR00T-N17/`, pretrained weight는 `Protoss/checkpoint/GR00T-N1.7-DROID/`, 데이터는 `Protoss/data/` 아래에 둔다. GPU 0을 기본으로 사용하며 모델별로 독립 실행한다. 괄호 안의 `set -e`는 오류 발생 시 해당 블록만 중단한다.
+GR00T 소스는 `Issac-GR00T-N17/`, pretrained weight는 `../checkpoint/GR00T-N1.7-DROID/`, 데이터는 `Protoss/data/` 아래에 둔다. GPU 0을 기본으로 사용하며 모델별로 독립 실행한다. 괄호 안의 `set -e`는 오류 발생 시 해당 블록만 중단한다.
 ```bash
 (
 set -e
@@ -43,6 +43,7 @@ git lfs install
 (
 set -e
 export PROTOSS_ROOT=/workspace/Project_Protoss
+export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
 mkdir -p "$(dirname "$PROTOSS_ROOT")"
 if [ ! -d "$PROTOSS_ROOT" ]; then
   git clone https://github.com/siri2100/Project_Protoss.git "$PROTOSS_ROOT"
@@ -60,18 +61,19 @@ git checkout -b v1.6 origin/v1.6
 
 ### 저장 폴더 준비
 
-로컬에는 order.md에 맞춘 폴더를 생성했다. 새 Pod에서는 다음 명령으로 준비한다.
+프로젝트 바로 상위 디렉터리에 `checkpoint`를 생성한다. 예를 들어 `/workspace/Project_Protoss`와 `/workspace/checkpoint`가 나란히 위치한다. 프로젝트 폴더 이름이 달라도 `CHECKPOINT_ROOT`는 상위 경로에서 계산한다. 새 Pod에서는 다음 명령으로 준비한다.
 ```bash
 (
 set -e
 export PROTOSS_ROOT=/workspace/Project_Protoss
+export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
 mkdir -p "$PROTOSS_ROOT/Protoss/data/source" \
   "$PROTOSS_ROOT/Protoss/data/trainset" \
-  "$PROTOSS_ROOT/Protoss/checkpoint"
+  "$CHECKPOINT_ROOT"
 )
 ```
 
-원본은 `Protoss/data/source`, 변환된 데이터는 `Protoss/data/trainset`, pretrained 및 학습 모델은 `Protoss/checkpoint`에 저장한다. 변환 명령의 output-dir과 학습·평가 명령의 dataset-root는 공통 부모 `Protoss/data`다. 보고서는 `styles.json`과 `inspection.json`으로 같은 폴더 안에 저장한다. 기존 다른 경로의 데이터/checkpoint는 자동 이동하지 않으며 필요하면 해당 CLI 경로를 지정해 재사용한다.
+원본은 `Protoss/data/source`, 변환된 데이터는 `Protoss/data/trainset`, pretrained 및 학습 모델은 `../checkpoint`에 저장한다. 변환 명령의 output-dir과 학습·평가 명령의 dataset-root는 공통 부모 `Protoss/data`다. 보고서는 `styles.json`과 `inspection.json`으로 같은 폴더 안에 저장한다. 기존 다른 경로의 데이터/checkpoint는 자동 이동하지 않으며 필요하면 해당 CLI 경로를 지정해 재사용한다.
 
 ## 2. GR00T-N1.7 설치와 weight 다운로드
 
@@ -82,6 +84,7 @@ Hugging Face 로그인 계정은 [Cosmos-Reason2-2B](https://huggingface.co/nvid
 (
 set -e
 export PROTOSS_ROOT=/workspace/Project_Protoss
+export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
@@ -118,7 +121,7 @@ uv run --no-sync hf auth whoami || uv run --no-sync hf auth login
 HF_HUB_ENABLE_HF_TRANSFER=0 uv run --no-sync hf download nvidia/Cosmos-Reason2-2B config.json \
   --local-dir "$PROTOSS_ROOT/Protoss/access-check/cosmos"
 HF_HUB_ENABLE_HF_TRANSFER=0 uv run --no-sync hf download nvidia/GR00T-N1.7-DROID \
-  --local-dir "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID"
+  --local-dir "$CHECKPOINT_ROOT/GR00T-N1.7-DROID"
 )
 ```
 
@@ -158,6 +161,7 @@ Isaac-GR00T 소스는 공개 저장소다. `could not read Username`은 GitHub �
 (
 set -e
 export PROTOSS_ROOT=/workspace/Project_Protoss
+export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
@@ -168,13 +172,17 @@ uv run --no-sync hf auth whoami
 uv run --no-sync hf download nvidia/Cosmos-Reason2-2B config.json \
   --local-dir "$PROTOSS_ROOT/Protoss/access-check/cosmos"
 uv run --no-sync hf download nvidia/GR00T-N1.7-DROID \
-  --local-dir "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID"
+  --local-dir "$CHECKPOINT_ROOT/GR00T-N1.7-DROID"
 )
 ```
 
 계속 실패하면 `whoami` 계정과 웹에서 승인받은 계정, 토큰의 읽기 권한을 다시 확인한다.
 Cosmos 접근 확인을 생략해도 N1.7 모델 로딩에서 같은 권한 오류가 발생할 수 있다.
 새 서버 터미널에도 오래된 `HF_TOKEN`이 설정되어 있다면 해제하거나 승인된 토큰으로 교체한다.
+
+### 초기 설정: Hugging Face 업로드 권한 확인
+
+2절의 `hf auth login`에서 모델 저장소 생성·쓰기 권한이 있는 토큰으로 로그인한다. Cosmos 접근도 같은 계정에서 승인되어 있어야 한다. 토큰을 코드나 Git에 기록하지 않는다. 학습·추론 터미널에서 동일한 `HF_HOME`을 사용한다. `HF_TOKEN` 환경변수가 있으면 저장된 로그인보다 우선한다.
 
 ## 3. 데이터 준비 의존성 확인
 GR00T 전용 `.venv`에서 다운로드·변환·학습을 모두 실행한다. 데이터 준비용 의존성을 같은 환경에 설치한다. `--no-sync`로 실행해 추가 설치한 패키지를 유지한다.
@@ -183,6 +191,7 @@ GR00T 전용 `.venv`에서 다운로드·변환·학습을 모두 실행한다. 
 (
 set -e
 export PROTOSS_ROOT=/workspace/Project_Protoss
+export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
 export PATH="$HOME/.local/bin:$PATH"
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
@@ -212,6 +221,7 @@ Model-FM/S/E의 LoRA 대상은 action DiT 내부 `nn.Linear` weight다. LLM, vis
 (
 set -e
 export PROTOSS_ROOT=/workspace/Project_Protoss
+export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
 export PATH="$HOME/.local/bin:$PATH"
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
@@ -229,6 +239,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/prepare_droid.py" download \
 (
 set -e
 export PROTOSS_ROOT=/workspace/Project_Protoss
+export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
 export PATH="$HOME/.local/bin:$PATH"
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
@@ -250,7 +261,7 @@ GR00T의 DROID 변환과 동일한 `[eef_9d(9), gripper(1), joint(7)]` LeRobot v
 
 ## 6. Model-FM/S/E LoRA 학습
 
-아래 새 학습 명령은 `mktemp -d`로 매번 고유한 빈 PEFT 실험 폴더를 생성한다. 생성 경로는 터미널과 `Protoss/checkpoint/latest_*_lora_v16.txt`에 기록한다. 데이터는 5절의 `Protoss/data`를 재사용한다.
+Model-FM은 `NAME`·`STEP`으로 run 폴더를 정하고, Model-S/E는 `mktemp -d`로 매번 고유한 빈 PEFT 실험 폴더를 생성한다. 생성 경로는 터미널과 `../checkpoint/latest_*_lora_v16.txt`에 기록한다. 데이터는 5절의 `Protoss/data`를 재사용한다.
 
 `ValueError: Output is nonempty; choose a new path or --resume`는 지정한 output 폴더에 파일이 있어 덮어쓰기를 막았다는 뜻이다. 이전 실행이 학습 전에 중단되어 설정 JSON만 남아 있어도 발생한다. 같은 명령을 반복하면 같은 오류가 난다.
 
@@ -262,29 +273,33 @@ GR00T의 DROID 변환과 동일한 `[eef_9d(9), gripper(1), joint(7)]` LeRobot v
 
 이전 `[0]` 영상·subset normalization으로 학습한 checkpoint는 새 학습으로 `--resume`하지 않는다. 새 output에서 원본 pretrained 모델부터 다시 시작한다. 데이터는 기존 공통 `trainset/`을 재사용하며 재다운로드·변환은 필요 없다. `lora_settings.json`에 `processor_policy=pretrained-v1`, 원본 processor 파일 SHA256, 영상 시점, 통계 덮어쓰기 여부를 기록하고, 다르면 재개를 거부한다. `--state-dropout-prob` override 옵션은 제거했다.
 
+학습 완료 후 run 전체를 Hugging Face private 모델 저장소에 **자동 업로드**한다. 기본 저장소는 `로그인계정/output폴더명`이다. 학습 시작 시 로그인을 확인하며, 저장소를 직접 지정하려면 학습 명령에 `--hf-repo-id ACCOUNT/REPO`를 추가한다. 오프라인 학습만 필요하면 `--no-hf-upload`를 지정한다. 모델·loss 저장과 분포 그래프 생성 후 업로드하며, 그래프 생성에 실패해도 저장된 모델의 업로드를 시도한다. 업로드 실패는 오류로 종료하며 로컬 모델은 유지된다. 이때 재학습하지 말고 8절의 수동 업로드 명령을 사용한다.
+
 ### 6.1 Model-FM 학습
 
 ```bash
 (
 set -e
-NAME=v1613
+NAME=v1614
 STEP=500
 LR=1e-6
 FOLDER=Project_Protoss
 
 export "PROTOSS_ROOT=/workspace/$FOLDER"
+export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
 export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-mkdir -p "$PROTOSS_ROOT/Protoss/checkpoint"
-OUTPUT_DIR="$PROTOSS_ROOT/Protoss/checkpoint/"$NAME"_model_fm_step"$STEP""
+mkdir -p "$CHECKPOINT_ROOT"
+OUTPUT_DIR="$CHECKPOINT_ROOT/${NAME}_model_fm_step${STEP}"
+printf '%s\n' "$OUTPUT_DIR" > "$CHECKPOINT_ROOT/latest_FM_lora_v16.txt"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
   --model FM --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
-  --base-model "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
+  --base-model "$CHECKPOINT_ROOT/GR00T-N1.7-DROID" \
   --output-dir "$OUTPUT_DIR" \
   --lora-rank 32 --lora-alpha 64 --max-steps "$STEP" --save-steps "$STEP" \
   --batch-size 2 --gradient-accumulation 16 --lr "$LR" --workers 2 --seed 42
@@ -297,20 +312,21 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
 (
 set -e
 export PROTOSS_ROOT=/workspace/Project_Protoss
+export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
 export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-mkdir -p "$PROTOSS_ROOT/Protoss/checkpoint"
-OUTPUT_DIR="$(mktemp -d "$PROTOSS_ROOT/Protoss/checkpoint/model_S_lora_v16_peft_XXXXXXXX")"
-printf '%s\n' "$OUTPUT_DIR" > "$PROTOSS_ROOT/Protoss/checkpoint/latest_S_lora_v16.txt"
+mkdir -p "$CHECKPOINT_ROOT"
+OUTPUT_DIR="$(mktemp -d "$CHECKPOINT_ROOT/model_S_lora_v16_peft_XXXXXXXX")"
+printf '%s\n' "$OUTPUT_DIR" > "$CHECKPOINT_ROOT/latest_S_lora_v16.txt"
 printf 'Training output: %s\n' "$OUTPUT_DIR"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
   --model S --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
-  --base-model "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
+  --base-model "$CHECKPOINT_ROOT/GR00T-N1.7-DROID" \
   --output-dir "$OUTPUT_DIR" \
   --lora-rank 32 --lora-alpha 64 --max-steps 2000 --save-steps 2000 \
   --batch-size 2 --gradient-accumulation 16 --lr 1e-5 --workers 1 --seed 42
@@ -323,20 +339,21 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
 (
 set -e
 export PROTOSS_ROOT=/workspace/Project_Protoss
+export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
 export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-mkdir -p "$PROTOSS_ROOT/Protoss/checkpoint"
-OUTPUT_DIR="$(mktemp -d "$PROTOSS_ROOT/Protoss/checkpoint/model_E_lora_v16_peft_XXXXXXXX")"
-printf '%s\n' "$OUTPUT_DIR" > "$PROTOSS_ROOT/Protoss/checkpoint/latest_E_lora_v16.txt"
+mkdir -p "$CHECKPOINT_ROOT"
+OUTPUT_DIR="$(mktemp -d "$CHECKPOINT_ROOT/model_E_lora_v16_peft_XXXXXXXX")"
+printf '%s\n' "$OUTPUT_DIR" > "$CHECKPOINT_ROOT/latest_E_lora_v16.txt"
 printf 'Training output: %s\n' "$OUTPUT_DIR"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
   --model E --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
-  --base-model "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
+  --base-model "$CHECKPOINT_ROOT/GR00T-N1.7-DROID" \
   --output-dir "$OUTPUT_DIR" \
   --lora-rank 32 --lora-alpha 64 --max-steps 2000 --save-steps 2000 \
   --batch-size 2 --gradient-accumulation 16 --lr 1e-5 --workers 2 --seed 42
@@ -353,6 +370,7 @@ GR00T 기본 masked flow-matching MSE를 그대로 사용한다. FM의 velocity�
 (
 set -e
 export PROTOSS_ROOT=/workspace/Project_Protoss
+export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
@@ -362,8 +380,8 @@ cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
   --model FM --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
-  --base-model "$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID" \
-  --output-dir "$(cat "$PROTOSS_ROOT/Protoss/checkpoint/latest_FM_lora_v16.txt")" \
+  --base-model "$CHECKPOINT_ROOT/GR00T-N1.7-DROID" \
+  --output-dir "$(cat "$CHECKPOINT_ROOT/latest_FM_lora_v16.txt")" \
   --lora-rank 32 --lora-alpha 64 --max-steps 1000 --save-steps 100 \
   --batch-size 2 --gradient-accumulation 16 --lr 1e-5 --workers 2 --seed 42 \
   --resume
@@ -404,6 +422,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
 (
 set -e
 export PROTOSS_ROOT=/workspace/Project_Protoss
+export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
 export PATH="$HOME/.local/bin:$PATH"
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
@@ -427,31 +446,15 @@ Model-S/E FM-only 활성화 검증: 세 variant가 동일한 train/base/LoRA/see
 
 ## 8. Hugging Face에 checkpoint 보관
 
-현재 PEFT 실험은 학습 완료 후 **run 폴더 전체**를 private 모델 저장소에 업로드한다. 원본 pretrained 모델은 포함하지 않는다. `adapter/`, `processor/`, `inference/adapter_inference.json`과 실험 설정·loss 기록을 함께 보관한다. 업로드 중에는 해당 폴더를 수정하지 않는다.
+현재 PEFT 실험은 학습 완료 후 **run 폴더 전체**를 private 모델 저장소에 자동 업로드한다. 아래 수동 명령은 업로드 재시도나 별도 보관에 사용한다. 원본 pretrained 모델은 포함하지 않는다. `adapter/`, `processor/`, `inference/adapter_inference.json`과 실험 설정·loss 기록을 함께 보관한다. 업로드 중에는 해당 폴더를 수정하지 않는다.
 
-### 8.1 로그인
+### 8.1 인증
 
-[Hugging Face 토큰 설정](https://huggingface.co/settings/tokens)에서 모델 저장소를 생성하고 파일을 쓸 수 있는 토큰을 준비한다. 토큰은 로그인 프롬프트에 입력하며 코드나 Git에 저장하지 않는다. 아래 모든 명령은 같은 `HF_HOME`을 사용한다.
-
-```bash
-(
-set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
-export HF_HOME=/workspace/.cache/huggingface
-export HF_HUB_ENABLE_HF_TRANSFER=0
-export PATH="$HOME/.local/bin:$PATH"
-unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-uv run --no-sync hf auth login
-uv run --no-sync hf auth whoami
-)
-```
-
-기존 `HF_TOKEN` 환경변수가 있으면 저장된 로그인보다 우선하므로 올바른 write 권한의 토큰인지 확인한다.
+로그인은 초기 설정의 2절에서 완료한다. 자동 업로드는 저장된 토큰을 재사용한다.
 
 ### 8.2 모델별 adapter output 업로드
 
-8.1절 로그인 후 실행한다. 아래 Model-FM은 이름을 변경한 `v16_model_fm_step1000` 폴더를 사용한다. S/E의 폴더와 step은 실제 학습 결과에 맞춘다. Organization은 `HF_ACCOUNT`를 해당 이름으로 지정한다.
+2절 초기 설정에서 로그인한 뒤 실행한다. 아래 Model-FM은 6.1절의 `v1614_model_fm_step500` 폴더를 사용한다. `FOLDER`, `NAME`, step은 실제 학습 설정과 동일하게 지정한다. S/E의 폴더와 step은 실제 학습 결과에 맞춘다. Organization은 `HF_ACCOUNT`를 해당 이름으로 지정한다.
 
 **`--folder`에는 `/inference`를 붙이지 않는다.** PEFT output에는 전체 모델 `config.json`이 없으며, `adapter/adapter_config.json`과 adapter weight가 있다. `inference/`는 경로 설정뿐이므로 단독 업로드하지 않는다. 전체 run을 업로드하면 `processor/`, normalization 통계, `lora_settings.json`, `training_loss.png`·`training_loss.csv`, checkpoint의 loss 기록과 재개 상태가 함께 보관된다. 기존 loss log 복사 명령은 필요 없다.
 
@@ -459,8 +462,9 @@ uv run --no-sync hf auth whoami
 (
 set -e
 FOLDER=Project_Protoss2
-NAME=v1613
+NAME=v1614
 export PROTOSS_ROOT=/workspace/"$FOLDER"
+export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
@@ -469,8 +473,8 @@ cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 HF_ACCOUNT=$(uv run --no-sync python -c \
   'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/upload_checkpoint_hf.py" \
-  --folder "$PROTOSS_ROOT/Protoss/checkpoint/"$NAME"_model_fm_step500" \
-  --repo-id "$HF_ACCOUNT/protoss-"$NAME"-model-fm-step500" --workers 2
+  --folder "$CHECKPOINT_ROOT/"$NAME"_model_fm_step500" \
+  --repo-id "$HF_ACCOUNT/${NAME}_model_fm_step500" --workers 2
 )
 ```
 
@@ -492,6 +496,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/upload_checkpoint_hf.py" \
 (
 set -e
 export PROTOSS_ROOT=/workspace/Project_Protoss
+export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
@@ -513,15 +518,18 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/upload_dataset_hf.py" \
 
 ## 10. 코드 폴더 구조
 
-`Protoss/`에는 CLI 진입점, README, data/, checkpoint/를 둔다. 구현은 `Protoss/src/`, 테스트는 `Protoss/src/tests/`에 있다. Python package import를 사용하므로 실행 명령의 현재 작업 디렉터리에 의존하지 않는다. 서버에는 src 폴더도 함께 복사한다. 데이터와 모델 저장 위치는 order.md의 data/trainset, checkpoint를 따른다.
+`Protoss/`에는 CLI 진입점, README, data/를 두고, 모델은 프로젝트 바로 상위의 `checkpoint/`에 둔다. 구현은 `Protoss/src/`, 테스트는 `Protoss/src/tests/`에 있다. Python package import를 사용하므로 실행 명령의 현재 작업 디렉터리에 의존하지 않는다. 서버에는 src 폴더도 함께 복사한다. 데이터는 `Protoss/data/trainset`, 모델은 `$CHECKPOINT_ROOT`를 사용한다.
 
 ```text
-Protoss/
+상위 디렉터리/
+├── checkpoint/                 # 원본 pretrained 및 학습 run, HF 다운로드 모델
+└── Project_Protoss/             # 프로젝트 루트
+
+Project_Protoss/Protoss/
 ├── README.md
 ├── data/
 │   ├── source/                  # 원본 다운로드
 │   └── trainset/                # 전체 episode, 학습·open-loop 평가 공통
-├── checkpoint/                 # 원본 및 모델별 checkpoint
 ├── prepare_droid.py
 ├── prepare_groot_dataset.py
 ├── train.py

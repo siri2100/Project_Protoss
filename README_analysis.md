@@ -11,14 +11,15 @@ RunPod에서 프로젝트의 최신 파일과 기존 GR00T 환경을 준비한�
 ```bash
 set -e
 export PROTOSS_ROOT=/workspace/Project_Protoss_v1.6
+export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
 export HF_HOME=/workspace/.cache/huggingface
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
 export CUDA_VISIBLE_DEVICES=0
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-export BASE_MODEL="$PROTOSS_ROOT/Protoss/checkpoint/GR00T-N1.7-DROID"
-export TRAIN_RUN="$PROTOSS_ROOT/Protoss/checkpoint/model_FM_lora"
+export BASE_MODEL="$CHECKPOINT_ROOT/GR00T-N1.7-DROID"
+export TRAIN_RUN="$CHECKPOINT_ROOT/model_FM_lora"
 export FM_MODEL="$TRAIN_RUN/inference"
 export DATA_ROOT="$PROTOSS_ROOT/Protoss/data"
 export ANALYSIS_ROOT="$PROTOSS_ROOT/experiment/DROID/analysis_run01"

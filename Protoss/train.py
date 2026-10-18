@@ -52,6 +52,8 @@ def parse_args():
     parser.add_argument("--workers", type=int, default=2)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--hf-repo-id", help="Upload destination ACCOUNT/REPO (default: logged-in account/output folder name)")
+    parser.add_argument("--no-hf-upload", action="store_true", help="Disable automatic upload for offline training")
     args = parser.parse_args()
     if min(args.lora_rank, args.max_steps, args.save_steps, args.batch_size, args.gradient_accumulation) < 1 or args.lr <= 0 or args.lora_alpha <= 0 or args.workers < 0:
         parser.error("Invalid positive training/LoRA parameters")
@@ -138,6 +140,12 @@ def main(args):
             record_training_loss, save_training_loss_plot, save_training_distribution_plot,
         )
 
+    if __package__:
+        from .src.hf_model_sync import training_destination, upload_training_run
+    else:
+        from src.hf_model_sync import training_destination, upload_training_run
+    # Fail before GPU training if setup-time authentication is missing.
+    destination = training_destination(args)
     config, lora_settings = prepare_training(args)
     with setup_training(config, args, lora_settings) as training:
         model = training.model
@@ -164,7 +172,12 @@ def main(args):
 
     # Release the training model, optimizer and workers before loading inference models.
     del model, training
-    save_training_distribution_plot(args)
+    try:
+        save_training_distribution_plot(args)
+    finally:
+        # Preserve and publish the saved model even if the optional plot fails.
+        if destination:
+            upload_training_run(args.output_dir, destination)
 
 
 if __name__ == "__main__":

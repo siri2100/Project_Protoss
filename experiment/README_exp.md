@@ -8,10 +8,11 @@
 setopt interactivecomments
 (
 set -e
-NAME=v1.6.12
+NAME=v1.6.14
 STEP=500
 EXP_ROOT="$HOME/Desktop/Project_Protoss/experiment/RoboLab"
 RUN_NAME="${NAME}_model_fm_step${STEP}"
+EXP_NUM=6
 
 # 결과 ZIP 이동 및 압축 해제
 mkdir -p "$EXP_ROOT"
@@ -22,11 +23,11 @@ test -f "$RUN_NAME/episode_results.jsonl"
 rm "$RUN_NAME.zip"
 
 # task별 분리: 입력에서 처음 등장한 task부터 RoboLab05, 06, ...으로 저장
-python3 split_episode_results.py "$RUN_NAME/episode_results.jsonl" 5 \
+python3 split_episode_results.py "$RUN_NAME/episode_results.jsonl" "$EXP_NUM" \
   --overwrite --suffix .jsonl
 
 # 첫 task의 metric 평균 계산
-python3 calculate_metric_averages.py "$RUN_NAME/RoboLab05.jsonl"
+python3 calculate_metric_averages.py "$RUN_NAME/RoboLab06.jsonl"
 )
 ```
 
