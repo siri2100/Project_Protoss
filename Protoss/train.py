@@ -55,13 +55,10 @@ def parse_args():
     parser.add_argument("--hf-repo-id", help="Upload destination ACCOUNT/REPO (default: logged-in account/output folder name)")
     parser.add_argument("--no-hf-upload", action="store_true", help="Disable automatic upload for offline training")
     smooth = parser.add_argument_group("Model-S smoothness experiment")
-    smooth.add_argument("--s-fm-weight", type=float, default=1.0,
-                        help="Multiplier for native FM loss in Model-S")
-    smooth.add_argument("--s-jerk-weight", type=float, default=None,
-                        help="Fixed lambda; omit to calibrate from initial FM/jerk losses")
+    smooth.add_argument("--s-jerk-weight", type=float, default=1.0,
+                        help="Multiplier for normalized jerk-only Model-S loss")
     smooth.add_argument("--s-jerk-reference", type=float, default=None,
                         help="Fixed jerk RMS in rad/s^3; omit to estimate from calibration targets")
-    smooth.add_argument("--s-jerk-ratio", type=float, default=0.01)
     smooth.add_argument("--s-calibration-steps", type=int, default=10)
     smooth.add_argument("--s-dt", type=float, default=1 / 15, help="Action interval in seconds")
     smooth.add_argument("--s-gradient-diagnostics", action="store_true")
@@ -80,8 +77,6 @@ def parse_args():
             config_from_args(args)
         except ValueError as exc:
             parser.error(str(exc))
-        if (args.s_jerk_weight is None or args.s_jerk_reference is None) and args.max_steps <= args.s_calibration_steps:
-            parser.error("Model-S max-steps must exceed calibration-steps or specify both --s-jerk-weight and --s-jerk-reference")
     args.style = args.variant
     sys.path.insert(0, str(args.groot_root.resolve()))
     return args
@@ -137,7 +132,7 @@ def prepare_training(args):
             from .src.model_s_loss import config_from_args
         else:
             from src.model_s_loss import config_from_args
-        lora_settings["loss"] = "FM+normalized_joint_jerk-v2"
+        lora_settings["loss"] = "normalized_joint_jerk_only-v3"
         lora_settings["model_s"] = asdict(config_from_args(args))
     settings_path = args.output_dir / "lora_settings.json"
     if args.resume:
@@ -147,8 +142,6 @@ def prepare_training(args):
             previous["variant"] = "FM"
         if previous is not None and previous.get("backend") != "peft":
             raise ValueError("PEFT training cannot resume legacy custom-LoRA checkpoints; use a new output directory")
-        if args.variant == "S" and previous is not None and "model_s" in previous:
-            previous["model_s"].setdefault("fm_weight", 1.0)
         if previous != lora_settings:
             raise ValueError("LoRA resume settings differ or are missing; use the original experiment settings")
     write_json(args.output_dir / "style_run.json", {"style": args.style, "base_model": str(args.base_model.resolve()),
@@ -164,12 +157,12 @@ def main(args):
     if __package__:
         from .src.training_runtime import (
             setup_training, preprocess, update_weights, save_checkpoint, export_model,
-            record_training_loss, save_training_loss_plot, save_training_distribution_plot,
+            record_training_loss, save_training_loss_plot, save_training_distribution_plot, calibrate_s_reference,
         )
     else:
         from src.training_runtime import (
             setup_training, preprocess, update_weights, save_checkpoint, export_model,
-            record_training_loss, save_training_loss_plot, save_training_distribution_plot,
+            record_training_loss, save_training_loss_plot, save_training_distribution_plot, calibrate_s_reference,
         )
 
     if __package__:
@@ -181,6 +174,7 @@ def main(args):
     config, lora_settings = prepare_training(args)
     with setup_training(config, args, lora_settings) as training:
         model = training.model
+        calibrate_s_reference(training)
         for step in range(training.step + 1, args.max_steps + 1):
             step_loss = 0.0
             step_metrics = {}
@@ -203,8 +197,6 @@ def main(args):
 
             update_weights(training)
             training.step = step
-            if training.smoothness is not None:
-                training.smoothness.finish_step(step_metrics)
             record_training_loss(training, step_loss, **step_metrics)
             print(f"step={step}/{args.max_steps} loss={step_loss:.6f}", flush=True)
             if step_metrics:

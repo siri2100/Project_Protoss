@@ -1,9 +1,8 @@
-"""Model-S experiment: native FM + jerk of the one-step clean joint endpoint.
+"""Model-S experiment: normalized jerk of the one-step clean joint endpoint.
 
 Edit ModelSConfig for defaults, joint_affine for representation/normalization,
 and masked_jerk_loss for the regularizer. No GR00T source changes are required.
 """
-from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 import math
 
@@ -12,13 +11,10 @@ import torch
 
 @dataclass(frozen=True)
 class ModelSConfig:
-    # None calibrates lambda = ratio * fm_weight * mean(FM) / mean(jerk).
-    jerk_weight: float | None = None
-    jerk_ratio: float = 0.01
+    jerk_weight: float = 1.0
     calibration_steps: int = 10
     dt: float = 1 / 15  # DROID command interval, seconds; jerk is rad/s^3.
     gradient_diagnostics: bool = False  # Extra autograd passes on first microbatch.
-    fm_weight: float = 1.0
     jerk_reference: float | None = None  # Fixed RMS in rad/s^3; None estimates from targets.
     jerk_reference_floor: float = 1.0  # Guard for stationary demonstrations.
 
@@ -27,23 +23,17 @@ class ModelSConfig:
                             ("jerk reference floor", self.jerk_reference_floor)):
             if value is not None and (not math.isfinite(value) or value <= 0):
                 raise ValueError(f"Model-S {name} must be finite and positive")
-        if not math.isfinite(self.fm_weight) or self.fm_weight < 0:
-            raise ValueError("Model-S FM weight must be finite and nonnegative")
-        if self.fm_weight == 0 and self.jerk_weight is None:
-            raise ValueError("Zero FM weight requires an explicit --s-jerk-weight")
-        if self.jerk_weight is not None and (not math.isfinite(self.jerk_weight) or self.jerk_weight < 0):
-            raise ValueError("Model-S jerk weight must be finite and nonnegative")
-        if not math.isfinite(self.jerk_ratio) or self.jerk_ratio <= 0:
-            raise ValueError("Model-S jerk ratio must be finite and positive")
+        if not math.isfinite(self.jerk_weight) or self.jerk_weight <= 0:
+            raise ValueError("Model-S jerk weight must be finite and positive")
         if self.calibration_steps < 1 or not math.isfinite(self.dt) or self.dt <= 0:
             raise ValueError("Model-S calibration steps and dt must be positive")
 
 
 def config_from_args(args):
-    return ModelSConfig(jerk_weight=args.s_jerk_weight, jerk_ratio=args.s_jerk_ratio,
+    return ModelSConfig(jerk_weight=args.s_jerk_weight,
                         calibration_steps=args.s_calibration_steps, dt=args.s_dt,
                         gradient_diagnostics=args.s_gradient_diagnostics,
-                        fm_weight=args.s_fm_weight, jerk_reference=args.s_jerk_reference)
+                        jerk_reference=args.s_jerk_reference)
 
 
 def joint_affine(processor, tag):
@@ -128,137 +118,68 @@ def masked_jerk_loss(joints, mask, dt):
     return torch.where(windows, jerk.square(), 0.0).sum() / windows.sum()
 
 
-@contextmanager
-def capture_flow_forward(head):
-    """Capture exact continuous t, x_t and decoded velocity from the SAME forward.
-
-    Hooks are removed before backward, including gradient checkpoint recomputation.
-    Nothing is detached: jerk gradients flow through the frozen decoder to LoRA.
-    """
-    captured = {}
-    original = head.sample_time
-    had_override = "sample_time" in head.__dict__
-
-    def sample_time(*args, **kwargs):
-        t = original(*args, **kwargs)
-        captured["t"] = t
-        return t
-
-    def capture_noisy(module, args):
-        captured["noisy"] = args[0]
-
-    def capture_velocity(module, args, output):
-        captured["velocity"] = output
-
-    def capture_target(module, args):
-        captured["target"] = args[1].action.detach()
-
-    head.sample_time = sample_time
-    handles = []
-    try:
-        handles.append(head.register_forward_pre_hook(capture_target))
-        handles.append(head.action_encoder.register_forward_pre_hook(capture_noisy))
-        handles.append(head.action_decoder.register_forward_hook(capture_velocity))
-        yield captured
-    finally:
-        for handle in handles:
-            handle.remove()
-        if had_override:
-            head.sample_time = original
-        else:
-            del head.sample_time
-
-
 class ModelSLoss:
-    """Own calibration state explicitly so resume keeps exactly the same lambda."""
+    """Jerk-only loss; estimate a target RMS before ANY optimizer updates."""
     def __init__(self, config, scale, offset):
         self.config = config
         self.scale, self.offset = scale, offset
-        self.weight = config.jerk_weight
         self.reference = config.jerk_reference
         self.calibration_count = 0
-        self.fm_sum = self.jerk_sum = 0.0
         self.target_jerk_sum = 0.0
 
-    def forward(self, model, inputs, diagnostics=False):
-        with capture_flow_forward(model.action_head) as flow:
-            output = model(**inputs)
-        if set(flow) != {"t", "noisy", "velocity", "target"}:
-            raise RuntimeError("GR00T flow forward changed: missing endpoint inputs")
-        horizon = flow["noisy"].shape[1]
-        velocity = flow["velocity"][:, -horizon:]
-        clean = clean_action_endpoint(flow["noisy"], flow["t"], velocity)
-        # DROID: EEF 0:9, gripper 9, joint positions 10:17, then padding.
-        mask = output["action_mask"][..., 10:17]
-        joints = unnormalize_joints(clean[..., 10:17], mask, self.scale, self.offset)
-        raw_jerk = masked_jerk_loss(joints, mask, self.config.dt)
-        with torch.no_grad():
-            target_joints = unnormalize_joints(flow["target"][..., 10:17], mask,
-                                               self.scale, self.offset)
-            target_jerk = masked_jerk_loss(target_joints, mask, self.config.dt).item()
-        # No prediction-dependent denominator. Estimate from detached targets,
-        # freeze after calibration, then use the same constant on every batch.
-        ready = self.reference is not None
-        jerk = raw_jerk / self.reference**2 if ready else raw_jerk
-        fm = output["loss"]  # Keep upstream masking and reduction unchanged.
-        weight = self.weight if self.weight is not None and ready else 0.0
-        total = self.config.fm_weight * fm + weight * jerk
-        if not torch.isfinite(total) or not torch.isfinite(jerk) or not math.isfinite(target_jerk):
-            raise ValueError("Non-finite Model-S loss; stop before optimizer update")
-        metrics = {"fm_loss": fm.detach().item(),
-                   "raw_jerk_loss": raw_jerk.detach().item(),
-                   "target_jerk_loss": target_jerk,
-                   "fm_weight": self.config.fm_weight,
-                   "weighted_fm_loss": self.config.fm_weight * fm.detach().item(),
-                   "jerk_weight": weight, "weighted_jerk_loss": weight * jerk.detach().item()}
-        if ready:
-            metrics.update(jerk_loss=jerk.detach().item(), jerk_reference=self.reference)
-        if diagnostics and self.config.gradient_diagnostics:
-            params = [p for p in model.parameters() if p.requires_grad]
-            for name, loss in (("fm", fm), ("jerk", jerk)):
-                if name == "jerk" and not ready:
-                    continue
-                grads = torch.autograd.grad(loss, params, retain_graph=True, allow_unused=True)
-                squared_norm = torch.zeros((), device=fm.device)
-                for grad in grads:
-                    if grad is not None:
-                        squared_norm += grad.detach().float().square().sum()
-                metrics[f"{name}_grad_norm"] = squared_norm.sqrt().item()
-        return total, metrics
-
-    def finish_step(self, metrics):
-        """Collect optimizer-step means; regularization starts AFTER calibration."""
-        if self.weight is not None and self.reference is not None:
+    @torch.no_grad()
+    def calibrate(self, inputs):
+        if self.reference is not None:
             return
-        self.fm_sum += metrics["fm_loss"]
-        self.jerk_sum += metrics["raw_jerk_loss"]
-        self.target_jerk_sum += metrics["target_jerk_loss"]
+        batch = inputs["inputs"]
+        mask = batch["action_mask"][..., 10:17]
+        joints = unnormalize_joints(batch["action"][..., 10:17].float(), mask, self.scale, self.offset)
+        target = masked_jerk_loss(joints, mask, self.config.dt).item()
+        if not math.isfinite(target):
+            raise ValueError("Non-finite Model-S target jerk during calibration")
+        self.target_jerk_sum += target
         self.calibration_count += 1
         if self.calibration_count >= self.config.calibration_steps:
-            if self.reference is None:
-                self.reference = max(math.sqrt(self.target_jerk_sum / self.calibration_count),
-                                     self.config.jerk_reference_floor)
-            if self.weight is None:
-                if self.jerk_sum <= 0:
-                    raise ValueError("Cannot calibrate Model-S from zero jerk; set --s-jerk-weight explicitly")
-                normalized_sum = self.jerk_sum / self.reference**2
-                self.weight = self.config.jerk_ratio * self.config.fm_weight * self.fm_sum / normalized_sum
-            print(f"Model-S calibration complete: jerk_reference={self.reference:.8g} rad/s^3, "
-                  f"fixed jerk_weight={self.weight:.8g}", flush=True)
+            self.reference = max(math.sqrt(self.target_jerk_sum / self.calibration_count),
+                                 self.config.jerk_reference_floor)
+            print(f"Model-S reference fixed: {self.reference:.8g} rad/s^3", flush=True)
+
+    def forward(self, model, inputs, diagnostics=False):
+        from .model_s_forward import jerk_only_forward
+        if self.reference is None:
+            raise ValueError("Calibrate Model-S reference before training")
+        with jerk_only_forward(model.action_head):
+            output = model(**inputs)
+        clean = clean_action_endpoint(output["noisy"], output["t"], output["velocity"])
+        mask = output["action_mask"][..., 10:17]
+        joints = unnormalize_joints(clean[..., 10:17], mask, self.scale, self.offset)
+        raw = masked_jerk_loss(joints, mask, self.config.dt)
+        jerk = raw / self.reference**2
+        total = self.config.jerk_weight * jerk
+        if not torch.isfinite(total):
+            raise ValueError("Non-finite Model-S jerk loss; stop before optimizer update")
+        metrics = {"jerk_loss": jerk.detach().item(), "raw_jerk_loss": raw.detach().item(),
+                   "jerk_reference": self.reference, "jerk_weight": self.config.jerk_weight,
+                   "weighted_jerk_loss": total.detach().item()}
+        if diagnostics and self.config.gradient_diagnostics:
+            params = [p for p in model.parameters() if p.requires_grad]
+            grads = torch.autograd.grad(jerk, params, retain_graph=True, allow_unused=True)
+            squared = torch.zeros((), device=jerk.device)
+            for grad in grads:
+                if grad is not None:
+                    squared += grad.detach().float().square().sum()
+            metrics["jerk_grad_norm"] = squared.sqrt().item()
+        return total, metrics
 
     def state_dict(self):
-        return {"format": "model-s-normalized-jerk-v1",
-                "config": asdict(self.config), "weight": self.weight,
+        return {"format": "model-s-jerk-only-v1", "config": asdict(self.config),
                 "reference": self.reference, "target_jerk_sum": self.target_jerk_sum,
-                "calibration_count": self.calibration_count,
-                "fm_sum": self.fm_sum, "jerk_sum": self.jerk_sum}
+                "calibration_count": self.calibration_count}
 
     def load_state_dict(self, state):
-        if state.get("format") != "model-s-normalized-jerk-v1":
-            raise ValueError("Unnormalized Model-S checkpoints require a new training run")
-        # Older Model-S runs used an implicit FM weight of one.
-        saved_config = {"fm_weight": 1.0, **state["config"]}
-        if saved_config != asdict(self.config):
+        if state.get("format") != "model-s-jerk-only-v1":
+            raise ValueError("Previous Model-S loss requires a new jerk-only training run")
+        if state["config"] != asdict(self.config):
             raise ValueError("Model-S resume loss configuration differs")
-        for key in ("weight", "reference", "target_jerk_sum", "calibration_count", "fm_sum", "jerk_sum"):
+        for key in ("reference", "target_jerk_sum", "calibration_count"):
             setattr(self, key, state[key])

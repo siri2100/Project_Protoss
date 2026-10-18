@@ -6,10 +6,10 @@
 |---|---|---|---|
 | baseline | 없음 | 없음 | 원본 평가 가능 |
 | Model-FM | LoRA | FM | 학습·평가 실행 경로 제공 |
-| Model-S | LoRA | FM + clean joint trajectory jerk | 학습·평가 실행 가능 |
+| Model-S | LoRA | normalized clean joint trajectory jerk only | 학습·평가 실행 가능 |
 | Model-E | LoRA | FM (현재 Model-FM과 동일) | 학습·평가 실행 가능 |
 
-Model-FM(v1.6.14)은 All QKV, LR=1e-6의 FM 기준 모델이다. Model-S(v1.7)는 같은 pretrained 모델에서 독립적으로 FM + jerk를 학습한다. Model-E는 현재 FM-only이며 efficiency loss는 아직 적용하지 않는다. Jerk regularization의 효과는 RoboLab 성공률과 실제 rollout smoothness를 Model-FM과 비교해 확인한다.
+Model-FM(v1.6.14)은 All QKV, LR=1e-6의 FM 기준 모델이다. Model-S(v1.7)는 같은 pretrained 모델에서 독립적으로 정규화 jerk만 학습한다. Model-E는 현재 FM-only이며 efficiency loss는 아직 적용하지 않는다. Jerk regularization의 효과는 RoboLab 성공률과 실제 rollout smoothness를 Model-FM과 비교해 확인한다.
 
 이 문서는 환경 설치, 데이터 준비, LoRA 학습·재개와 Hugging Face 업로드를 다룬다. 추론·평가·모델 다운로드는 [readme_test.md](readme_test.md)를 따른다.
 
@@ -310,19 +310,19 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
 
 실험 구현은 `Protoss/src/model_s_loss.py`에 모았다. `ModelSConfig`는 기본 설정, `joint_affine()`는 action 표현·역정규화, `clean_action_endpoint()`는 clean action 추정, `masked_jerk_loss()`는 정규화 항, `ModelSLoss`는 최종 조합·가중치 보정을 담당한다. 학습 루프의 Model-S 분기는 `Protoss/train.py`에 있다.
 
-- 목적 함수는 `L = fm_weight × L_FM + jerk_weight × L_jerk_norm`이며 기존 GR00T masked FM loss를 유지한다.
+- 목적 함수는 `L = jerk_weight × L_jerk_norm`이다. Model-S 전용 action-head forward에서 FM MSE 계산을 제거했다. Model-FM/E의 FM 학습은 유지한다.
 - 같은 forward의 연속 timestep과 noisy action으로 `â = x_t + (1-t)vθ`를 복원한다. DiT velocity 자체에는 jerk를 적용하지 않으며 추가 flow integration은 없다.
 - DROID `[EEF(9), gripper(1), joints(7)]` 중 joint 7개만 pretrained 통계로 역정규화한다. Joint action은 현재 관절 위치에 대한 offset이며 연속 timestep 간 delta가 아니다. Chunk의 공통 기준 관절값은 3차 차분에서 상쇄된다. Gripper·EEF 회전·padding은 제외한다.
 - `raw_jerk_loss = mean((Δ³q / dt³)²)`, `jerk_loss = raw_jerk_loss / J_ref²`로 무차원화한다. 네 점 모두 mask가 유효한 window만 사용한다. 기본 `dt=1/15`초이며 raw 값의 단위는 `rad²/s⁶`다. 데이터 주기가 바뀌면 `--s-dt`도 바꾼다.
 - 학습 중 min/max 역정규화는 gradient 유지를 위해 clipping 없는 affine 변환을 사용한다. 배포 processor는 clipping하므로 이 값은 clean endpoint의 smoothness surrogate이며 실제 multi-step 추론·rollout jerk와 동일하지 않다.
-- 기본 첫 10 optimizer step 동안 정답 action을 역정규화해 jerk를 측정하고 `J_ref = sqrt(mean(target_jerk_loss))`를 구한 뒤 고정한다. 이 값은 전체 데이터가 아닌 초기 학습 batch에서 추정한 RMS이며, 정지 시연을 위해 최소 `1 rad/s³`를 적용한다. 기준값이 정해질 때까지 jerk 가중치는 0이고 정규화 jerk 로그는 비워 둔다. 이후 자동 가중치는 `jerk_ratio × fm_weight × sum(FM) / (sum(raw_jerk) / J_ref²)`로 정한다. `--s-jerk-ratio` 기본값은 `0.01`이다.
-- `--s-jerk-reference 300`으로 기준 RMS를 직접 지정할 수 있다. `--s-jerk-weight 0.01`까지 함께 지정하면 calibration 없이 첫 step부터 적용한다. 가중치만 지정하고 기준값을 생략하면 기준값 측정을 위한 calibration은 진행한다. 이 숫자는 사용 예시이며 최적값이 아니다. FM-only 대조 실험에는 `--s-jerk-weight 0`을 사용한다.
-- `--s-gradient-diagnostics`를 추가하면 매 optimizer step 첫 microbatch의 FM·jerk LoRA gradient norm을 기록한다. 추가 autograd 비용이 있다. `λ × jerk_grad_norm`과 `fm_grad_norm`을 비교한다.
-- `training_loss.csv`와 checkpoint의 `trainer_state.json`에 FM, normalized jerk, raw jerk, target jerk, 기준 RMS, total과 각 가중치를 기록한다. `training_loss.png`에는 FM/normalized jerk/total 세 패널을 저장한다. `model_s_loss.json`에는 기준 RMS와 calibration 누적값, 고정 가중치를 함께 저장하고 재개 시 복원한다. Calibration 완료 다음 step부터 정규화 항을 적용한다.
+- 기본 첫 10개 target batch에서 `J_ref = sqrt(mean(target_jerk_loss))`를 구하고 고정한다. 이 준비 단계에서는 모델 forward/backward와 optimizer·scheduler 업데이트를 하지 않는다. 따라서 요청한 학습 step 전체를 jerk-only로 업데이트한다. 정지 시연을 위해 기준 RMS는 최소 `1 rad/s³`다.
+- `--s-jerk-reference 300`으로 기준 RMS를 지정하면 준비 단계를 생략한다. `--s-jerk-weight`는 정규화 jerk에 곱하는 고정 양수이며 기본값은 `1.0`이다. FM 기반 자동 보정과 `--s-fm-weight`, `--s-jerk-ratio` 옵션은 제거했다.
+- `--s-gradient-diagnostics`를 추가하면 매 optimizer step 첫 microbatch의 정규화 jerk LoRA gradient norm을 기록한다. 추가 autograd 비용이 있다.
+- `training_loss.csv`와 checkpoint의 `trainer_state.json`에 정규화 jerk, raw jerk, 기준 RMS, total과 jerk 가중치를 기록한다. FM 항목은 없다. `training_loss.png`에는 jerk/total 두 패널을 저장한다. `model_s_loss.json`에는 기준 RMS와 누적 통계를 저장하고 재개 시 복원한다.
 
-아래 명령은 All QKV, rank/alpha=32/64, LR=1e-6, 500 steps로 학습한다. 강도·보정 기간·주기는 `--s-jerk-ratio 0.01 --s-calibration-steps 10 --s-dt 0.06666666666666667`로 지정할 수 있으며 아래 명령은 이 기본값을 사용한다.
+아래 명령은 All QKV, rank/alpha=32/64, LR=1e-6, 500 steps로 학습한다. `--s-calibration-steps 10`은 학습 전 기준 RMS 측정에 사용하는 batch 수이고, `--s-dt 0.06666666666666667`은 action 주기다.
 
-기존 FM-only 또는 비정규화 jerk Model-S checkpoint는 새 loss로 `--resume`하지 않는다. 새 `NAME`과 output 경로로 pretrained부터 시작한다. 정규화 모델 재개 시 원래 loss 옵션도 동일하게 전달한다. FM과 비교할 때 LoRA/rank/alpha/LR/batch/seed/step을 맞추고 실제 rollout 성공률과 smoothness, chunk 실행 경계도 평가한다.
+기존 FM-only, FM+jerk 또는 비정규화 jerk checkpoint는 새 jerk-only loss로 재개하지 않는다. 새 NAME과 output에서 학습하고 jerk-only 재개 시 원래 loss 옵션을 유지한다.
 
 ```bash
 (
@@ -380,7 +380,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
 )
 ```
 
-GR00T 기본 masked flow-matching MSE를 그대로 사용한다. FM의 velocity는 물리적 관절 속도가 아니다. Model-FM/S 비교는 LoRA rank/alpha, train 데이터, seed, batch, optimizer와 step 수를 맞추고 loss만 FM과 FM+jerk로 구분한다. Model-E 예시 설정은 별도 실험이다. 각 명령은 해당 모델 하나만 학습하고 종료한다. 원본 pretrained checkpoint에서 각각 시작하며 서로의 학습 weight를 이어받지 않는다. Model-S에는 추가 jerk 목적 함수가 적용된다.
+GR00T 기본 masked flow-matching MSE를 그대로 사용한다. FM의 velocity는 물리적 관절 속도가 아니다. Model-FM/S 비교는 LoRA rank/alpha, train 데이터, seed, batch, optimizer와 step 수를 맞추고 loss만 FM과 jerk-only로 구분한다. Model-E 예시 설정은 별도 실험이다. 각 명령은 해당 모델 하나만 학습하고 종료한다. 원본 pretrained checkpoint에서 각각 시작하며 서로의 학습 weight를 이어받지 않는다. Model-S에는 추가 jerk 목적 함수가 적용된다.
 
 ### 6.4 중단된 PEFT 학습 재개
 
@@ -455,7 +455,7 @@ uv run --no-sync python -m unittest discover \
 
 검증: CPU mock 테스트로 dataset repo type/private 생성, 전체 trainset 전송 파일 목록, 불완전한 영상/episode 수 검사, dry-run을 확인했다. 실제 계정으로 데이터 업로드·다운로드는 이 작업에서 실행하지 않았다.
 
-LoRA 검증 범위: CPU에서 초기 출력 일치, adapter만의 gradient, merge 전후 출력 일치와 native Linear state reload를 확인한다. 실제 GR00T LoRA GPU 학습/merged checkpoint 로딩은 이 작업 환경에서 실행하지 않았다. Model-S는 FM+jerk를 사용하며 Model-E는 FM-only다.
+LoRA 검증 범위: CPU에서 초기 출력 일치, adapter만의 gradient, merge 전후 출력 일치와 native Linear state reload를 확인한다. 실제 GR00T LoRA GPU 학습/merged checkpoint 로딩은 이 작업 환경에서 실행하지 않았다. Model-S는 jerk-only를 사용하며 Model-E는 FM-only다.
 
 이번 변경 검증: 데이터·학습 설정 4개, LoRA gradient/merge 1개, 네 모델의 공통 평가 조건 1개로 총 6개 CPU 테스트를 통과했다. 평가 조건 테스트는 subprocess를 mock하며 실제 VLA inference는 실행하지 않는다.
 
