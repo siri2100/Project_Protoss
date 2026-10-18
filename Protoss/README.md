@@ -6,7 +6,7 @@
 |---|---|---|
 | baseline | 없음, pretrained 평가 | 없음 |
 | Model-FM | LoRA | FM |
-| Model-S | LoRA | normalized clean joint trajectory jerk only |
+| Model-S | LoRA | physical clean joint trajectory jerk only |
 | Model-E | LoRA | FM (현재 Model-FM과 동일) |
 
 설치·데이터 준비·학습·업로드는 [readme_train.md](../readme_train.md), 모델 다운로드·추론·평가는 [readme_test.md](../readme_test.md)를 따른다. Model-FM(v1.6.14)은 FM 기준 모델이며 Model-S(v1.7)는 정규화 jerk-only, Model-E는 현재 FM-only로 독립 학습한다.
@@ -41,8 +41,8 @@
 
 Model-S 실험 코드는 `src/model_s_loss.py`에 모았다. 기본값은 `ModelSConfig`, 계산식은 `clean_action_endpoint()`와 `masked_jerk_loss()`, 가중치 보정은 `ModelSLoss`에서 수정한다. 실험 옵션과 재개 조건은 학습 문서 6.2절을 따른다.
 
-Model-S는 FM loss를 계산하지 않는 전용 action-head forward(`src/model_s_forward.py`)를 사용한다. 목적 함수는 `total_loss = jerk_weight × normalized_jerk_loss`이며, 기본 `--s-jerk-weight 1.0`이다. `--s-fm-weight`와 `--s-jerk-ratio`는 제거했다. Model-FM/E는 기존 FM loss를 유지한다.
+Model-S는 FM loss를 계산하지 않는 전용 action-head forward(`src/model_s_forward.py`)를 사용한다. 목적 함수는 `total_loss = jerk_weight × jerk_loss`이며, 기본 `--s-jerk-weight 1.0`이다. `--s-fm-weight`와 `--s-jerk-ratio`는 제거했다. Model-FM/E는 기존 FM loss를 유지한다.
 
-Jerk는 `jerk_loss = raw_jerk_loss / J_ref²`로 무차원화한다. 기본 첫 10개 target batch로 기준 RMS를 추정한 뒤 고정한다. 이 준비 단계는 forward/backward, optimizer·scheduler 업데이트 없이 진행되므로 모든 학습 step이 jerk-only다. 최소 기준값은 `1 rad/s³`다. `--s-jerk-reference 300`을 지정하면 이 준비 단계를 생략한다.
+Jerk는 `mean((Δ³q / dt³)²)`를 물리 단위 `rad²/s⁶`로 그대로 사용한다. 기준 RMS를 구하는 준비 단계와 `--s-jerk-reference`, `--s-calibration-steps` 옵션은 제거했다. Pretrained 통계를 이용한 action 역정규화는 유지한다. 첫 step부터 jerk만 학습한다.
 
-`training_loss.png`에는 `jerk_loss`와 `total_loss` 두 패널을 저장한다. CSV에는 두 값과 raw jerk, 기준 RMS, jerk 가중치를 기록하며 FM 항목은 없다. 기준값과 누적 통계는 checkpoint에 저장한다. 기존 FM+jerk checkpoint는 새 목적 함수로 재개하지 않고 새 output에서 학습한다.
+`training_loss.png`에는 `jerk_loss`와 `total_loss` 두 패널을 저장한다. CSV에는 두 값과 jerk 가중치를 기록한다. 이전 RMS 정규화 checkpoint는 새 목적 함수로 재개하지 않고 새 output에서 학습한다.

@@ -56,10 +56,7 @@ def parse_args():
     parser.add_argument("--no-hf-upload", action="store_true", help="Disable automatic upload for offline training")
     smooth = parser.add_argument_group("Model-S smoothness experiment")
     smooth.add_argument("--s-jerk-weight", type=float, default=1.0,
-                        help="Multiplier for normalized jerk-only Model-S loss")
-    smooth.add_argument("--s-jerk-reference", type=float, default=None,
-                        help="Fixed jerk RMS in rad/s^3; omit to estimate from calibration targets")
-    smooth.add_argument("--s-calibration-steps", type=int, default=10)
+                        help="Multiplier for physical jerk-only Model-S loss")
     smooth.add_argument("--s-dt", type=float, default=1 / 15, help="Action interval in seconds")
     smooth.add_argument("--s-gradient-diagnostics", action="store_true")
     args = parser.parse_args()
@@ -132,7 +129,7 @@ def prepare_training(args):
             from .src.model_s_loss import config_from_args
         else:
             from src.model_s_loss import config_from_args
-        lora_settings["loss"] = "normalized_joint_jerk_only-v3"
+        lora_settings["loss"] = "physical_joint_jerk_only-v4"
         lora_settings["model_s"] = asdict(config_from_args(args))
     settings_path = args.output_dir / "lora_settings.json"
     if args.resume:
@@ -157,12 +154,12 @@ def main(args):
     if __package__:
         from .src.training_runtime import (
             setup_training, preprocess, update_weights, save_checkpoint, export_model,
-            record_training_loss, save_training_loss_plot, save_training_distribution_plot, calibrate_s_reference,
+            record_training_loss, save_training_loss_plot, save_training_distribution_plot,
         )
     else:
         from src.training_runtime import (
             setup_training, preprocess, update_weights, save_checkpoint, export_model,
-            record_training_loss, save_training_loss_plot, save_training_distribution_plot, calibrate_s_reference,
+            record_training_loss, save_training_loss_plot, save_training_distribution_plot,
         )
 
     if __package__:
@@ -174,7 +171,6 @@ def main(args):
     config, lora_settings = prepare_training(args)
     with setup_training(config, args, lora_settings) as training:
         model = training.model
-        calibrate_s_reference(training)
         for step in range(training.step + 1, args.max_steps + 1):
             step_loss = 0.0
             step_metrics = {}

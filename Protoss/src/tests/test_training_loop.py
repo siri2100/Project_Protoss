@@ -85,12 +85,12 @@ class ExplicitLoopTests(unittest.TestCase):
                 self.assertEqual(image.size, (1350, 1050))
                 image.verify()
 
-    def test_model_s_calibration_state_saved_with_checkpoint_and_export(self):
+    def test_model_s_loss_config_saved_with_checkpoint_and_export(self):
         from src.model_s_loss import ModelSConfig, ModelSLoss
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             session = self.make_session(root)
-            session.smoothness = ModelSLoss(ModelSConfig(jerk_reference=1.0, calibration_steps=2), torch.ones(7), torch.zeros(7))
+            session.smoothness = ModelSLoss(ModelSConfig(), torch.ones(7), torch.zeros(7))
             session.step = 1
             with self.checkpoint_callback():
                 runtime.save_checkpoint(session)
@@ -99,7 +99,7 @@ class ExplicitLoopTests(unittest.TestCase):
                 restored = ModelSLoss(session.smoothness.config, torch.ones(7), torch.zeros(7))
                 restored.load_state_dict(json.loads(path.read_text()))
                 self.assertEqual(restored.state_dict(), session.smoothness.state_dict())
-                self.assertEqual(restored.reference, 1.0)
+                self.assertFalse(hasattr(restored, "reference"))
 
     def make_session(self, root, resume=False, batch_size=1, accumulation=2):
         torch.manual_seed(42)

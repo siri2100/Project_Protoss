@@ -1,4 +1,4 @@
-"""Jerk-only Model-S: numerical loss, native-forward bypass, calibration and resume."""
+"""Jerk-only Model-S: numerical loss, native-forward bypass and resume."""
 from contextlib import contextmanager, nullcontext
 from enum import Enum
 from types import SimpleNamespace
@@ -81,6 +81,20 @@ class TinyPolicy(nn.Module):
 
 
 class ModelSLossTests(unittest.TestCase):
+    def test_cubic_endpoint_uses_physical_jerk_without_reference_division(self):
+        model = TinyPolicy()
+        clean = torch.zeros(1, 8, 20)
+        clean[..., 10:17] = torch.arange(8.).reshape(1, 8, 1)**3
+        output = dict(noisy=clean, velocity=torch.zeros_like(clean),
+                      t=torch.zeros(1), action_mask=torch.ones_like(clean))
+        objective = ModelSLoss(ModelSConfig(dt=.5, jerk_weight=.25), torch.ones(7), torch.zeros(7))
+        with patch.object(model, 'forward', return_value=output):
+            total, metrics = objective.forward(model, {'inputs': {}})
+        self.assertEqual(metrics['jerk_loss'], 36 * 64)
+        self.assertEqual(total.item(), .25 * 36 * 64)
+        self.assertFalse(hasattr(objective, 'calibrate'))
+        self.assertNotIn('jerk_reference', objective.state_dict())
+
     def test_true_velocity_recovers_clean_endpoint(self):
         torch.manual_seed(7)
         action, noise = torch.randn(3, 8, 17), torch.randn(3, 8, 17)
@@ -112,7 +126,7 @@ class ModelSLossTests(unittest.TestCase):
     def test_excludes_gripper_eef_and_padded_dimensions(self):
         torch.manual_seed(8)
         model = TinyPolicy()
-        objective = ModelSLoss(ModelSConfig(jerk_reference=1.0, jerk_weight=1, dt=1), torch.ones(7), torch.zeros(7))
+        objective = ModelSLoss(ModelSConfig(jerk_weight=1, dt=1), torch.ones(7), torch.zeros(7))
         inputs = {"action": torch.randn(1, 8, 20), "action_mask": torch.ones(1, 8, 20)}
         # Diagonal decoder: excluded dimensions cannot affect joint predictions.
         with torch.no_grad():
@@ -192,55 +206,36 @@ class ModelSLossTests(unittest.TestCase):
         inputs = {"inputs": {"action": torch.randn(2, 8, 20), "action_mask": torch.ones(2, 8, 20)}}
         for alternate in (False, True):
             model.action_head.config.use_alternate_vl_dit = alternate
-            objective = ModelSLoss(ModelSConfig(jerk_reference=300., jerk_weight=.25, gradient_diagnostics=True), torch.ones(7), torch.zeros(7))
+            objective = ModelSLoss(ModelSConfig(jerk_weight=.25, gradient_diagnostics=True), torch.ones(7), torch.zeros(7))
             with patch('torch.nn.functional.mse_loss', side_effect=AssertionError('FM MSE called')):
                 total, metrics = objective.forward(model, inputs, diagnostics=True)
             self.assertNotIn('fm_loss', metrics)
             self.assertNotIn('fm_weight', metrics)
             self.assertGreater(metrics['jerk_grad_norm'], 0)
             self.assertAlmostEqual(total.item(), .25 * metrics['jerk_loss'], places=6)
-            torch.testing.assert_close(torch.tensor(metrics['jerk_loss']), torch.tensor(metrics['raw_jerk_loss'] / 300**2))
             total.backward()
             self.assertTrue(torch.isfinite(model.action_head.lora.grad))
             self.assertIsNone(model.action_head.action_decoder.weight.grad)
             self.assertNotIn('forward', model.action_head.__dict__)
 
-    def test_reference_scaling_changes_loss_and_gradient_by_square(self):
+    def test_physical_jerk_and_weight_scale_loss_and_gradient(self):
         model = TinyPolicy()
         inputs = {'inputs': {'action': torch.randn(1, 8, 20), 'action_mask': torch.ones(1, 8, 20)}}
         rng = torch.get_rng_state()
         totals, grads = [], []
-        for reference in (1., 300.):
+        for weight in (1., .25):
             torch.set_rng_state(rng)
-            objective = ModelSLoss(ModelSConfig(jerk_reference=reference, dt=1), torch.ones(7), torch.zeros(7))
-            total, _ = objective.forward(model, inputs)
+            objective = ModelSLoss(ModelSConfig(jerk_weight=weight, dt=1), torch.ones(7), torch.zeros(7))
+            total, metrics = objective.forward(model, inputs)
             totals.append(total.detach())
             grads.append(torch.autograd.grad(total, model.action_head.lora)[0])
-        torch.testing.assert_close(totals[1], totals[0] / 300**2)
-        torch.testing.assert_close(grads[1], grads[0] / 300**2)
-
-    def test_target_calibration_freezes_and_resumes_without_model_forward(self):
-        config = ModelSConfig(calibration_steps=2, dt=1)
-        first = ModelSLoss(config, torch.ones(7), torch.zeros(7))
-        t = torch.arange(8.).reshape(1, 8, 1)
-        actions = (t**3).expand(1, 8, 20)
-        inputs = {'inputs': {'action': actions, 'action_mask': torch.ones_like(actions)}}
-        first.calibrate(inputs)
-        self.assertIsNone(first.reference)
-        resumed = ModelSLoss(config, torch.ones(7), torch.zeros(7))
-        resumed.load_state_dict(first.state_dict())
-        for objective in (first, resumed):
-            objective.calibrate(inputs)
-            self.assertEqual(objective.reference, 6.)
-            state = objective.state_dict()
-            objective.calibrate({'inputs': {}})
-            self.assertEqual(objective.state_dict(), state)
-        self.assertEqual(first.state_dict(), resumed.state_dict())
-        with self.assertRaisesRegex(ValueError, 'new jerk-only'):
-            resumed.load_state_dict({'format': 'model-s-normalized-jerk-v1'})
-        wrong = ModelSLoss(ModelSConfig(jerk_weight=.5, calibration_steps=2, dt=1), torch.ones(7), torch.zeros(7))
-        with self.assertRaisesRegex(ValueError, 'configuration differs'):
-            wrong.load_state_dict(first.state_dict())
+            self.assertNotIn('jerk_reference', metrics)
+            self.assertAlmostEqual(total.item(), weight * metrics['jerk_loss'], places=5)
+        torch.testing.assert_close(totals[1], totals[0] * .25)
+        torch.testing.assert_close(grads[1], grads[0] * .25)
+        objective.load_state_dict(objective.state_dict())
+        with self.assertRaisesRegex(ValueError, 'new physical'):
+            objective.load_state_dict({'format': 'model-s-jerk-only-v1'})
 
     def test_forward_restored_on_failure(self):
         head = TinyHead()
@@ -249,22 +244,16 @@ class ModelSLossTests(unittest.TestCase):
                 raise RuntimeError('failed')
         self.assertNotIn('forward', head.__dict__)
 
-    def test_reference_required_and_stationary_floor(self):
-        objective = ModelSLoss(ModelSConfig(calibration_steps=1), torch.ones(7), torch.zeros(7))
-        inputs = {'inputs': {'action': torch.ones(1, 8, 20), 'action_mask': torch.ones(1, 8, 20)}}
-        with self.assertRaisesRegex(ValueError, 'Calibrate'):
-            objective.forward(TinyPolicy(), inputs)
-        objective.calibrate(inputs)
-        self.assertEqual(objective.reference, 1.)
+    def test_invalid_jerk_weight(self):
         for weight in (0., -1., float('nan'), float('inf')):
             with self.assertRaisesRegex(ValueError, 'jerk weight'):
                 ModelSConfig(jerk_weight=weight)
 
-    def test_training_loop_calibrates_before_jerk_only_optimizer_updates(self):
+    def test_training_loop_uses_physical_jerk_from_first_update(self):
         import train as entry
         from src import training_runtime as runtime
         model = TinyPolicy()
-        objective = ModelSLoss(ModelSConfig(calibration_steps=2, dt=1), torch.ones(7), torch.zeros(7))
+        objective = ModelSLoss(ModelSConfig(dt=1), torch.ones(7), torch.zeros(7))
         args = SimpleNamespace(max_steps=2, gradient_accumulation=2, save_steps=2, no_hf_upload=True)
         inputs = {'inputs': {'action': torch.randn(1, 8, 20), 'action_mask': torch.ones(1, 8, 20)}}
         session = SimpleNamespace(model=model, step=0, smoothness=objective,
@@ -282,7 +271,6 @@ class ModelSLossTests(unittest.TestCase):
              patch.object(runtime, 'save_training_distribution_plot'):
             entry.main(args)
         self.assertEqual(update.call_count, 2)
-        self.assertEqual(objective.calibration_count, 2)
         for row in session.trainer.state.log_history:
             self.assertNotIn('fm_loss', row)
             self.assertGreater(row['jerk_loss'], 0)
