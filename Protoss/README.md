@@ -41,8 +41,8 @@
 
 Model-S 실험 코드는 `src/model_s_loss.py`에 모았다. 기본값은 `ModelSConfig`, 계산식은 `clean_action_endpoint()`와 `masked_jerk_loss()`, 가중치 보정은 `ModelSLoss`에서 수정한다. 실험 옵션과 재개 조건은 학습 문서 6.2절을 따른다.
 
-Model-S는 FM loss를 계산하지 않는 전용 action-head forward(`src/model_s_forward.py`)를 사용한다. 목적 함수는 `total_loss = jerk_weight × jerk_loss`이며, 기본 `--s-jerk-weight 1.0`이다. `--s-fm-weight`와 `--s-jerk-ratio`는 제거했다. Model-FM/E는 기존 FM loss를 유지한다.
+Model-S는 FM loss를 계산하지 않는 전용 action-head forward(`src/model_s_forward.py`)를 사용한다. 목적 함수는 `loss = total_loss = raw_jerk_loss = jerk_loss`이다. `--s-jerk-weight`도 제거해 raw jerk tensor를 그대로 역전파한다. `--s-fm-weight`와 `--s-jerk-ratio`는 제거했다. Model-FM/E는 기존 FM loss를 유지한다.
 
 Jerk는 `mean((Δ³q / dt³)²)`를 물리 단위 `rad²/s⁶`로 그대로 사용한다. 기준 RMS를 구하는 준비 단계와 `--s-jerk-reference`, `--s-calibration-steps` 옵션은 제거했다. Pretrained 통계를 이용한 action 역정규화는 유지한다. 첫 step부터 jerk만 학습한다.
 
-`training_loss.png`에는 `jerk_loss`와 `total_loss` 두 패널을 저장한다. CSV에는 두 값과 jerk 가중치를 기록한다. 이전 RMS 정규화 checkpoint는 새 목적 함수로 재개하지 않고 새 output에서 학습한다.
+`training_loss.png`에는 `jerk_loss`와 `total_loss` 두 패널을 저장한다. CSV에는 `raw_jerk_loss`, `jerk_loss`, `total_loss`를 기록하며 세 값은 동일하다. 시작 로그에 `objective=raw_jerk_loss`와 action 주기를 출력한다. 이전 RMS 정규화 checkpoint는 새 목적 함수로 재개하지 않고 새 output에서 학습한다.

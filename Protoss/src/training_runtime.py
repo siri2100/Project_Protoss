@@ -248,17 +248,19 @@ def save_training_loss_plot(training):
     output = training.args.output_dir
     with (output / "training_loss.csv").open("w", newline="") as stream:
         writer = csv.writer(stream)
-        keys = ["jerk_loss", "total_loss", "jerk_weight", "weighted_jerk_loss", "jerk_grad_norm"] if model_s else []
+        keys = ["raw_jerk_loss", "jerk_loss", "total_loss", "jerk_grad_norm"] if model_s else []
         writer.writerow(["step", "loss", *keys])
         for step in steps:
             row = {**components.get(step, {}), "total_loss": losses[step]}
+            if "jerk_loss" in row:
+                row.setdefault("raw_jerk_loss", row["jerk_loss"])
             writer.writerow([step, losses[step], *(row.get(key, "") for key in keys)])
 
     figure = Figure(figsize=(9, 7) if model_s else (9, 5), layout="constrained")
     if model_s:
         axes = figure.subplots(2, 1, sharex=True)
         series = [("jerk_loss", "Mean squared jerk (rad²/s⁶)"),
-                  ("total_loss", "Weighted jerk")]
+                  ("total_loss", "Raw jerk training objective")]
     else:
         axes = [figure.subplots()]
         series = [("loss", "Mean training objective")]

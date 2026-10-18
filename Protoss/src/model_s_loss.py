@@ -11,20 +11,16 @@ import torch
 
 @dataclass(frozen=True)
 class ModelSConfig:
-    jerk_weight: float = 1.0
     dt: float = 1 / 15  # DROID command interval, seconds; jerk is rad/s^3.
     gradient_diagnostics: bool = False  # Extra autograd passes on first microbatch.
 
     def __post_init__(self):
-        if not math.isfinite(self.jerk_weight) or self.jerk_weight <= 0:
-            raise ValueError("Model-S jerk weight must be finite and positive")
         if not math.isfinite(self.dt) or self.dt <= 0:
             raise ValueError("Model-S dt must be positive")
 
 
 def config_from_args(args):
-    return ModelSConfig(jerk_weight=args.s_jerk_weight,
-                        dt=args.s_dt, gradient_diagnostics=args.s_gradient_diagnostics)
+    return ModelSConfig(dt=args.s_dt, gradient_diagnostics=args.s_gradient_diagnostics)
 
 
 def joint_affine(processor, tag):
@@ -123,11 +119,11 @@ class ModelSLoss:
         mask = output["action_mask"][..., 10:17]
         joints = unnormalize_joints(clean[..., 10:17], mask, self.scale, self.offset)
         jerk = masked_jerk_loss(joints, mask, self.config.dt)
-        total = self.config.jerk_weight * jerk
+        total = jerk
         if not torch.isfinite(total):
             raise ValueError("Non-finite Model-S jerk loss; stop before optimizer update")
-        metrics = {"jerk_loss": jerk.detach().item(), "jerk_weight": self.config.jerk_weight,
-                   "weighted_jerk_loss": total.detach().item()}
+        metrics = {"raw_jerk_loss": jerk.detach().item(),
+                   "jerk_loss": jerk.detach().item()}
         if diagnostics and self.config.gradient_diagnostics:
             params = [p for p in model.parameters() if p.requires_grad]
             grads = torch.autograd.grad(jerk, params, retain_graph=True, allow_unused=True)
@@ -144,5 +140,8 @@ class ModelSLoss:
     def load_state_dict(self, state):
         if state.get("format") != "model-s-physical-jerk-only-v1":
             raise ValueError("Previous Model-S loss requires a new physical jerk-only training run")
-        if state["config"] != asdict(self.config):
+        saved = dict(state["config"])
+        if saved.pop("jerk_weight", 1.0) != 1.0:
+            raise ValueError("Weighted Model-S checkpoint requires a new raw jerk run")
+        if saved != asdict(self.config):
             raise ValueError("Model-S resume loss configuration differs")

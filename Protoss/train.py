@@ -55,8 +55,6 @@ def parse_args():
     parser.add_argument("--hf-repo-id", help="Upload destination ACCOUNT/REPO (default: logged-in account/output folder name)")
     parser.add_argument("--no-hf-upload", action="store_true", help="Disable automatic upload for offline training")
     smooth = parser.add_argument_group("Model-S smoothness experiment")
-    smooth.add_argument("--s-jerk-weight", type=float, default=1.0,
-                        help="Multiplier for physical jerk-only Model-S loss")
     smooth.add_argument("--s-dt", type=float, default=1 / 15, help="Action interval in seconds")
     smooth.add_argument("--s-gradient-diagnostics", action="store_true")
     args = parser.parse_args()
@@ -139,6 +137,9 @@ def prepare_training(args):
             previous["variant"] = "FM"
         if previous is not None and previous.get("backend") != "peft":
             raise ValueError("PEFT training cannot resume legacy custom-LoRA checkpoints; use a new output directory")
+        if args.variant == "S" and previous is not None and "model_s" in previous:
+            if previous["model_s"].pop("jerk_weight", 1.0) != 1.0:
+                raise ValueError("Weighted Model-S checkpoint requires a new raw jerk run")
         if previous != lora_settings:
             raise ValueError("LoRA resume settings differ or are missing; use the original experiment settings")
     write_json(args.output_dir / "style_run.json", {"style": args.style, "base_model": str(args.base_model.resolve()),
@@ -171,6 +172,9 @@ def main(args):
     config, lora_settings = prepare_training(args)
     with setup_training(config, args, lora_settings) as training:
         model = training.model
+        if training.smoothness is not None:
+            print(f"Model-S objective=raw_jerk_loss; no RMS scaling or loss weight; "
+                  f"dt={training.smoothness.config.dt:.8g}s; units=rad^2/s^6", flush=True)
         for step in range(training.step + 1, args.max_steps + 1):
             step_loss = 0.0
             step_metrics = {}
