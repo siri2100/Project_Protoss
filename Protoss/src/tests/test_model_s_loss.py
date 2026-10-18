@@ -59,7 +59,7 @@ class ModelSLossTests(unittest.TestCase):
         model = TinyPolicy()
         args = SimpleNamespace(max_steps=2, gradient_accumulation=2, save_steps=2,
                                no_hf_upload=True)
-        objective = ModelSLoss(ModelSConfig(calibration_steps=1, dt=1), torch.ones(7), torch.zeros(7))
+        objective = ModelSLoss(ModelSConfig(calibration_steps=1, dt=1, fm_weight=.25), torch.ones(7), torch.zeros(7))
         inputs = {"inputs": {"action": torch.randn(1, 8, 20), "mask": torch.ones(1, 8, 20)}}
         session = SimpleNamespace(model=model, step=0, smoothness=objective,
                                   batches=lambda count: [inputs] * count,
@@ -83,7 +83,9 @@ class ModelSLossTests(unittest.TestCase):
         self.assertEqual(rows[0]["jerk_weight"], 0)
         self.assertGreater(rows[1]["jerk_weight"], 0)
         for row in rows:
-            self.assertAlmostEqual(row["loss"], row["fm_loss"] + row["weighted_jerk_loss"], places=5)
+            self.assertEqual(row["fm_weight"], .25)
+            self.assertAlmostEqual(row["weighted_fm_loss"], .25 * row["fm_loss"])
+            self.assertAlmostEqual(row["loss"], row["weighted_fm_loss"] + row["weighted_jerk_loss"], places=5)
         save.assert_called_once_with(session)
 
     def test_true_velocity_recovers_clean_endpoint(self):
@@ -163,6 +165,47 @@ class ModelSLossTests(unittest.TestCase):
         wrong = ModelSLoss(ModelSConfig(dt=.1), torch.ones(7), torch.zeros(7))
         with self.assertRaisesRegex(ValueError, "configuration differs"):
             wrong.load_state_dict(loss.state_dict())
+
+    def test_fm_weight_controls_total_and_gradient_with_fixed_jerk(self):
+        model = TinyPolicy()
+        inputs = {"inputs": {"action": torch.randn(1, 8, 20), "mask": torch.ones(1, 8, 20)}}
+        rng = torch.get_rng_state()
+        native = model(**inputs)["loss"]
+        native_grad = torch.autograd.grad(native, model.action_head.lora)[0]
+        torch.set_rng_state(rng)
+        objective = ModelSLoss(ModelSConfig(fm_weight=.25, jerk_weight=0, dt=1), torch.ones(7), torch.zeros(7))
+        total, metrics = objective.forward(model, inputs)
+        torch.testing.assert_close(total, .25 * native)
+        grad = torch.autograd.grad(total, model.action_head.lora)[0]
+        torch.testing.assert_close(grad, .25 * native_grad)
+        self.assertAlmostEqual(metrics["fm_loss"], native.item())
+        self.assertEqual(metrics["fm_weight"], .25)
+
+    def test_calibration_scales_jerk_relative_to_weighted_fm(self):
+        objective = ModelSLoss(ModelSConfig(fm_weight=.2, calibration_steps=1), torch.ones(7), torch.zeros(7))
+        objective.finish_step({"fm_loss": 2., "jerk_loss": 4.})
+        self.assertAlmostEqual(objective.weight, .001)
+
+    def test_legacy_state_defaults_to_fm_weight_one_and_rejects_changed_weight(self):
+        objective = ModelSLoss(ModelSConfig(), torch.ones(7), torch.zeros(7))
+        state = objective.state_dict()
+        del state["config"]["fm_weight"]
+        objective.load_state_dict(state)
+        changed = ModelSLoss(ModelSConfig(fm_weight=.5), torch.ones(7), torch.zeros(7))
+        with self.assertRaisesRegex(ValueError, "configuration differs"):
+            changed.load_state_dict(state)
+
+    def test_fm_weight_validation_and_jerk_only_experiment(self):
+        for weight in (-1., float("nan"), float("inf")):
+            with self.assertRaisesRegex(ValueError, "FM weight"):
+                ModelSConfig(fm_weight=weight)
+        with self.assertRaisesRegex(ValueError, "explicit"):
+            ModelSConfig(fm_weight=0)
+        model = TinyPolicy()
+        objective = ModelSLoss(ModelSConfig(fm_weight=0, jerk_weight=.1, dt=1), torch.ones(7), torch.zeros(7))
+        total, metrics = objective.forward(model, {"inputs": {
+            "action": torch.randn(1, 8, 20), "mask": torch.ones(1, 8, 20)}})
+        self.assertAlmostEqual(total.item(), .1 * metrics["jerk_loss"], places=5)
 
     def test_capture_cleanup_on_forward_failure(self):
         head = TinyHead()

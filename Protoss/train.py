@@ -55,6 +55,8 @@ def parse_args():
     parser.add_argument("--hf-repo-id", help="Upload destination ACCOUNT/REPO (default: logged-in account/output folder name)")
     parser.add_argument("--no-hf-upload", action="store_true", help="Disable automatic upload for offline training")
     smooth = parser.add_argument_group("Model-S smoothness experiment")
+    smooth.add_argument("--s-fm-weight", type=float, default=1.0,
+                        help="Multiplier for native FM loss in Model-S")
     smooth.add_argument("--s-jerk-weight", type=float, default=None,
                         help="Fixed lambda; omit to calibrate from initial FM/jerk losses")
     smooth.add_argument("--s-jerk-ratio", type=float, default=0.01)
@@ -143,6 +145,8 @@ def prepare_training(args):
             previous["variant"] = "FM"
         if previous is not None and previous.get("backend") != "peft":
             raise ValueError("PEFT training cannot resume legacy custom-LoRA checkpoints; use a new output directory")
+        if args.variant == "S" and previous is not None and "model_s" in previous:
+            previous["model_s"].setdefault("fm_weight", 1.0)
         if previous != lora_settings:
             raise ValueError("LoRA resume settings differ or are missing; use the original experiment settings")
     write_json(args.output_dir / "style_run.json", {"style": args.style, "base_model": str(args.base_model.resolve()),

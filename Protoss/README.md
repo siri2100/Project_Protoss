@@ -41,4 +41,6 @@
 
 Model-S 실험 코드는 `src/model_s_loss.py`에 모았다. 기본값은 `ModelSConfig`, 계산식은 `clean_action_endpoint()`와 `masked_jerk_loss()`, 가중치 보정은 `ModelSLoss`에서 수정한다. 실험 옵션과 재개 조건은 학습 문서 6.2절을 따른다.
 
-Model-S 학습 완료 시 `training_loss.png`에 `fm_loss`, 가중치를 곱하기 전의 `jerk_loss`, `total_loss = fm_loss + λ × jerk_loss`를 세 개의 패널로 저장한다. 각 패널은 optimizer step을 공유하고 Y축은 독립적이다. `training_loss.csv`에도 세 값을 기록하며 기존 `loss` 열은 `total_loss`와 같다. 학습 재개 시 checkpoint의 이전 기록도 포함한다.
+Model-S 학습 완료 시 `training_loss.png`에 가중치를 곱하기 전의 `fm_loss`, `jerk_loss`, 그리고 `total_loss = fm_weight × fm_loss + jerk_weight × jerk_loss`를 세 개의 패널로 저장한다. 각 패널은 optimizer step을 공유하고 Y축은 독립적이다. `training_loss.csv`에도 세 값과 각 가중치·가중 loss를 기록하며 기존 `loss` 열은 `total_loss`와 같다. 학습 재개 시 checkpoint의 이전 기록도 포함한다.
+
+FM 가중치는 학습 명령의 `--s-fm-weight 0.5`로 조정하며 기본값은 `1.0`이다. Jerk 자동 보정은 `jerk_weight = jerk_ratio × fm_weight × sum(fm_loss) / sum(jerk_loss)`를 사용한다. 따라서 FM 대비 jerk의 상대 비율까지 직접 바꾸려면 `--s-jerk-ratio`를 조정하거나 `--s-jerk-weight`를 고정한다. FM을 완전히 끄려면 `--s-fm-weight 0 --s-jerk-weight 값`으로 명시한다. 재개 시 원래 FM 가중치를 유지해야 하며, 이 옵션 도입 전 checkpoint는 `1.0`으로 해석한다.
