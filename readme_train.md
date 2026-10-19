@@ -50,14 +50,9 @@ if [ ! -d "$PROTOSS_ROOT" ]; then
 fi
 test -f "$PROTOSS_ROOT/Protoss/train.py"
 test -f "$PROTOSS_ROOT/Protoss/prepare_droid.py"
-)
-```
-
-프로젝트 저장소에서 원격 v1.6 브랜치를 기준으로 로컬 브랜치를 생성한다.
-```bash
 cd /workspace/Project_Protoss
-git checkout -b v1.6 origin/v1.6
-```
+git checkout -b v1.7 origin/v1.7
+)
 
 ### 저장 폴더 준비
 
@@ -329,11 +324,11 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
 (
 set -e
 STEP=500
-NAME=v176_model_s_step"${STEP}"
+NAME=v178_model_s_step"${STEP}"
 LR=1e-6
 FOLDER=Project_Protoss
-L_FM=1000
-L_VELOCITY=1e-6
+L_FMD=1
+L_VELOCITY=1e-3
 
 export PROTOSS_ROOT=/workspace/"$FOLDER"
 export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
@@ -350,7 +345,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
   --base-model "$CHECKPOINT_ROOT/GR00T-N1.7-DROID" \
   --output-dir "$OUTPUT_DIR" \
-  --s-fm-weight "$L_FM" --s-velocity-lambda "$L_VELOCITY" --s-calibration-batches 10 \
+  --s-fm-weight "$L_FMD" --s-velocity-lambda "$L_VELOCITY" --s-calibration-batches 10 \
   --lora-rank 32 --lora-alpha 64 --max-steps "$STEP" --save-steps 500 \
   --batch-size 2 --gradient-accumulation 16 --lr "$LR" --workers 1 --seed 42 \
 )
