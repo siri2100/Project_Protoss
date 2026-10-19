@@ -55,6 +55,10 @@ def parse_args():
     parser.add_argument("--hf-repo-id", help="Upload destination ACCOUNT/REPO (default: logged-in account/output folder name)")
     parser.add_argument("--no-hf-upload", action="store_true", help="Disable automatic upload for offline training")
     smooth = parser.add_argument_group("Model-S smoothness experiment")
+    smooth.add_argument("--s-velocity-lambda", type=float, default=0.01)
+    smooth.add_argument("--s-velocity-reference", type=float, default=None,
+                        help="Fixed reference speed in rad/s; default: RMS from initial target batches")
+    smooth.add_argument("--s-calibration-batches", type=int, default=10)
     smooth.add_argument("--s-dt", type=float, default=1 / 15, help="Action interval in seconds")
     smooth.add_argument("--s-gradient-diagnostics", action="store_true")
     args = parser.parse_args()
@@ -127,7 +131,7 @@ def prepare_training(args):
             from .src.model_s_loss import config_from_args
         else:
             from src.model_s_loss import config_from_args
-        lora_settings["loss"] = "physical_joint_jerk_only-v4"
+        lora_settings["loss"] = "pretrained_flow_preservation+normalized_joint_velocity-v1"
         lora_settings["model_s"] = asdict(config_from_args(args))
     settings_path = args.output_dir / "lora_settings.json"
     if args.resume:
@@ -137,9 +141,6 @@ def prepare_training(args):
             previous["variant"] = "FM"
         if previous is not None and previous.get("backend") != "peft":
             raise ValueError("PEFT training cannot resume legacy custom-LoRA checkpoints; use a new output directory")
-        if args.variant == "S" and previous is not None and "model_s" in previous:
-            if previous["model_s"].pop("jerk_weight", 1.0) != 1.0:
-                raise ValueError("Weighted Model-S checkpoint requires a new raw jerk run")
         if previous != lora_settings:
             raise ValueError("LoRA resume settings differ or are missing; use the original experiment settings")
     write_json(args.output_dir / "style_run.json", {"style": args.style, "base_model": str(args.base_model.resolve()),
@@ -155,12 +156,12 @@ def main(args):
     if __package__:
         from .src.training_runtime import (
             setup_training, preprocess, update_weights, save_checkpoint, export_model,
-            record_training_loss, save_training_loss_plot, save_training_distribution_plot,
+            record_training_loss, save_training_loss_plot, save_training_distribution_plot, calibrate_s_reference,
         )
     else:
         from src.training_runtime import (
             setup_training, preprocess, update_weights, save_checkpoint, export_model,
-            record_training_loss, save_training_loss_plot, save_training_distribution_plot,
+            record_training_loss, save_training_loss_plot, save_training_distribution_plot, calibrate_s_reference,
         )
 
     if __package__:
@@ -172,9 +173,11 @@ def main(args):
     config, lora_settings = prepare_training(args)
     with setup_training(config, args, lora_settings) as training:
         model = training.model
+        calibrate_s_reference(training)
         if training.smoothness is not None:
-            print(f"Model-S objective=raw_jerk_loss; no RMS scaling or loss weight; "
-                  f"dt={training.smoothness.config.dt:.8g}s; units=rad^2/s^6", flush=True)
+            print(f"Model-S objective=pretrained_flow_MSE+lambda*normalized_velocity; "
+                  f"lambda={training.smoothness.config.velocity_lambda:.8g}; "
+                  f"reference={training.smoothness.reference:.8g} rad/s", flush=True)
         for step in range(training.step + 1, args.max_steps + 1):
             step_loss = 0.0
             step_metrics = {}

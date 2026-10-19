@@ -1,7 +1,7 @@
-"""Model-S experiment: physical jerk of the one-step clean joint endpoint.
+"""Model-S: Pretrained flow preservation plus normalized joint velocity to encourage slower motion.
 
-Edit ModelSConfig for defaults, joint_affine for representation/normalization,
-and masked_jerk_loss for the regularizer. No GR00T source changes are required.
+ModelSConfig: experimental settings. joint_affine: pretrained action inverse.
+masked_velocity_loss: physical speed penalty. ModelSLoss: combined objective.
 """
 from dataclasses import asdict, dataclass
 import math
@@ -11,23 +11,37 @@ import torch
 
 @dataclass(frozen=True)
 class ModelSConfig:
-    dt: float = 1 / 15  # DROID command interval, seconds; jerk is rad/s^3.
-    gradient_diagnostics: bool = False  # Extra autograd passes on first microbatch.
+    velocity_lambda: float = 0.01
+    velocity_reference: float | None = None  # Fixed RMS in rad/s; None estimates from targets.
+    calibration_batches: int = 10
+    velocity_reference_floor: float = 1e-3  # rad/s; guards stationary targets.
+    dt: float = 1 / 15
+    gradient_diagnostics: bool = False
 
     def __post_init__(self):
-        if not math.isfinite(self.dt) or self.dt <= 0:
-            raise ValueError("Model-S dt must be positive")
+        if not math.isfinite(self.velocity_lambda) or self.velocity_lambda < 0:
+            raise ValueError("Model-S velocity lambda must be finite and nonnegative")
+        for name, value in (("dt", self.dt), ("velocity reference floor", self.velocity_reference_floor)):
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError(f"Model-S {name} must be finite and positive")
+        if self.velocity_reference is not None and (not math.isfinite(self.velocity_reference) or self.velocity_reference <= 0):
+            raise ValueError("Model-S velocity reference must be finite and positive")
+        if self.calibration_batches < 1:
+            raise ValueError("Model-S calibration batches must be positive")
 
 
 def config_from_args(args):
-    return ModelSConfig(dt=args.s_dt, gradient_diagnostics=args.s_gradient_diagnostics)
+    return ModelSConfig(velocity_lambda=args.s_velocity_lambda,
+                        velocity_reference=args.s_velocity_reference,
+                        calibration_batches=args.s_calibration_batches,
+                        dt=args.s_dt, gradient_diagnostics=args.s_gradient_diagnostics)
 
 
 def joint_affine(processor, tag):
     """Read active pretrained normalization, never the fine-tuning subset stats.
 
     DROID joints are position offsets from ONE reference per chunk, not
-    successive increments. Adding that constant reference does not change Δ³.
+    successive increments. Adding that constant reference does not change Δq.
     Use affine inverse without clipping to preserve endpoint gradients outside
     [-1, 1]; deployed upstream min/max inverse clips, so this is a smooth surrogate.
     """
@@ -90,58 +104,95 @@ def clean_action_endpoint(noisy_action, timestep, predicted_velocity):
     return noisy_action.float() + (1 - t) * predicted_velocity.float()
 
 
-def masked_jerk_loss(joints, mask, dt):
-    """Third finite difference; a window is valid only if all FOUR points are valid."""
-    if joints.shape[1] < 4:
-        raise ValueError("Model-S requires at least four action timesteps")
+def velocity_terms(joints, mask, dt):
+    """Sum of squared physical speeds and number of valid joint pairs."""
+    if joints.shape[1] < 2:
+        raise ValueError("Model-S requires at least two action timesteps")
     valid = mask.bool()
-    # Replace masked values before subtraction (0 * NaN is still NaN).
     values = torch.where(valid, joints.float(), 0.0)
-    jerk = (values[:, 3:] - 3 * values[:, 2:-1]
-            + 3 * values[:, 1:-2] - values[:, :-3]) / dt**3
-    windows = valid[:, 3:] & valid[:, 2:-1] & valid[:, 1:-2] & valid[:, :-3]
-    if not windows.any():
-        raise ValueError("Model-S batch has no valid four-point joint windows")
-    return torch.where(windows, jerk.square(), 0.0).sum() / windows.sum()
+    velocity = (values[:, 1:] - values[:, :-1]) / dt
+    pairs = valid[:, 1:] & valid[:, :-1]
+    count = pairs.sum()
+    if not count:
+        raise ValueError("Model-S batch has no valid joint pairs")
+    return torch.where(pairs, velocity.square(), 0.0).sum(), count
+
+
+def masked_velocity_loss(joints, mask, dt):
+    total, count = velocity_terms(joints, mask, dt)
+    return total / count
 
 
 class ModelSLoss:
-    """Jerk-only loss in physical units, without an RMS normalizer."""
+    """Pretrained-flow MSE + lambda * physical velocity MSE / fixed reference speed squared."""
     def __init__(self, config, scale, offset):
         self.config = config
         self.scale, self.offset = scale, offset
+        self.reference = config.velocity_reference
+        self.calibration_count = 0
+        self.target_squared_sum = 0.0
+        self.target_pair_count = 0
+
+    @torch.no_grad()
+    def calibrate(self, inputs):
+        if self.reference is not None:
+            return
+        batch = inputs["inputs"]
+        mask = batch["action_mask"][..., 10:17]
+        joints = unnormalize_joints(batch["action"][..., 10:17].float(), mask, self.scale, self.offset)
+        squared, count = velocity_terms(joints, mask, self.config.dt)
+        if not torch.isfinite(squared):
+            raise ValueError("Non-finite Model-S target velocity")
+        self.target_squared_sum += squared.item()
+        self.target_pair_count += count.item()
+        self.calibration_count += 1
+        if self.calibration_count >= self.config.calibration_batches:
+            self.reference = max(math.sqrt(self.target_squared_sum / self.target_pair_count),
+                                 self.config.velocity_reference_floor)
+            print(f"Model-S velocity reference fixed: {self.reference:.8g} rad/s", flush=True)
 
     def forward(self, model, inputs, diagnostics=False):
-        from .model_s_forward import jerk_only_forward
-        with jerk_only_forward(model.action_head):
+        from .model_s_forward import model_s_forward
+        if self.reference is None:
+            raise ValueError("Calibrate Model-S velocity reference before training")
+        # One shared backbone/noise/time supplies teacher and student flow predictions.
+        with model_s_forward(model.action_head):
             output = model(**inputs)
         clean = clean_action_endpoint(output["noisy"], output["t"], output["velocity"])
         mask = output["action_mask"][..., 10:17]
         joints = unnormalize_joints(clean[..., 10:17], mask, self.scale, self.offset)
-        jerk = masked_jerk_loss(joints, mask, self.config.dt)
-        total = jerk
-        if not torch.isfinite(total):
-            raise ValueError("Non-finite Model-S jerk loss; stop before optimizer update")
-        metrics = {"raw_jerk_loss": jerk.detach().item(),
-                   "jerk_loss": jerk.detach().item()}
+        raw_velocity = masked_velocity_loss(joints, mask, self.config.dt)
+        normalized_velocity = raw_velocity / self.reference**2
+        fm = output["loss"]
+        weighted_velocity = self.config.velocity_lambda * normalized_velocity
+        total = fm + weighted_velocity
+        if not torch.isfinite(total) or not torch.isfinite(normalized_velocity):
+            raise ValueError("Non-finite Model-S FM/velocity loss")
+        metrics = {"fm_loss": fm.detach().item(), "raw_velocity_loss": raw_velocity.detach().item(),
+                   "normalized_velocity_loss": normalized_velocity.detach().item(),
+                   "weighted_velocity_loss": weighted_velocity.detach().item(),
+                   "velocity_lambda": self.config.velocity_lambda,
+                   "velocity_reference": self.reference}
         if diagnostics and self.config.gradient_diagnostics:
             params = [p for p in model.parameters() if p.requires_grad]
-            grads = torch.autograd.grad(jerk, params, retain_graph=True, allow_unused=True)
-            squared = torch.zeros((), device=jerk.device)
-            for grad in grads:
-                if grad is not None:
-                    squared += grad.detach().float().square().sum()
-            metrics["jerk_grad_norm"] = squared.sqrt().item()
+            for name, loss in (("fm", fm), ("velocity", normalized_velocity)):
+                grads = torch.autograd.grad(loss, params, retain_graph=True, allow_unused=True)
+                squared = torch.zeros((), device=total.device)
+                for grad in grads:
+                    if grad is not None:
+                        squared += grad.detach().float().square().sum()
+                metrics[f"{name}_grad_norm"] = squared.sqrt().item()
         return total, metrics
 
     def state_dict(self):
-        return {"format": "model-s-physical-jerk-only-v1", "config": asdict(self.config)}
+        return {"format": "model-s-flow-preservation-velocity-v1", "config": asdict(self.config),
+                "reference": self.reference, "calibration_count": self.calibration_count,
+                "target_squared_sum": self.target_squared_sum, "target_pair_count": self.target_pair_count}
 
     def load_state_dict(self, state):
-        if state.get("format") != "model-s-physical-jerk-only-v1":
-            raise ValueError("Previous Model-S loss requires a new physical jerk-only training run")
-        saved = dict(state["config"])
-        if saved.pop("jerk_weight", 1.0) != 1.0:
-            raise ValueError("Weighted Model-S checkpoint requires a new raw jerk run")
-        if saved != asdict(self.config):
+        if state.get("format") != "model-s-flow-preservation-velocity-v1":
+            raise ValueError("Previous Model-S loss requires a new flow-preservation + velocity training run")
+        if state["config"] != asdict(self.config):
             raise ValueError("Model-S resume loss configuration differs")
+        for key in ("reference", "calibration_count", "target_squared_sum", "target_pair_count"):
+            setattr(self, key, state[key])

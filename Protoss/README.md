@@ -6,10 +6,10 @@
 |---|---|---|
 | baseline | 없음, pretrained 평가 | 없음 |
 | Model-FM | LoRA | FM |
-| Model-S | LoRA | physical clean joint trajectory jerk only |
+| Model-S | LoRA | pretrained flow MSE + normalized joint velocity |
 | Model-E | LoRA | FM (현재 Model-FM과 동일) |
 
-설치·데이터 준비·학습·업로드는 [readme_train.md](../readme_train.md), 모델 다운로드·추론·평가는 [readme_test.md](../readme_test.md)를 따른다. Model-FM(v1.6.14)은 FM 기준 모델이며 Model-S(v1.7)는 정규화 jerk-only, Model-E는 현재 FM-only로 독립 학습한다.
+설치·데이터 준비·학습·업로드는 [readme_train.md](../readme_train.md), 모델 다운로드·추론·평가는 [readme_test.md](../readme_test.md)를 따른다. Model-FM(v1.6.14)은 FM 기준 모델이며 Model-S(v1.7)는 pretrained flow 보존 + 정규화 velocity, Model-E는 현재 FM-only로 독립 학습한다.
 
 - 공통 데이터 준비: `prepare_groot_dataset.py`
 - Model-FM/S/E LoRA 학습: `train.py --model FM|S|E`
@@ -41,10 +41,10 @@
 
 모델 저장 위치는 프로젝트 바로 상위의 `checkpoint/`다. 예: `/workspace/Project_Protoss`의 모델은 `/workspace/checkpoint`에 저장한다. 학습 문서의 `CHECKPOINT_ROOT` 설정으로 원본 pretrained와 학습 run을 저장하고, 완료된 run 전체를 Hugging Face private 모델 저장소에 업로드한다. 추론 서버에서는 추론 문서에 따라 원본 pretrained와 업로드한 run을 Hugging Face에서 같은 `checkpoint/` 아래로 내려받고, `--model-path`에 다운로드한 run을, `--base-model-path`에 원본 pretrained 경로를 지정한다.
 
-Model-S 실험 코드는 `src/model_s_loss.py`에 모았다. 기본값은 `ModelSConfig`, 계산식은 `clean_action_endpoint()`와 `masked_jerk_loss()`, 가중치 보정은 `ModelSLoss`에서 수정한다. 실험 옵션과 재개 조건은 학습 문서 6.2절을 따른다.
+Model-S는 `loss = fm_loss + lambda × normalized_velocity_loss`를 사용한다. `fm_loss`는 정답 action FM이 아니라, 같은 관측·noise·timestep에서 pretrained와 pretrained+LoRA의 flow velocity 차이를 masked MSE로 계산하는 distillation loss다. Teacher는 PEFT adapter를 끄고 gradient 없이 실행하고 student에는 LoRA를 적용한다. 두 DiT pass는 dropout을 끄며 backbone/features를 공유한다. Model-FM/E는 기존 정답 FM loss를 유지한다.
 
-Model-S는 FM loss를 계산하지 않는 전용 action-head forward(`src/model_s_forward.py`)를 사용한다. 목적 함수는 `loss = total_loss = raw_jerk_loss = jerk_loss`이다. `--s-jerk-weight`도 제거해 raw jerk tensor를 그대로 역전파한다. `--s-fm-weight`와 `--s-jerk-ratio`는 제거했다. Model-FM/E는 기존 FM loss를 유지한다.
+`model_s_loss.py`에 실험 설정과 관절 속도 loss를, `model_s_forward.py`에 teacher/student forward를 모았다. Student clean action endpoint를 pretrained 통계로 역정규화한 관절 7개에서 `(q[k+1]-q[k])/dt`를 계산한다. Gripper와 padding은 제외한다. `normalized_velocity_loss = mean(velocity²)/v_ref²`이며 기준 RMS는 초기 정답 10개 batch에서 추정해 고정한다. 최저 기준은 `0.001 rad/s`다. 준비 단계는 optimizer step을 사용하지 않는다.
 
-Jerk는 `mean((Δ³q / dt³)²)`를 물리 단위 `rad²/s⁶`로 그대로 사용한다. 기준 RMS를 구하는 준비 단계와 `--s-jerk-reference`, `--s-calibration-steps` 옵션은 제거했다. Pretrained 통계를 이용한 action 역정규화는 유지한다. 첫 step부터 jerk만 학습한다.
+`--s-velocity-lambda 0.01`로 속도 억제 강도를 조정한다. `--s-velocity-reference 1.0`으로 기준 RMS(rad/s)를 직접 지정하면 추정을 생략한다. `--s-calibration-batches 10`과 `--s-dt 0.06666666666666667`로 측정 batch 수와 action 주기를 지정한다. lambda=0이면 teacher 보존 항만 학습한다. 초기 LoRA 출력이 pretrained와 같으면 보존 loss는 0이며, 속도 loss가 LoRA를 바꾸면서 보존 항이 제약으로 작동한다.
 
-`training_loss.png`에는 `jerk_loss`와 `total_loss` 두 패널을 저장한다. CSV에는 `raw_jerk_loss`, `jerk_loss`, `total_loss`를 기록하며 세 값은 동일하다. 시작 로그에 `objective=raw_jerk_loss`와 action 주기를 출력한다. 이전 RMS 정규화 checkpoint는 새 목적 함수로 재개하지 않고 새 output에서 학습한다.
+`training_loss.png`에 `fm_loss`, `normalized_velocity_loss`, `total_loss`를 세 패널로 저장한다. CSV와 checkpoint에는 raw/정규화/가중 속도 loss, lambda, 기준 RMS도 기록한다. 콘솔은 step당 total loss 한 줄을 유지한다. Calibration 상태를 저장·복원하며 이전 목적 함수 checkpoint는 새 run으로 시작한다. Clean endpoint는 실제 rollout의 근사값이며 성공률 보존과 속도 감소는 rollout에서 검증한다.

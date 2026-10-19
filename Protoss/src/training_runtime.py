@@ -192,6 +192,16 @@ def preprocess(batch, training):
     return training.trainer._prepare_inputs(batch)
 
 
+def calibrate_s_reference(training):
+    """Use target batches only; no optimizer, scheduler or model forward calls."""
+    objective = training.smoothness
+    if objective is None or objective.reference is not None:
+        return
+    remaining = objective.config.calibration_batches - objective.calibration_count
+    for batch in training.batches(remaining):
+        objective.calibrate(preprocess(batch, training))
+
+
 def update_weights(training):
     import torch
     trainer = training.trainer
@@ -243,24 +253,25 @@ def save_training_loss_plot(training):
               if "step" in row and "loss" in row and row["step"] <= training.step}
     steps = sorted(losses)
     components = {row["step"]: row for row in training.trainer.state.log_history
-                  if "step" in row and "jerk_loss" in row and row["step"] <= training.step}
+                  if "step" in row and "normalized_velocity_loss" in row and row["step"] <= training.step}
     model_s = training.smoothness is not None or bool(components)
     output = training.args.output_dir
     with (output / "training_loss.csv").open("w", newline="") as stream:
         writer = csv.writer(stream)
-        keys = ["raw_jerk_loss", "jerk_loss", "total_loss", "jerk_grad_norm"] if model_s else []
+        keys = ["fm_loss", "raw_velocity_loss", "normalized_velocity_loss", "total_loss",
+                "weighted_velocity_loss", "velocity_lambda", "velocity_reference",
+                "fm_grad_norm", "velocity_grad_norm"] if model_s else []
         writer.writerow(["step", "loss", *keys])
         for step in steps:
             row = {**components.get(step, {}), "total_loss": losses[step]}
-            if "jerk_loss" in row:
-                row.setdefault("raw_jerk_loss", row["jerk_loss"])
             writer.writerow([step, losses[step], *(row.get(key, "") for key in keys)])
 
-    figure = Figure(figsize=(9, 7) if model_s else (9, 5), layout="constrained")
+    figure = Figure(figsize=(9, 10) if model_s else (9, 5), layout="constrained")
     if model_s:
-        axes = figure.subplots(2, 1, sharex=True)
-        series = [("jerk_loss", "Mean squared jerk (rad²/s⁶)"),
-                  ("total_loss", "Raw jerk training objective")]
+        axes = figure.subplots(3, 1, sharex=True)
+        series = [("fm_loss", "Pretrained flow preservation MSE"),
+                  ("normalized_velocity_loss", "Normalized mean squared joint velocity"),
+                  ("total_loss", "Flow preservation + lambda * normalized velocity")]
     else:
         axes = [figure.subplots()]
         series = [("loss", "Mean training objective")]
