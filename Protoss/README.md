@@ -47,4 +47,4 @@ Model-S는 `loss = fm_loss + lambda × normalized_velocity_loss`를 사용한다
 
 `--s-velocity-lambda 0.01`로 속도 억제 강도를 조정한다. `--s-velocity-reference 1.0`으로 기준 RMS(rad/s)를 직접 지정하면 추정을 생략한다. `--s-calibration-batches 10`과 `--s-dt 0.06666666666666667`로 측정 batch 수와 action 주기를 지정한다. lambda=0이면 teacher 보존 항만 학습한다. 초기 LoRA 출력이 pretrained와 같으면 보존 loss는 0이며, 속도 loss가 LoRA를 바꾸면서 보존 항이 제약으로 작동한다.
 
-`training_loss.png`에 `fm_loss`, `normalized_velocity_loss`, `total_loss`를 세 패널로 저장한다. CSV와 checkpoint에는 raw/정규화/가중 속도 loss, lambda, 기준 RMS도 기록한다. 콘솔은 step당 total loss 한 줄을 유지한다. Calibration 상태를 저장·복원하며 이전 목적 함수 checkpoint는 새 run으로 시작한다. Clean endpoint는 실제 rollout의 근사값이며 성공률 보존과 속도 감소는 rollout에서 검증한다.
+`training_loss.png`에 `fm_loss`, `normalized_velocity_loss`, `total_loss`를 세 패널로 저장한다. CSV와 checkpoint에는 raw/정규화/가중 속도 loss, lambda, 기준 RMS도 기록한다. 콘솔은 step마다 `fm_loss`, `velocity_loss`(lambda를 곱하기 전의 정규화 값), `total_loss`를 한 줄에 표시한다. Calibration 상태를 저장·복원하며 이전 목적 함수 checkpoint는 새 run으로 시작한다. Clean endpoint는 실제 rollout의 근사값이며 성공률 보존과 속도 감소는 rollout에서 검증한다.

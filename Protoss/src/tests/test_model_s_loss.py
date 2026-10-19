@@ -336,6 +336,11 @@ class ModelSLossTests(unittest.TestCase):
         self.assertEqual(update.call_count, 2)
         self.assertEqual(objective.calibration_count, 2)
         self.assertEqual(sum(line.startswith('step=') for line in log.getvalue().splitlines()), 2)
+        lines = [line for line in log.getvalue().splitlines() if line.startswith('step=')]
+        for line, row in zip(lines, session.trainer.state.log_history):
+            self.assertIn(f"fm_loss={row['fm_loss']:.6f}", line)
+            self.assertIn(f"velocity_loss={row['normalized_velocity_loss']:.6f}", line)
+            self.assertIn(f"total_loss={row['loss']:.6f}", line)
         for row in session.trainer.state.log_history:
             self.assertAlmostEqual(row['loss'], row['fm_loss']+row['weighted_velocity_loss'], places=5)
             self.assertNotIn('jerk_loss', row)

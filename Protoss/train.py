@@ -201,7 +201,13 @@ def main(args):
             update_weights(training)
             training.step = step
             record_training_loss(training, step_loss, **step_metrics)
-            print(f"step={step}/{args.max_steps} loss={step_loss:.6f}", flush=True)
+            if training.smoothness is not None:
+                print(f"step={step}/{args.max_steps} "
+                      f"fm_loss={step_metrics['fm_loss']:.6f} "
+                      f"velocity_loss={step_metrics['normalized_velocity_loss']:.6f} "
+                      f"total_loss={step_loss:.6f}", flush=True)
+            else:
+                print(f"step={step}/{args.max_steps} loss={step_loss:.6f}", flush=True)
             if step % args.save_steps == 0 or step == args.max_steps:
                 save_checkpoint(training)
 
