@@ -55,6 +55,8 @@ def parse_args():
     parser.add_argument("--hf-repo-id", help="Upload destination ACCOUNT/REPO (default: logged-in account/output folder name)")
     parser.add_argument("--no-hf-upload", action="store_true", help="Disable automatic upload for offline training")
     smooth = parser.add_argument_group("Model-S smoothness experiment")
+    smooth.add_argument("--s-fm-weight", type=float, default=1.0,
+                        help="Weight for the pretrained flow preservation MSE")
     smooth.add_argument("--s-velocity-lambda", type=float, default=0.01)
     smooth.add_argument("--s-velocity-reference", type=float, default=None,
                         help="Fixed reference speed in rad/s; default: RMS from initial target batches")
@@ -141,6 +143,8 @@ def prepare_training(args):
             previous["variant"] = "FM"
         if previous is not None and previous.get("backend") != "peft":
             raise ValueError("PEFT training cannot resume legacy custom-LoRA checkpoints; use a new output directory")
+        if args.variant == "S" and previous is not None and "model_s" in previous:
+            previous["model_s"].setdefault("fm_weight", 1.0)
         if previous != lora_settings:
             raise ValueError("LoRA resume settings differ or are missing; use the original experiment settings")
     write_json(args.output_dir / "style_run.json", {"style": args.style, "base_model": str(args.base_model.resolve()),
@@ -175,7 +179,8 @@ def main(args):
         model = training.model
         calibrate_s_reference(training)
         if training.smoothness is not None:
-            print(f"Model-S objective=pretrained_flow_MSE+lambda*normalized_velocity; "
+            print(f"Model-S objective=fm_weight*pretrained_flow_MSE+lambda*normalized_velocity; "
+                  f"fm_weight={training.smoothness.config.fm_weight:.8g}; "
                   f"lambda={training.smoothness.config.velocity_lambda:.8g}; "
                   f"reference={training.smoothness.reference:.8g} rad/s", flush=True)
         for step in range(training.step + 1, args.max_steps + 1):
@@ -204,6 +209,7 @@ def main(args):
             if training.smoothness is not None:
                 print(f"step={step}/{args.max_steps} "
                       f"fm_loss={step_metrics['fm_loss']:.6f} "
+                      f"weighted_fm_loss={step_metrics['weighted_fm_loss']:.6f} "
                       f"velocity_loss={step_metrics['normalized_velocity_loss']:.6f} "
                       f"total_loss={step_loss:.6f}", flush=True)
             else:

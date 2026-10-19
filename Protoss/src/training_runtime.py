@@ -259,6 +259,7 @@ def save_training_loss_plot(training):
     with (output / "training_loss.csv").open("w", newline="") as stream:
         writer = csv.writer(stream)
         keys = ["fm_loss", "raw_velocity_loss", "normalized_velocity_loss", "total_loss",
+                "fm_weight", "weighted_fm_loss",
                 "weighted_velocity_loss", "velocity_lambda", "velocity_reference",
                 "fm_grad_norm", "velocity_grad_norm"] if model_s else []
         writer.writerow(["step", "loss", *keys])
@@ -271,7 +272,7 @@ def save_training_loss_plot(training):
         axes = figure.subplots(3, 1, sharex=True)
         series = [("fm_loss", "Pretrained flow preservation MSE"),
                   ("normalized_velocity_loss", "Normalized mean squared joint velocity"),
-                  ("total_loss", "Flow preservation + lambda * normalized velocity")]
+                  ("total_loss", "Weighted flow preservation + lambda * normalized velocity")]
     else:
         axes = [figure.subplots()]
         series = [("loss", "Mean training objective")]

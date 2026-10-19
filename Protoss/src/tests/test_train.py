@@ -24,7 +24,7 @@ class ModelTrainingTests(unittest.TestCase):
                     self.assertEqual(args.variant, variant)
                     self.assertEqual(args.style, variant)
                     self.assertEqual(args.output_dir, root / ("model_" + variant))
-                    self.assertFalse(hasattr(args, "s_fm_weight"))
+                    self.assertEqual(args.s_fm_weight, 1.0)
                     self.assertFalse(hasattr(args, "s_jerk_weight"))
                     self.assertEqual(args.s_velocity_lambda, .01)
                     settings.append((args.styles_dir, args.base_model, args.lora_rank,
@@ -33,11 +33,12 @@ class ModelTrainingTests(unittest.TestCase):
             self.assertEqual(settings[0], settings[1])
             self.assertEqual(settings[1], settings[2])
 
-            with patch.object(sys, "argv", [*argv, "--model", "S", "--s-velocity-lambda", "0.25"]), \
+            with patch.object(sys, "argv", [*argv, "--model", "S", "--s-velocity-lambda", "0.25", "--s-fm-weight", "1000"]), \
                  patch.object(sys, "path", list(sys.path)):
                 args = training.parse_args()
                 from src.model_s_loss import config_from_args
                 self.assertEqual(config_from_args(args).velocity_lambda, .25)
+                self.assertEqual(config_from_args(args).fm_weight, 1000)
 
 
 if __name__ == "__main__":

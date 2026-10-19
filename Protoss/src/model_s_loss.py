@@ -17,8 +17,11 @@ class ModelSConfig:
     velocity_reference_floor: float = 1e-3  # rad/s; guards stationary targets.
     dt: float = 1 / 15
     gradient_diagnostics: bool = False
+    fm_weight: float = 1.0
 
     def __post_init__(self):
+        if not math.isfinite(self.fm_weight) or self.fm_weight < 0:
+            raise ValueError("Model-S FM weight must be finite and nonnegative")
         if not math.isfinite(self.velocity_lambda) or self.velocity_lambda < 0:
             raise ValueError("Model-S velocity lambda must be finite and nonnegative")
         for name, value in (("dt", self.dt), ("velocity reference floor", self.velocity_reference_floor)):
@@ -31,7 +34,7 @@ class ModelSConfig:
 
 
 def config_from_args(args):
-    return ModelSConfig(velocity_lambda=args.s_velocity_lambda,
+    return ModelSConfig(fm_weight=args.s_fm_weight, velocity_lambda=args.s_velocity_lambda,
                         velocity_reference=args.s_velocity_reference,
                         calibration_batches=args.s_calibration_batches,
                         dt=args.s_dt, gradient_diagnostics=args.s_gradient_diagnostics)
@@ -115,7 +118,8 @@ def velocity_terms(joints, mask, dt):
     count = pairs.sum()
     if not count:
         raise ValueError("Model-S batch has no valid joint pairs")
-    return torch.where(pairs, velocity.square(), 0.0).sum(), count
+    loss = torch.where(pairs, velocity.square(), 0.0).sum()
+    return loss, count
 
 
 def masked_velocity_loss(joints, mask, dt):
@@ -164,11 +168,13 @@ class ModelSLoss:
         raw_velocity = masked_velocity_loss(joints, mask, self.config.dt)
         normalized_velocity = raw_velocity / self.reference**2
         fm = output["loss"]
+        weighted_fm = self.config.fm_weight * fm
         weighted_velocity = self.config.velocity_lambda * normalized_velocity
-        total = fm + weighted_velocity
+        total = weighted_fm + weighted_velocity
         if not torch.isfinite(total) or not torch.isfinite(normalized_velocity):
             raise ValueError("Non-finite Model-S FM/velocity loss")
         metrics = {"fm_loss": fm.detach().item(), "raw_velocity_loss": raw_velocity.detach().item(),
+                   "fm_weight": self.config.fm_weight, "weighted_fm_loss": weighted_fm.detach().item(),
                    "normalized_velocity_loss": normalized_velocity.detach().item(),
                    "weighted_velocity_loss": weighted_velocity.detach().item(),
                    "velocity_lambda": self.config.velocity_lambda,
@@ -192,7 +198,8 @@ class ModelSLoss:
     def load_state_dict(self, state):
         if state.get("format") != "model-s-flow-preservation-velocity-v1":
             raise ValueError("Previous Model-S loss requires a new flow-preservation + velocity training run")
-        if state["config"] != asdict(self.config):
+        saved_config = {"fm_weight": 1.0, **state["config"]}
+        if saved_config != asdict(self.config):
             raise ValueError("Model-S resume loss configuration differs")
         for key in ("reference", "calibration_count", "target_squared_sum", "target_pair_count"):
             setattr(self, key, state[key])

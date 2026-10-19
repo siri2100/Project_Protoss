@@ -41,10 +41,12 @@
 
 모델 저장 위치는 프로젝트 바로 상위의 `checkpoint/`다. 예: `/workspace/Project_Protoss`의 모델은 `/workspace/checkpoint`에 저장한다. 학습 문서의 `CHECKPOINT_ROOT` 설정으로 원본 pretrained와 학습 run을 저장하고, 완료된 run 전체를 Hugging Face private 모델 저장소에 업로드한다. 추론 서버에서는 추론 문서에 따라 원본 pretrained와 업로드한 run을 Hugging Face에서 같은 `checkpoint/` 아래로 내려받고, `--model-path`에 다운로드한 run을, `--base-model-path`에 원본 pretrained 경로를 지정한다.
 
-Model-S는 `loss = fm_loss + lambda × normalized_velocity_loss`를 사용한다. `fm_loss`는 정답 action FM이 아니라, 같은 관측·noise·timestep에서 pretrained와 pretrained+LoRA의 flow velocity 차이를 masked MSE로 계산하는 distillation loss다. Teacher는 PEFT adapter를 끄고 gradient 없이 실행하고 student에는 LoRA를 적용한다. 두 DiT pass는 dropout을 끄며 backbone/features를 공유한다. Model-FM/E는 기존 정답 FM loss를 유지한다.
+Model-S는 `loss = fm_weight × fm_loss + lambda × normalized_velocity_loss`를 사용한다. `fm_loss`는 정답 action FM이 아니라, 같은 관측·noise·timestep에서 pretrained와 pretrained+LoRA의 flow velocity 차이를 masked MSE로 계산하는 distillation loss다. Teacher는 PEFT adapter를 끄고 gradient 없이 실행하고 student에는 LoRA를 적용한다. 두 DiT pass는 dropout을 끄며 backbone/features를 공유한다. Model-FM/E는 기존 정답 FM loss를 유지한다.
 
 `model_s_loss.py`에 실험 설정과 관절 속도 loss를, `model_s_forward.py`에 teacher/student forward를 모았다. Student clean action endpoint를 pretrained 통계로 역정규화한 관절 7개에서 `(q[k+1]-q[k])/dt`를 계산한다. Gripper와 padding은 제외한다. `normalized_velocity_loss = mean(velocity²)/v_ref²`이며 기준 RMS는 초기 정답 10개 batch에서 추정해 고정한다. 최저 기준은 `0.001 rad/s`다. 준비 단계는 optimizer step을 사용하지 않는다.
 
 `--s-velocity-lambda 0.01`로 속도 억제 강도를 조정한다. `--s-velocity-reference 1.0`으로 기준 RMS(rad/s)를 직접 지정하면 추정을 생략한다. `--s-calibration-batches 10`과 `--s-dt 0.06666666666666667`로 측정 batch 수와 action 주기를 지정한다. lambda=0이면 teacher 보존 항만 학습한다. 초기 LoRA 출력이 pretrained와 같으면 보존 loss는 0이며, 속도 loss가 LoRA를 바꾸면서 보존 항이 제약으로 작동한다.
 
 `training_loss.png`에 `fm_loss`, `normalized_velocity_loss`, `total_loss`를 세 패널로 저장한다. CSV와 checkpoint에는 raw/정규화/가중 속도 loss, lambda, 기준 RMS도 기록한다. 콘솔은 step마다 `fm_loss`, `velocity_loss`(lambda를 곱하기 전의 정규화 값), `total_loss`를 한 줄에 표시한다. Calibration 상태를 저장·복원하며 이전 목적 함수 checkpoint는 새 run으로 시작한다. Clean endpoint는 실제 rollout의 근사값이며 성공률 보존과 속도 감소는 rollout에서 검증한다.
+
+FM 보존 항 가중치는 `--s-fm-weight 1000`으로 조절하며 기본값은 `1.0`이다. 콘솔과 CSV에 원래 `fm_loss`와 가중치를 곱한 `weighted_fm_loss`를 함께 기록한다. 기준 속도나 velocity lambda는 이 옵션으로 바뀌지 않는다. 기존 checkpoint의 누락된 FM 가중치는 1로 해석하며, 다른 가중치로 재개하려면 새 실험으로 구분한다.

@@ -93,6 +93,37 @@ class TinyPolicy(nn.Module):
 
 
 class ModelSLossTests(unittest.TestCase):
+    def test_fm_weight_scales_preservation_loss_and_gradient(self):
+        model = TinyPolicy()
+        inputs = {'inputs': {'action': torch.randn(1, 8, 20), 'action_mask': torch.ones(1, 8, 20)}}
+        rng = torch.get_rng_state()
+        values, grads, raw = [], [], []
+        for weight in (1., 1000.):
+            torch.set_rng_state(rng)
+            objective = ModelSLoss(ModelSConfig(fm_weight=weight, velocity_lambda=0,
+                                               velocity_reference=1), torch.ones(7), torch.zeros(7))
+            total, metrics = objective.forward(model, inputs)
+            values.append(total.detach())
+            grads.append(torch.autograd.grad(total, model.action_head.lora)[0])
+            raw.append(metrics['fm_loss'])
+            self.assertEqual(metrics['fm_weight'], weight)
+            self.assertAlmostEqual(metrics['weighted_fm_loss'], total.item())
+        self.assertEqual(raw[0], raw[1])
+        torch.testing.assert_close(values[1], values[0]*1000)
+        torch.testing.assert_close(grads[1], grads[0]*1000)
+
+    def test_fm_weight_validation_and_legacy_state_default(self):
+        for weight in (-1, float('nan'), float('inf')):
+            with self.assertRaisesRegex(ValueError, 'FM weight'):
+                ModelSConfig(fm_weight=weight)
+        objective = ModelSLoss(ModelSConfig(velocity_reference=1), torch.ones(7), torch.zeros(7))
+        state = objective.state_dict()
+        del state['config']['fm_weight']
+        objective.load_state_dict(state)
+        changed = ModelSLoss(ModelSConfig(fm_weight=1000, velocity_reference=1), torch.ones(7), torch.zeros(7))
+        with self.assertRaisesRegex(ValueError, 'configuration differs'):
+            changed.load_state_dict(state)
+
     def test_teacher_failure_restores_adapter_training_flags_and_forward(self):
         model = TinyPolicy()
         objective = ModelSLoss(ModelSConfig(velocity_reference=1), torch.ones(7), torch.zeros(7))
