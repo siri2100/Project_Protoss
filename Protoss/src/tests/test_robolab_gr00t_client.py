@@ -27,17 +27,49 @@ class BaseClient:
             self._counters.pop(env_id, None)
 
 
+def load_client_module():
+    modules = {name: types.ModuleType(name) for name in
+               ('cv2', 'msgpack', 'msgpack_numpy', 'zmq', 'robolab',
+                'robolab.eval', 'robolab.eval.base_client')}
+    modules['robolab.eval.base_client'].InferenceClient = BaseClient
+    path = Path(__file__).parents[1] / 'robolab_gr00t_client.py'
+    spec = importlib.util.spec_from_file_location('history_client_test', path)
+    module = importlib.util.module_from_spec(spec)
+    with patch.dict(sys.modules, modules):
+        spec.loader.exec_module(module)
+    return module
+
+
 class VideoHistoryTests(unittest.TestCase):
+    def test_instruction_mapping_is_sent_as_text_and_only_default_is_read(self):
+        module = load_client_module()
+        image = np.zeros((180, 320, 3), np.uint8)
+        extracted = {'video_frames': [(image, image)],
+                     'eef_9d': np.zeros(9, np.float32),
+                     'joint_position': np.zeros(7, np.float32),
+                     'gripper_position': np.zeros(1, np.float32)}
+        reads = []
+        class Fields(dict):
+            def __getitem__(self, key):
+                reads.append(key)
+                return super().__getitem__(key)
+
+        # Call the stateless packer directly; no simulator or socket is needed.
+        fields = Fields(default='Pick up the banana and put it on the plate',
+                        privileged_context='must not be read or sent')
+        request = module.GR00TDroidJointposClient._pack_request(None, extracted, fields)
+        self.assertEqual(reads, ['default'])
+        self.assertEqual(request['annotation.language.language_instruction'], [fields['default']])
+        self.assertIsInstance(request['annotation.language.language_instruction'][0], str)
+        string_request = module.GR00TDroidJointposClient._pack_request(None, extracted, 'plain text')
+        self.assertEqual(string_request['annotation.language.language_instruction'], ['plain text'])
+        with self.assertRaisesRegex(ValueError, "'default'"):
+            module.GR00TDroidJointposClient._pack_request(None, extracted, {'other': 'task'})
+        with self.assertRaisesRegex(TypeError, 'string'):
+            module.GR00TDroidJointposClient._pack_request(None, extracted, {'default': {'text': 'task'}})
+
     def test_history_chunk_steps_environment_isolation_and_reset(self):
-        modules = {name: types.ModuleType(name) for name in
-                   ('cv2', 'msgpack', 'msgpack_numpy', 'zmq', 'robolab',
-                    'robolab.eval', 'robolab.eval.base_client')}
-        modules['robolab.eval.base_client'].InferenceClient = BaseClient
-        path = Path(__file__).parents[1] / 'robolab_gr00t_client.py'
-        spec = importlib.util.spec_from_file_location('history_client_test', path)
-        module = importlib.util.module_from_spec(spec)
-        with patch.dict(sys.modules, modules):
-            spec.loader.exec_module(module)
+        module = load_client_module()
         client = module.GR00TDroidJointposClient.__new__(module.GR00TDroidJointposClient)
         BaseClient.__init__(client)
         client.open_loop_horizon = 8
@@ -72,7 +104,8 @@ class VideoHistoryTests(unittest.TestCase):
         self.assertFalse(client._video_history)
         self.assertFalse(client._chunks)
         client.video_delta_indices = (0,)
-        client.infer(40, 'single frame', env_id=0)
+        client.infer(40, {'default': 'single frame'}, env_id=0)
+        self.assertEqual(requests[-1]['annotation.language.language_instruction'], ['single frame'])
         self.assertEqual(requests[-1]['video.wrist_image_left'].shape, (1, 1, 180, 320, 3))
         self.assertEqual(requests[-1]['video.wrist_image_left'][0, 0, 0, 0, 0], 40)
         # Check the native server's ModalityConfig envelope is understood.

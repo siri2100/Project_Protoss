@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import functools
 from collections import deque
+from collections.abc import Mapping
 from typing import Any
 
 import cv2
@@ -18,6 +19,19 @@ from robolab.eval.base_client import InferenceClient
 # GR00T DROID images are sent as HWC uint8 at 180x320, then the N1.7 processor
 # applies its own SmallestMaxSize/center-crop transforms. Do not letterbox here.
 RESOLUTION = (180, 320)
+
+
+def instruction_text(instruction: str | Mapping[str, str]) -> str:
+    """RoboLab accepts named instruction fields; GR00T's wire format needs text."""
+    if isinstance(instruction, Mapping):
+        try:
+            instruction = instruction["default"]
+        except KeyError as exc:
+            raise ValueError("GR00T requires the 'default' instruction field; "
+                             f"available fields: {list(instruction)}") from exc
+    if not isinstance(instruction, str):
+        raise TypeError(f"GR00T instruction must resolve to a string, got {type(instruction).__name__}")
+    return instruction
 
 DROID_EEF_ROTATION_CORRECT = np.array(
     [[0, 0, -1], [-1, 0, 0], [0, 1, 0]],
@@ -239,7 +253,7 @@ class GR00TDroidJointposClient(InferenceClient):
             f"open_loop_horizon={self.open_loop_horizon}, resize=no_pad_stretch_area."
         )
 
-    def infer(self, obs: Any, instruction: str, *, env_id: int = 0) -> dict:
+    def infer(self, obs: Any, instruction: str | Mapping[str, str], *, env_id: int = 0) -> dict:
         # Record every control step, including steps served from the action chunk.
         extracted = self._extract_observation(obs, env_id=env_id)
         history = self._video_history.setdefault(env_id, deque(maxlen=1 - min(self.video_delta_indices)))
@@ -284,7 +298,8 @@ class GR00TDroidJointposClient(InferenceClient):
             "eef_9d": compute_eef_9d(eef_position, eef_quat),
         }
 
-    def _pack_request(self, extracted_obs: dict, instruction: str) -> dict:
+    def _pack_request(self, extracted_obs: dict, instruction: str | Mapping[str, str]) -> dict:
+        text = instruction_text(instruction)
         frames = extracted_obs["video_frames"]
         ext_image = np.stack([frame[0] for frame in frames])
         wrist_image = np.stack([frame[1] for frame in frames])
@@ -294,7 +309,7 @@ class GR00TDroidJointposClient(InferenceClient):
             "state.eef_9d": extracted_obs["eef_9d"][None, None, ...].astype(np.float32),
             "state.joint_position": extracted_obs["joint_position"][None, None, ...].astype(np.float32),
             "state.gripper_position": extracted_obs["gripper_position"][None, None, ...].astype(np.float32),
-            "annotation.language.language_instruction": [instruction],
+            "annotation.language.language_instruction": [text],
         }
 
     def _query_server(self, request: dict) -> tuple:

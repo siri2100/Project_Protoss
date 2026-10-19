@@ -33,6 +33,8 @@
 
 서버는 `serve.py`로 실행한다. 서버·평가 실행기는 별도 GR00T checkout에 `patches/gr00t_adapter_inference.patch`를 자동 적용한다. 배포할 때 `src/`와 `patches/`를 함께 포함한다.
 
+RoboLab이 instruction을 필드 mapping으로 전달하면 `src/robolab_gr00t_client.py`는 `default` 문자열을 선택해 GR00T에 보낸다. 클라이언트 수정 후 simulator 서버에서 이 파일을 `/workspace/RoboLab/policies/gr00t/client.py`로 복사하고 평가 프로세스를 재시작한다.
+
 중간 step을 추론하려면 서버 명령에 `--checkpoint-step 500`을 추가하고 `--model-path`는 run 루트로 유지한다. Hugging Face를 사용하면 run 다운로드 후 `checkpoint-500/adapter`를 선택한다. Processor는 해당 checkpoint 것을 우선하고 없으면 같은 run의 것을 사용한다. `--base-model-path`로 현재 서버의 pretrained 경로를 지정한다. 지정 step이 없으면 오류로 종료하며 최종 adapter로 대체하지 않는다. 최대 3개 checkpoint 보관 설정으로 삭제된 step은 남아 있는 별도 파일 없이는 복구할 수 없다.
 
 추론 디버그 모드: `--lora-mode pretrained`는 원본 모델·원본 processor, `disabled`는 원본 모델·학습 processor, `unmerged`는 LoRA를 병합 없이 적용, `merged`는 LoRA를 병합하여 적용한다. 병합을 끄는 것은 LoRA를 끄는 것과 다르다.
