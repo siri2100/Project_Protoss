@@ -53,7 +53,7 @@ test -f "$PROTOSS_ROOT/Protoss/prepare_droid.py"
 cd /workspace/Project_Protoss
 git checkout -b v1.7 origin/v1.7
 )
-
+```
 ### 저장 폴더 준비
 
 프로젝트 바로 상위 디렉터리에 `checkpoint`를 생성한다. 예를 들어 `/workspace/Project_Protoss`와 `/workspace/checkpoint`가 나란히 위치한다. 프로젝트 폴더 이름이 달라도 `CHECKPOINT_ROOT`는 상위 경로에서 계산한다. 새 Pod에서는 다음 명령으로 준비한다.
