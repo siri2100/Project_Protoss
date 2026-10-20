@@ -1,0 +1,72 @@
+diff --git a/robolab/core/environments/base.py b/robolab/core/environments/base.py
+index 9ab9fc9..b57ddeb 100644
+--- a/robolab/core/environments/base.py
++++ b/robolab/core/environments/base.py
+@@ -224,7 +224,12 @@ class RobolabDefaultEnvCfg(ManagerBasedRLEnvCfg):
+         # max_{position,velocity}_iteration_count. Both name sets are listed
+         # below and each assignment is guarded with hasattr so a single block
+         # configures whichever PhysxCfg schema is present.
+-        physx = getattr(self.sim, "physx", None)
++        # Isaac Lab 3.0 separates the PhysX backend from SimulationCfg.
++        from isaaclab_physx.physics import PhysxCfg
++
++        if self.sim.physics is None:
++            self.sim.physics = PhysxCfg()
++        physx = self.sim.physics
+         physx_settings = {
+             "gpu_temp_buffer_capacity": 2**30,
+             "gpu_heap_capacity": 2**30,
+diff --git a/robolab/core/environments/config.py b/robolab/core/environments/config.py
+index 544f83d..5d37035 100644
+--- a/robolab/core/environments/config.py
++++ b/robolab/core/environments/config.py
+@@ -18,7 +18,7 @@ import gymnasium as gym
+ from isaaclab.envs import DirectRLEnvCfg, ManagerBasedRLEnv, ManagerBasedRLEnvCfg
+ from isaaclab.scene import InteractiveSceneCfg
+ from isaaclab.utils import configclass
+-from isaaclab_tasks.utils import load_cfg_from_registry
++from robolab.protoss_isaac60 import load_cfg_from_registry
+ 
+ from robolab.core.environments.base import RobolabDefaultEnvCfg
+ from robolab.core.environments.scene_fixture import (
+diff --git a/robolab/core/world/world_state.py b/robolab/core/world/world_state.py
+index d349d81..33f1be9 100644
+--- a/robolab/core/world/world_state.py
++++ b/robolab/core/world/world_state.py
+@@ -35,32 +35,11 @@ from isaaclab.utils.math import transform_points
+ from isaacsim.core.prims import XFormPrim
+ from pxr import Gf, Usd, UsdGeom
+ 
+-try:
+-    # IsaacLab 2.3 / IsaacSim 5.1 — scene extras are isaaclab.sim.views.XformPrimView
+-    from isaaclab.sim.views import XformPrimView
+-
+-    XFORM_PRIM_TYPES: tuple[type, ...] = (XFormPrim, XformPrimView)
++# Isaac Lab 3.0 factories return backend subclasses of BaseFrameView,
++# rather than instances of the FrameView factory class itself.
++from isaaclab.sim.views.base_frame_view import BaseFrameView
+ 
+-    def _get_scales_usd_float3_safe(self, indices=None) -> torch.Tensor:
+-        """Replacement for XformPrimView._get_scales_usd (IsaacLab 2.3.2.post1).
+-
+-        Upstream assigns ``prim.GetAttribute("xformOp:scale").Get()`` into a
+-        ``Vt.Vec3dArray``, which raises ``TypeError: No registered converter ...
+-        GfVec3d`` for any prim whose scale is authored as ``float3`` (Gf.Vec3f) —
+-        which is how all RoboLab scene assets author it. Only ``double3`` scales
+-        survive. Read through plain tuples instead; works for both precisions.
+-        """
+-        if indices is None or indices == slice(None):
+-            indices_list = self._ALL_INDICES
+-        else:
+-            indices_list = indices.tolist() if isinstance(indices, torch.Tensor) else list(indices)
+-        scales = [tuple(self._prims[i].GetAttribute("xformOp:scale").Get()) for i in indices_list]
+-        return torch.tensor(scales, dtype=torch.float32, device=self._device)
+-
+-    XformPrimView._get_scales_usd = _get_scales_usd_float3_safe
+-except ImportError:
+-    # IsaacLab 2.2 / IsaacSim 5.0 — scene extras are isaacsim.core.prims.XFormPrim
+-    XFORM_PRIM_TYPES = (XFormPrim,)
++XFORM_PRIM_TYPES: tuple[type, ...] = (XFormPrim, BaseFrameView)
+ 
+ import robolab.constants
+ import robolab.core.utils.usd_utils as usd_utils

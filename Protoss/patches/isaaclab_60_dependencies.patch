@@ -1,0 +1,45 @@
+diff --git a/apps/isaaclab.python.headless.kit b/apps/isaaclab.python.headless.kit
+index ca27432..a1e1937 100644
+--- a/apps/isaaclab.python.headless.kit
++++ b/apps/isaaclab.python.headless.kit
+@@ -200,11 +200,6 @@ enabled=true # Enable this for DLSS
+ # Load Isaac Lab extensions last
+ "isaaclab" = {order = 1000}
+ "isaaclab_physx" = {order = 1000}
+-"isaaclab_newton" = {order = 1000}
+-"isaaclab_assets" = {order = 1000}
+-"isaaclab_tasks" = {order = 1000}
+-"isaaclab_mimic" = {order = 1000}
+-"isaaclab_rl" = {order = 1000}
+ 
+ # Asset path
+ # set the S3 directory manually to the latest published S3
+diff --git a/apps/isaaclab.python.kit b/apps/isaaclab.python.kit
+index 5ed38f3..4d4067a 100644
+--- a/apps/isaaclab.python.kit
++++ b/apps/isaaclab.python.kit
+@@ -103,11 +103,6 @@ keywords = ["experience", "app", "usd"]
+ # Load Isaac Lab extensions last
+ "isaaclab" = {order = 1000}
+ "isaaclab_physx" = {order = 1000}
+-"isaaclab_newton" = {order = 1000}
+-"isaaclab_assets" = {order = 1000}
+-"isaaclab_tasks" = {order = 1000}
+-"isaaclab_mimic" = {order = 1000}
+-"isaaclab_rl" = {order = 1000}
+ 
+ [settings]
+ exts."omni.kit.material.library".ui_show_list = [
+diff --git a/source/isaaclab/setup.py b/source/isaaclab/setup.py
+index ff52ece..eac15b7 100644
+--- a/source/isaaclab/setup.py
++++ b/source/isaaclab/setup.py
+@@ -47,7 +47,7 @@ INSTALL_REQUIRES = [
+     "pytest",
+     "pytest-mock",
+     "junitparser",
+-    "coverage==7.6.1",
++    "coverage==7.4.4",  # Match Isaac Sim 6.0.1 kernel metadata.
+     "debugpy>=1.8.20",
+     "flatdict>=4.1.0",
+     "flaky",
