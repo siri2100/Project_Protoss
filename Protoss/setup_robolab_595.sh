@@ -56,6 +56,14 @@ smoke|eval)
   mkdir -p "$STACK/logs"
   LOG="$STACK/logs/${MODE}-$(date -u +%Y%m%dT%H%M%SZ).log"
   nvidia-smi --query-gpu=name,driver_version --format=csv,noheader | tee "$LOG"
+  "$STACK/.venv/bin/python" -c '
+import sys
+from importlib.metadata import version
+sim = version("isaacsim")
+print(f"RoboLab runtime: {sys.executable}; Python {sys.version.split()[0]}; Isaac Sim {sim}", flush=True)
+if sys.version_info[:2] != (3, 12) or sim != "6.0.1.0":
+    raise SystemExit("Expected Python 3.12 + Isaac Sim 6.0.1.0. Run setup again.")
+' 2>&1 | tee -a "$LOG"
   if [ "$MODE" = smoke ]; then
     "$STACK/.venv/bin/python" -u "$PROTOSS_TOOLS/src/robolab_595_smoke.py" \
       --headless --device cuda:0 "$@" 2>&1 | tee -a "$LOG"
