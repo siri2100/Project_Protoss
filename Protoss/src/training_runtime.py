@@ -253,15 +253,15 @@ def save_training_loss_plot(training):
               if "step" in row and "loss" in row and row["step"] <= training.step}
     steps = sorted(losses)
     components = {row["step"]: row for row in training.trainer.state.log_history
-                  if "step" in row and "normalized_velocity_loss" in row and row["step"] <= training.step}
+                  if "step" in row and "normalized_jerk_loss" in row and row["step"] <= training.step}
     model_s = training.smoothness is not None or bool(components)
     output = training.args.output_dir
     with (output / "training_loss.csv").open("w", newline="") as stream:
         writer = csv.writer(stream)
-        keys = ["fm_loss", "raw_velocity_loss", "normalized_velocity_loss", "total_loss",
-                "fm_weight", "weighted_fm_loss",
-                "weighted_velocity_loss", "velocity_lambda", "velocity_reference",
-                "fm_grad_norm", "velocity_grad_norm"] if model_s else []
+        keys = ["fmd_loss", "raw_jerk_loss", "normalized_jerk_loss", "total_loss",
+                "fm_weight", "weighted_fmd_loss",
+                "weighted_jerk_loss", "jerk_lambda", "jerk_reference",
+                "fmd_grad_norm", "jerk_grad_norm"] if model_s else []
         writer.writerow(["step", "loss", *keys])
         for step in steps:
             row = {**components.get(step, {}), "total_loss": losses[step]}
@@ -270,9 +270,9 @@ def save_training_loss_plot(training):
     figure = Figure(figsize=(9, 10) if model_s else (9, 5), layout="constrained")
     if model_s:
         axes = figure.subplots(3, 1, sharex=True)
-        series = [("fm_loss", "Pretrained flow preservation MSE"),
-                  ("normalized_velocity_loss", "Normalized mean squared joint velocity"),
-                  ("total_loss", "Weighted flow preservation + lambda * normalized velocity")]
+        series = [("fmd_loss", "Pretrained flow preservation MSE"),
+                  ("normalized_jerk_loss", "Normalized mean squared joint jerk"),
+                  ("total_loss", "Weighted flow preservation + lambda * normalized jerk")]
     else:
         axes = [figure.subplots()]
         series = [("loss", "Mean training objective")]

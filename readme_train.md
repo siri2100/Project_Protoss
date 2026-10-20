@@ -6,10 +6,10 @@
 |---|---|---|---|
 | baseline | 없음 | 없음 | 원본 평가 가능 |
 | Model-FM | LoRA | FM | 학습·평가 실행 경로 제공 |
-| Model-S | LoRA | pretrained flow MSE + normalized joint velocity | 학습·평가 실행 가능 |
+| Model-S | LoRA | FMD + normalized joint jerk | 학습·평가 실행 가능 |
 | Model-E | LoRA | FM (현재 Model-FM과 동일) | 학습·평가 실행 가능 |
 
-Model-FM(v1.6.14)은 All QKV, LR=1e-6의 FM 기준 모델이다. Model-S(v1.7)는 같은 pretrained 모델에서 독립적으로 pretrained flow 보존 loss와 정규화 관절 속도 loss로 학습한다. Model-E는 현재 FM-only이며 efficiency loss는 아직 적용하지 않는다. 속도 억제 효과와 성공률 보존 여부는 동일 조건의 RoboLab rollout을 Model-FM과 비교해 확인한다.
+Model-FM(v1.6.14)은 All QKV, LR=1e-6의 FM 기준 모델이다. Model-S(v1.7)는 같은 pretrained 모델에서 독립적으로 pretrained flow 보존 loss와 정규화 관절 jerk loss로 학습한다. Model-E는 현재 FM-only이며 efficiency loss는 아직 적용하지 않는다. jerk 억제 효과와 성공률 보존 여부는 동일 조건의 RoboLab rollout을 Model-FM과 비교해 확인한다.
 
 이 문서는 환경 설치, 데이터 준비, LoRA 학습·재개와 Hugging Face 업로드를 다룬다. 추론·평가·모델 다운로드는 [readme_test.md](readme_test.md)를 따른다.
 
@@ -340,32 +340,32 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
 
 ### 6.2 Model-S 학습
 
-실험 구현은 `Protoss/src/model_s_loss.py`와 `model_s_forward.py`에 모았다. `ModelSConfig`는 설정, `joint_affine()`는 관절 역정규화, `masked_velocity_loss()`는 속도 제곱 평균, `ModelSLoss`는 최종 조합을 담당한다.
+실험 구현은 `Protoss/src/model_s_loss.py`와 `model_s_forward.py`에 모았다. `ModelSConfig`는 설정, `joint_affine()`는 관절 역정규화, `masked_jerk_loss()`는 3차 차분 제곱 평균, `ModelSLoss`는 최종 조합을 담당한다.
 
-- 목적 함수는 `L = fm_weight × loss_fm + lambda × normalized_loss_velocity`다. `loss_fm = masked_mean((v_LoRA - stopgrad(v_pretrained))²)`는 정답 action에 대한 FM이 아니라 pretrained flow velocity를 보존하는 distillation loss다. Model-FM/E의 기존 FM 학습은 유지한다.
+- 목적 함수는 `L = fm_weight × FMD + jerk_lambda × normalized_jerk_loss`다. `FMD = masked_mean((v_LoRA - stopgrad(v_pretrained))²)`이며 기존 pretrained flow velocity 보존 항을 유지한다. Model-FM/E의 정답 action FM 학습은 그대로다.
 - Teacher/student는 관측, state 특징, noisy action, 연속 timestep과 discrete timestep을 공유한다. Teacher는 같은 PEFT DiT의 adapter를 끈 상태에서 `no_grad`로 실행하고 student에는 adapter를 적용한다. 두 pass의 DiT dropout은 끄고 이후 training 상태를 복원한다. Backbone은 한 번, DiT는 두 번 실행하며 pretrained weight를 별도로 복제하지 않는다.
-- DROID `[EEF(9), gripper(1), joints(7)]` 중 joint 7개를 pretrained 통계로 역정규화한다. `a_clean = x_t + (1-t)v_LoRA`로 clean endpoint를 추정한다. 관절 action은 chunk 공통 기준 위치에 대한 offset이므로 인접 차분에서 기준값이 상쇄된다. Gripper·EEF·padding은 속도 loss에서 제외한다.
-- 관절 속도 `q_dot = (q[k+1]-q[k])/dt`로 `raw_velocity_loss = mean(q_dot²)`를 계산하고 `normalized_velocity_loss = raw_velocity_loss / v_ref²`로 무차원화한다. 두 점 모두 유효한 pair만 평균한다. 기본 `dt=1/15`초이며 raw 단위는 `rad²/s²`다.
-- 학습 중 action 역정규화는 gradient 유지를 위해 clipping 없는 affine 변환을 사용한다. Clean endpoint는 실제 multi-step 추론 action의 추정값이므로, 실제 속도 감소와 성공률 유지는 RoboLab rollout으로 확인한다.
-- 기본 첫 10개 target batch로 정답 관절 속도의 RMS를 추정해 `v_ref`로 고정한다. 유효 pair 수로 가중 평균하며 최저 기준은 `0.001 rad/s`다. 이 준비 단계는 모델 forward/backward, optimizer·scheduler 업데이트 없이 진행하고, 추정값은 이후 예측에 따라 변하지 않는다.
-- `--s-fm-weight`로 pretrained flow 보존 항의 가중치를 조정한다(기본값 `1.0`). 아래 명령에서는 `L_FM=1000`을 예시로 사용하며 실험에 맞게 바꾼다. `--s-velocity-lambda`는 이와 독립적으로 속도 억제 강도를 조정한다.
-- `--s-velocity-lambda 0.01`로 lambda를 조정한다. 0이면 teacher 보존 loss만 사용한다. `--s-velocity-reference 1.0`으로 기준 속도(rad/s)를 직접 지정하면 RMS 추정을 생략한다. `--s-calibration-batches 10`으로 측정 batch 수를 바꾼다. Jerk 관련 옵션은 사용하지 않는다.
-- `--s-gradient-diagnostics`를 추가하면 첫 microbatch의 teacher 보존 loss와 정규화 속도 loss에 대한 LoRA gradient norm을 기록한다. 추가 autograd 비용이 있다.
-- `training_loss.csv`와 checkpoint에 FM 보존 loss, raw/정규화/가중 속도 loss, lambda, 기준 속도를 기록한다. 그래프는 `fm_loss`, `normalized_velocity_loss`, `total_loss` 세 패널이다. 콘솔은 step마다 `fm_loss`, `weighted_fm_loss`, `velocity_loss`, `total_loss`를 한 줄에 출력한다. CSV에도 FM 가중치와 가중 FM loss를 기록한다. 기준 속도와 calibration 누적값은 `model_s_loss.json`에 저장하고 재개 시 복원한다.
+- DROID `[EEF(9), gripper(1), joints(7)]` 중 joint 7개를 pretrained 통계로 역정규화한다. Student의 `a_clean = x_t + (1-t)v_LoRA`를 사용한다. Chunk 공통 기준 위치는 3차 차분에서 상쇄된다. Gripper·EEF·padding은 jerk 계산에서 제외한다.
+- `jerk = (q[k+3]-3q[k+2]+3q[k+1]-q[k])/dt³`로 `raw_jerk_loss = mean(jerk²)`를 계산한다. 네 점이 모두 유효한 window만 사용한다. `normalized_jerk_loss = raw_jerk_loss / jerk_ref²`이며 raw 단위는 `rad²/s⁶`다. 기본 `dt=1/15`초다.
+- 학습 중 action 역정규화는 gradient 유지를 위해 clipping 없는 affine 변환을 사용한다. Clean endpoint는 실제 multi-step 추론 action의 추정값이므로 jerk 감소와 성공률 보존은 RoboLab rollout으로 확인한다.
+- 기본 첫 10개 target batch에서 정답 관절 jerk RMS를 구해 기준값으로 고정한다. 유효 window 수로 가중 평균하고, 정지 시연에서 기준값은 최소 `1 rad/s³`로 둔다. 이 준비 단계는 모델 forward/backward와 optimizer·scheduler 업데이트를 하지 않는다.
+- `--s-fmd-weight` 또는 기존 이름 `--s-fm-weight`로 FMD 가중치를 조정한다(기본값 `1.0`). 아래 명령은 `L_FMD`로 FMD, `L_JERK`로 jerk 강도를 독립 조정한다.
+- `--s-jerk-lambda 0.01`이 jerk 항의 가중치이며 0이면 FMD만 사용한다. `--s-jerk-reference 300`으로 기준 RMS(rad/s³)를 직접 지정하면 측정을 생략한다. `--s-calibration-batches 10`은 기준값 측정에 사용하는 batch 수다. 기존 velocity 옵션은 사용하지 않는다.
+- `--s-gradient-diagnostics`를 추가하면 첫 microbatch의 FMD·정규화 jerk LoRA gradient norm을 기록한다. 추가 autograd 비용이 있다.
+- CSV와 checkpoint에 `fmd_loss`, `weighted_fmd_loss`, raw/정규화/가중 jerk, 각 가중치와 기준 RMS를 기록한다. 그래프는 `fmd_loss`, `normalized_jerk_loss`, `total_loss` 세 패널이다. 콘솔은 step마다 FMD·가중 FMD·jerk·total을 한 줄에 출력한다. 기준값과 누적 통계는 재개 시 복원한다.
 
-아래 명령은 All QKV, rank/alpha=32/64, LR=1e-6으로 학습한다. Model-S 기본 lambda는 0.01이며 새 실험마다 NAME과 output을 구분한다.
+아래 명령은 All QKV, rank/alpha=32/64, LR=1e-6으로 학습한다. 코드 기본 jerk lambda는 0.01이며 아래 `L_JERK`는 실험값이다. 기존 output과 구분하도록 NAME을 새로 지정한다.
 
-이전 jerk-only, 일반 FM+velocity 또는 FM+jerk checkpoint는 새 flow distillation 목적 함수로 재개하지 않는다. Pretrained부터 새 run을 시작하고 새 모델 재개 시 원래 설정을 유지한다.
+이전 FMD+velocity, jerk-only, FM+jerk checkpoint는 새 FMD+정규화 jerk 학습으로 재개하지 않는다. Pretrained부터 새 run으로 시작한다. 동일 목적 함수 재개 시 원래 설정을 유지한다.
 
 ```bash
 (
 set -e
 STEP=500
-NAME=v178_model_s_step"${STEP}"
+NAME=v179_model_s_step"${STEP}"
 LR=1e-6
 FOLDER=Project_Protoss
 L_FMD=1
-L_VELOCITY=1e-3
+L_JERK=1e-3
 
 export PROTOSS_ROOT=/workspace/"$FOLDER"
 export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
@@ -382,11 +382,12 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
   --base-model "$CHECKPOINT_ROOT/GR00T-N1.7-DROID" \
   --output-dir "$OUTPUT_DIR" \
-  --s-fm-weight "$L_FMD" --s-velocity-lambda "$L_VELOCITY" --s-calibration-batches 10 \
+  --s-fmd-weight "$L_FMD" --s-jerk-lambda "$L_JERK" --s-calibration-batches 10 \
   --lora-rank 32 --lora-alpha 64 --max-steps "$STEP" --save-steps 500 \
   --batch-size 2 --gradient-accumulation 16 --lr "$LR" --workers 1 --seed 42 \
 )
 ```
+
 
 ### 6.3 Model-E 학습
 
@@ -415,7 +416,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
 )
 ```
 
-GR00T 기본 masked flow-matching MSE를 그대로 사용한다. FM의 velocity는 물리적 관절 속도가 아니다. Model-FM/S 비교는 LoRA rank/alpha, train 데이터, seed, batch, optimizer와 step 수를 맞추고 loss만 기존 FM과 pretrained flow 보존 + normalized velocity로 구분한다. Model-E 예시 설정은 별도 실험이다. 각 명령은 해당 모델 하나만 학습하고 종료한다. 원본 pretrained checkpoint에서 각각 시작하며 서로의 학습 weight를 이어받지 않는다. Model-S는 가중 pretrained flow 보존 loss와 정규화 관절 속도 loss를 사용한다.
+GR00T 기본 masked flow-matching MSE를 그대로 사용한다. FM의 velocity는 물리적 관절 속도가 아니다. Model-FM/S 비교는 LoRA rank/alpha, train 데이터, seed, batch, optimizer와 step 수를 맞추고 loss만 기존 FM과 FMD + normalized jerk로 구분한다. Model-E 예시 설정은 별도 실험이다. 각 명령은 해당 모델 하나만 학습하고 종료한다. 원본 pretrained checkpoint에서 각각 시작하며 서로의 학습 weight를 이어받지 않는다. Model-S는 가중 pretrained flow 보존 loss와 정규화 관절 jerk loss를 사용한다.
 
 ### 6.4 중단된 PEFT 학습 재개
 
@@ -490,7 +491,7 @@ uv run --no-sync python -m unittest discover \
 
 검증: CPU mock 테스트로 dataset repo type/private 생성, 전체 trainset 전송 파일 목록, 불완전한 영상/episode 수 검사, dry-run을 확인했다. 실제 계정으로 데이터 업로드·다운로드는 이 작업에서 실행하지 않았다.
 
-LoRA 검증 범위: CPU에서 초기 출력 일치, adapter만의 gradient, merge 전후 출력 일치와 native Linear state reload를 확인한다. 실제 GR00T LoRA GPU 학습/merged checkpoint 로딩은 이 작업 환경에서 실행하지 않았다. Model-S는 pretrained flow 보존 + normalized velocity를 사용하며 Model-E는 FM-only다.
+LoRA 검증 범위: CPU에서 초기 출력 일치, adapter만의 gradient, merge 전후 출력 일치와 native Linear state reload를 확인한다. 실제 GR00T LoRA GPU 학습/merged checkpoint 로딩은 이 작업 환경에서 실행하지 않았다. Model-S는 FMD + normalized jerk를 사용하며 Model-E는 FM-only다.
 
 이번 변경 검증: 데이터·학습 설정 4개, LoRA gradient/merge 1개, 네 모델의 공통 평가 조건 1개로 총 6개 CPU 테스트를 통과했다. 평가 조건 테스트는 subprocess를 mock하며 실제 VLA inference는 실행하지 않는다.
 

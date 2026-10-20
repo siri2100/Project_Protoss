@@ -49,16 +49,16 @@ class TinyPolicy(nn.Module):
 
 
 class ExplicitLoopTests(unittest.TestCase):
-    def test_model_s_plot_shows_fm_velocity_and_total_with_resumed_history(self):
+    def test_model_s_plot_shows_fmd_jerk_and_total_with_resumed_history(self):
         from matplotlib.backends.backend_agg import FigureCanvasAgg
         from PIL import Image
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             history = [
-                {"step": 1, "loss": 3., "fm_loss": 1., "normalized_velocity_loss": 20., "velocity_lambda": .1},
+                {"step": 1, "loss": 3., "fmd_loss": 1., "normalized_jerk_loss": 20., "jerk_lambda": .1},
                 {"step": 2, "loss": 4.},  # Older logs may have no component losses.
-                {"step": 3, "loss": 5., "fm_loss": 3., "normalized_velocity_loss": 40., "velocity_lambda": .05},
-                {"step": 4, "loss": 99., "fm_loss": 99., "normalized_velocity_loss": 99.},
+                {"step": 3, "loss": 5., "fmd_loss": 3., "normalized_jerk_loss": 40., "jerk_lambda": .05},
+                {"step": 4, "loss": 99., "fmd_loss": 99., "normalized_jerk_loss": 99.},
             ]
             session = SimpleNamespace(args=SimpleNamespace(output_dir=root), step=3,
                                       smoothness=object(), trainer=SimpleNamespace(
@@ -73,14 +73,14 @@ class ExplicitLoopTests(unittest.TestCase):
             with patch.object(FigureCanvasAgg, "print_png", autospec=True, side_effect=save_png):
                 runtime.save_training_loss_plot(session)
             axes = figures[0].axes
-            self.assertEqual([axis.get_title() for axis in axes], ["fm_loss", "normalized_velocity_loss", "total_loss"])
+            self.assertEqual([axis.get_title() for axis in axes], ["fmd_loss", "normalized_jerk_loss", "total_loss"])
             self.assertEqual(list(axes[0].lines[0].get_xdata()), [1, 3])
             self.assertEqual(list(axes[1].lines[0].get_ydata()), [20., 40.])
             self.assertEqual(list(axes[2].lines[0].get_ydata()), [3., 4., 5.])
             with (root / "training_loss.csv").open() as stream:
                 rows = list(csv.DictReader(stream))
             self.assertEqual([row["total_loss"] for row in rows], ["3.0", "4.0", "5.0"])
-            self.assertEqual(rows[1]["normalized_velocity_loss"], "")
+            self.assertEqual(rows[1]["normalized_jerk_loss"], "")
             with Image.open(root / "training_loss.png") as image:
                 self.assertEqual(image.size, (1350, 1500))
                 image.verify()
@@ -90,7 +90,7 @@ class ExplicitLoopTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             session = self.make_session(root)
-            session.smoothness = ModelSLoss(ModelSConfig(velocity_reference=1.), torch.ones(7), torch.zeros(7))
+            session.smoothness = ModelSLoss(ModelSConfig(jerk_reference=1.), torch.ones(7), torch.zeros(7))
             session.step = 1
             with self.checkpoint_callback():
                 runtime.save_checkpoint(session)

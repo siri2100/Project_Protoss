@@ -1,6 +1,6 @@
 """Model-S forward: pretrained flow preservation plus clean endpoint inputs.
 
-The noise/time/DiT prediction is shared by FM and the joint-speed objective.
+The noise/time/DiT prediction is shared by FM and the joint-jerk objective.
 """
 from contextlib import contextmanager
 from types import MethodType

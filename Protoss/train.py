@@ -55,11 +55,11 @@ def parse_args():
     parser.add_argument("--hf-repo-id", help="Upload destination ACCOUNT/REPO (default: logged-in account/output folder name)")
     parser.add_argument("--no-hf-upload", action="store_true", help="Disable automatic upload for offline training")
     smooth = parser.add_argument_group("Model-S smoothness experiment")
-    smooth.add_argument("--s-fm-weight", type=float, default=1.0,
+    smooth.add_argument("--s-fm-weight", "--s-fmd-weight", dest="s_fm_weight", type=float, default=1.0,
                         help="Weight for the pretrained flow preservation MSE")
-    smooth.add_argument("--s-velocity-lambda", type=float, default=0.01)
-    smooth.add_argument("--s-velocity-reference", type=float, default=None,
-                        help="Fixed reference speed in rad/s; default: RMS from initial target batches")
+    smooth.add_argument("--s-jerk-lambda", type=float, default=0.01)
+    smooth.add_argument("--s-jerk-reference", type=float, default=None,
+                        help="Fixed reference jerk in rad/s^3; default: RMS from initial target batches")
     smooth.add_argument("--s-calibration-batches", type=int, default=10)
     smooth.add_argument("--s-dt", type=float, default=1 / 15, help="Action interval in seconds")
     smooth.add_argument("--s-gradient-diagnostics", action="store_true")
@@ -133,7 +133,7 @@ def prepare_training(args):
             from .src.model_s_loss import config_from_args
         else:
             from src.model_s_loss import config_from_args
-        lora_settings["loss"] = "pretrained_flow_preservation+normalized_joint_velocity-v1"
+        lora_settings["loss"] = "pretrained_flow_preservation+normalized_joint_jerk-v1"
         lora_settings["model_s"] = asdict(config_from_args(args))
     settings_path = args.output_dir / "lora_settings.json"
     if args.resume:
@@ -179,10 +179,10 @@ def main(args):
         model = training.model
         calibrate_s_reference(training)
         if training.smoothness is not None:
-            print(f"Model-S objective=fm_weight*pretrained_flow_MSE+lambda*normalized_velocity; "
+            print(f"Model-S objective=fm_weight*pretrained_flow_MSE+lambda*normalized_jerk; "
                   f"fm_weight={training.smoothness.config.fm_weight:.8g}; "
-                  f"lambda={training.smoothness.config.velocity_lambda:.8g}; "
-                  f"reference={training.smoothness.reference:.8g} rad/s", flush=True)
+                  f"lambda={training.smoothness.config.jerk_lambda:.8g}; "
+                  f"reference={training.smoothness.reference:.8g} rad/s^3", flush=True)
         for step in range(training.step + 1, args.max_steps + 1):
             step_loss = 0.0
             step_metrics = {}
@@ -208,9 +208,9 @@ def main(args):
             record_training_loss(training, step_loss, **step_metrics)
             if training.smoothness is not None:
                 print(f"step={step}/{args.max_steps} "
-                      f"fm_loss={step_metrics['fm_loss']:.6f} "
-                      f"weighted_fm_loss={step_metrics['weighted_fm_loss']:.6f} "
-                      f"velocity_loss={step_metrics['normalized_velocity_loss']:.6f} "
+                      f"fmd_loss={step_metrics['fmd_loss']:.6f} "
+                      f"weighted_fmd_loss={step_metrics['weighted_fmd_loss']:.6f} "
+                      f"jerk_loss={step_metrics['normalized_jerk_loss']:.6f} "
                       f"total_loss={step_loss:.6f}", flush=True)
             else:
                 print(f"step={step}/{args.max_steps} loss={step_loss:.6f}", flush=True)
