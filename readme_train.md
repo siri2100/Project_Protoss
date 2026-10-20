@@ -97,6 +97,7 @@ fi
 if [ ! -d Issac-GR00T-N17/.git ]; then
   staging=$(mktemp -d "$PROTOSS_ROOT/.n17-clone.XXXXXX")
   GIT_LFS_SKIP_SMUDGE=1 git -c credential.helper= -c http.extraHeader= \
+    -c http.version=HTTP/1.1 -c protocol.version=0 \
     clone --no-checkout https://github.com/NVIDIA/Isaac-GR00T.git "$staging/source"
   git -C "$staging/source" lfs install --local
   GIT_LFS_SKIP_SMUDGE=1 git -C "$staging/source" checkout 51d4c89f72fda44cbf77285c6a8114b52676b8a1
@@ -131,6 +132,11 @@ Isaac-GR00T 소스는 공개 저장소다. `could not read Username`은 GitHub �
 프록시의 인증 응답 등이 원인일 수 있으며, 이 메시지만으로 원인을 확정할 수 없다.
 위 설치 블록은 subshell에서 해당 Git 설정을 격리하고 임시 경로에서 clone·checkout을
 완료한 뒤 설치 폴더로 옮긴다. `.git`이 없는 기존 폴더는 삭제하지 않고 백업한다.
+
+설정 격리만으로 HTTP 401이 발생했던 서버에서는 HTTP/1.1과 Git protocol v0를
+지정한 `ls-remote`가 성공했다. 위 clone 명령에도 같은 옵션을 적용했다.
+접근 확인에서 출력되는 원격 HEAD와 관계없이 설치용 고정 커밋
+`51d4c89f72fda44cbf77285c6a8114b52676b8a1`은 유지한다.
 
 설정 격리 후에도 GitHub Username을 요구하면 입력을 취소한다. 공개 저장소에 GitHub 비밀번호를
 입력해서 해결하는 절차가 아니다. 서버의 프록시·네트워크 접근과 실제 오류 응답을 확인해야 한다.
