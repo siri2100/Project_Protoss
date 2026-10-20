@@ -110,8 +110,12 @@ test "$(git -C Issac-GR00T-N17 rev-parse HEAD)" = 51d4c89f72fda44cbf77285c6a8114
 }
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 test -f pyproject.toml
-git -c credential.helper= -c http.extraHeader= submodule update --init --recursive
-git -c credential.helper= -c http.extraHeader= lfs pull --include="scripts/deployment/dgpu/wheels/**"
+git -c credential.helper= -c http.extraHeader= \
+  -c http.version=HTTP/1.1 -c protocol.version=0 \
+  submodule update --init --recursive
+git -c credential.helper= -c http.extraHeader= \
+  -c http.version=HTTP/1.1 -c protocol.version=0 \
+  lfs pull --include="scripts/deployment/dgpu/wheels/**"
 uv sync --locked --python 3.12
 uv run --no-sync hf auth whoami || uv run --no-sync hf auth login
 HF_HUB_ENABLE_HF_TRANSFER=0 uv run --no-sync hf download nvidia/Cosmos-Reason2-2B config.json \
@@ -135,6 +139,9 @@ Isaac-GR00T 소스는 공개 저장소다. `could not read Username`은 GitHub �
 
 설정 격리만으로 HTTP 401이 발생했던 서버에서는 HTTP/1.1과 Git protocol v0를
 지정한 `ls-remote`가 성공했다. 위 clone 명령에도 같은 옵션을 적용했다.
+LIBERO·robocasa 등 submodule의 clone에도 적용되도록 `submodule update`와
+후속 Git LFS 명령에도 같은 옵션을 지정한다. 본체 clone만 성공한 상태라면
+기존 폴더를 지우지 않고 수정한 설치 블록을 재실행해 submodule 단계부터 이어간다.
 접근 확인에서 출력되는 원격 HEAD와 관계없이 설치용 고정 커밋
 `51d4c89f72fda44cbf77285c6a8114b52676b8a1`은 유지한다.
 
