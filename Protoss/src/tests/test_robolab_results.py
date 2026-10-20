@@ -8,6 +8,13 @@ from src.robolab_results import process_results
 
 
 class RoboLabResultsTests(unittest.TestCase):
+    def test_missing_evaluation_result_explains_failure_without_upload(self):
+        with tempfile.TemporaryDirectory() as directory:
+            api = Mock()
+            with self.assertRaisesRegex(FileNotFoundError, "Check the client evaluation log"):
+                process_results(directory, "account/model", api=api)
+            api.upload_folder.assert_not_called()
+
     def write_results(self, root, records):
         (root / "episode_results.jsonl").write_text(
             "\n".join(json.dumps(record) for record in records) + "\n")

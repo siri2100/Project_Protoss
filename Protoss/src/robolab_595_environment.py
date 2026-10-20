@@ -29,7 +29,9 @@ def environment(stack: Path) -> dict:
     # Only inference/PhysX packages are needed. The full Lab dev workspace
     # includes RL trainers with incompatible packaging pins and Newton tasks.
     # Sim 6.0.1 pins torchvision 0.26, paired with torch 2.11.
-    dependencies = ["isaaclab", "isaaclab-physx", "isaaclab-ov",
+    # InteractiveScene imports contrib's VisuoTactileSensorCfg unconditionally,
+    # even for DROID tasks that do not instantiate a tactile sensor.
+    dependencies = ["isaaclab", "isaaclab-contrib", "isaaclab-physx", "isaaclab-ov",
                     "torch==2.11.0", "torchvision==0.26.0",
                     "isaacsim[all,extscache]==6.0.1.0", "robolab"]
     return {

@@ -25,6 +25,8 @@ bash /workspace/Project_Protoss/Protoss/setup_robolab_595.sh setup
 
 ## 2. 모델 서버 없이 물리·카메라 검사
 
+`ModuleNotFoundError: No module named 'isaaclab_contrib'`가 발생한 기존 설치는 수정된 프로젝트 파일을 반영한 뒤 `setup`을 다시 실행한다. DROID가 촉각 센서를 사용하지 않더라도 Isaac Lab의 `InteractiveScene`이 해당 config를 import하므로 `isaaclab-contrib`가 필요하다. 새 setup은 같은 Isaac Lab checkout에서 이 패키지도 설치한다.
+
 ```bash
 bash /workspace/Project_Protoss/Protoss/setup_robolab_595.sh smoke
 ```
@@ -48,5 +50,17 @@ bash /workspace/Project_Protoss/Protoss/setup_robolab_595.sh eval \
 ```
 
 실행은 새 `.venv/bin/python`을 직접 사용한다. 시스템 Python이나 `.venv-51`을 참조하지 않는다. 로그는 `logs/eval-*.log`, 평가 결과는 새 RoboLab checkout의 `output/` 아래에 저장된다. 같은 GPU에 모델 서버도 실행한다면 VRAM 사용량을 확인한다.
+
+`episode_results.jsonl`이 없다는 오류는 후처리 단계에서 평가 결과를 찾지 못했다는 뜻이다. 파일은 첫 episode의 결과를 기록한 뒤 생기므로, 평가가 끝까지 실행됐는지와 저장 경로를 먼저 확인한다. 595 실행 스크립트는 실제 Python/Sim 버전, RoboLab 소스 경로, 로그 경로를 출력하고, 이름을 지정한 평가에서 결과 파일이 없거나 비어 있으면 실패로 종료한다. 이 경우 metric을 계산하거나 업로드하지 않는다.
+
+아래 명령으로 저장된 결과와 평가 로그를 찾는다. 다른 실험 결과를 현재 결과로 대신 사용하지 말고, `NAME`과 로그에 출력된 결과 폴더가 일치하는지 확인한다.
+
+```bash
+find /workspace/robolab-595/RoboLab/output /workspace/RoboLab/output \
+  -maxdepth 2 -name episode_results.jsonl -print 2>/dev/null
+ls -t /workspace/robolab-595/logs/eval-*.log
+```
+
+가장 최근 평가 로그의 `RoboLab runtime`, `RoboLab source`, output directory, 최초 오류와 마지막 120줄을 확인한다. 평가가 다른 경로에 정상 저장됐다면 `process_robolab_results.py --results-dir`에 그 실험 폴더를 지정해 후처리만 다시 실행할 수 있다.
 
 Sim 버전에 따라 접촉·물리 결과가 달라질 수 있으므로 5.1 결과와 6.0 결과를 직접 비교하지 않는다. baseline과 Model-S를 모두 이 환경에서 다시 평가하고 `uv.lock`과 고정 revision을 함께 보관한다. 기존 환경으로 돌아가려면 README_test.md의 `.venv-51` 명령을 사용한다.

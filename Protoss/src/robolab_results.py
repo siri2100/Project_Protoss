@@ -54,6 +54,13 @@ def process_results(results_dir, repo_id, start_number=5, run_name=None, api=Non
     if start_number < 0:
         raise ValueError("start_number must be zero or greater")
     source = results_dir / "episode_results.jsonl"
+    if not source.is_file():
+        raise FileNotFoundError(
+            f"RoboLab evaluation result not found: {source}\n"
+            "No metrics were uploaded. Check the client evaluation log and its output directory. "
+            "The result file is written after an episode finishes; verify --output-folder-name "
+            "and the RoboLab checkout before rerunning post-processing."
+        )
     groups = group_lines_by_task(source)
     tasks, all_records = [], []
     for number, (task, lines) in enumerate(groups.items(), start=start_number):

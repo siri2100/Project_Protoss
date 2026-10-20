@@ -41,6 +41,7 @@ url = "https://pypi.nvidia.com"
 explicit = false
 [tool.uv.sources]
 isaaclab = { path = "source/isaaclab", editable = true }
+isaaclab-contrib = { path = "source/isaaclab_contrib", editable = true }
 torch = [{ index = "pytorch-cu128", marker = "sys_platform == 'linux'" }]
 ''')
             write_project(root)
@@ -48,6 +49,9 @@ torch = [{ index = "pytorch-cu128", marker = "sys_platform == 'linux'" }]
             self.assertEqual(generated, environment(root))
             self.assertIn("isaacsim[all,extscache]==6.0.1.0", generated["project"]["dependencies"])
             self.assertIn("robolab", generated["project"]["dependencies"])
+            self.assertIn("isaaclab-contrib", generated["project"]["dependencies"])
+            self.assertEqual(generated["tool"]["uv"]["sources"]["isaaclab-contrib"]["path"],
+                             str((root / "IsaacLab/source/isaaclab_contrib").resolve()))
             self.assertIn("torch==2.11.0", generated["project"]["dependencies"])
             self.assertFalse(any("isaac51" in item for item in generated["project"]["dependencies"]))
             self.assertEqual(generated["tool"]["uv"]["sources"]["isaaclab"]["path"],

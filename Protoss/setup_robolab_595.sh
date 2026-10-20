@@ -55,12 +55,19 @@ smoke|eval)
   cd "$STACK/RoboLab"
   mkdir -p "$STACK/logs"
   LOG="$STACK/logs/${MODE}-$(date -u +%Y%m%dT%H%M%SZ).log"
+  echo "RoboLab log: $LOG"
   nvidia-smi --query-gpu=name,driver_version --format=csv,noheader | tee "$LOG"
   "$STACK/.venv/bin/python" -c '
 import sys
 from importlib.metadata import version
+from pathlib import Path
+import robolab.constants as constants
 sim = version("isaacsim")
 print(f"RoboLab runtime: {sys.executable}; Python {sys.version.split()[0]}; Isaac Sim {sim}", flush=True)
+actual = Path(constants.PACKAGE_DIR).resolve()
+print(f"RoboLab source: {actual}", flush=True)
+if actual != Path.cwd().resolve():
+    raise SystemExit("RoboLab imported from a different checkout. Run setup again; check PYTHONPATH.")
 if sys.version_info[:2] != (3, 12) or sim != "6.0.1.0":
     raise SystemExit("Expected Python 3.12 + Isaac Sim 6.0.1.0. Run setup again.")
 ' 2>&1 | tee -a "$LOG"
@@ -68,7 +75,28 @@ if sys.version_info[:2] != (3, 12) or sim != "6.0.1.0":
     "$STACK/.venv/bin/python" -u "$PROTOSS_TOOLS/src/robolab_595_smoke.py" \
       --headless --device cuda:0 "$@" 2>&1 | tee -a "$LOG"
   else
+    # Kit may terminate without a completed episode. Exit status alone is not
+    # enough to authorize post-processing an evaluation's result file.
+    RESULT_NAME=
+    EXPECT_RESULT_NAME=0
+    for ARG in "$@"; do
+      if [ "$EXPECT_RESULT_NAME" = 1 ]; then
+        RESULT_NAME=$ARG
+        EXPECT_RESULT_NAME=0
+      else
+        case "$ARG" in
+          --output-folder-name|--output_folder_name) EXPECT_RESULT_NAME=1 ;;
+          --output-folder-name=*|--output_folder_name=*) RESULT_NAME=${ARG#*=} ;;
+        esac
+      fi
+    done
     "$STACK/.venv/bin/python" -u policies/gr00t/run.py "$@" 2>&1 | tee -a "$LOG"
+    if [ -n "$RESULT_NAME" ] && [ ! -s "$STACK/RoboLab/output/$RESULT_NAME/episode_results.jsonl" ]; then
+      echo "Evaluation produced no episode results: $STACK/RoboLab/output/$RESULT_NAME/episode_results.jsonl" >&2
+      echo "Metric calculation/upload stopped. Check evaluation log: $LOG" >&2
+      tail -n 80 "$LOG" >&2
+      exit 1
+    fi
   fi
   ;;
 *) echo "Usage: bash $0 {setup|smoke|eval} [arguments...]" >&2; exit 2 ;;
