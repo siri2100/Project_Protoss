@@ -65,7 +65,7 @@ cp "$PROTOSS_ROOT/Protoss/src/robolab_gr00t_client.py" "$CLIENT"
 ```bash
 (
 set -e
-NAME=v178_model_s_step500
+NAME=v179_model_s_step500
 CHECKPOINT_STEP=500
 export PROTOSS_ROOT=/workspace/Project_Protoss
 export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
@@ -107,7 +107,7 @@ GR00T 기본 서버를 원본(baseline) 또는 adapter output(Model-FM/S/E)로 �
 ```bash
 (
 set -e
-NAME=v1.7.8_model_s_step500
+NAME=v1.7.9_model_s_step500
 export PATH="$HOME/.local/bin:$PATH"
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV CUDA_VISIBLE_DEVICES
 export OMNI_KIT_ACCEPT_EULA=Y
