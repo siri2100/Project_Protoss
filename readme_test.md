@@ -108,11 +108,20 @@ GR00T 기본 서버를 원본(baseline) 또는 adapter output(Model-FM/S/E)로 �
 (
 set -e
 NAME=v1.7.9_model_s_step500
+MODEL_NAME=v179_model_s_step500
+EXP_NUM=05
+export PROTOSS_ROOT=/workspace/Project_Protoss
+export HF_HOME=/workspace/.cache/huggingface
+export HF_HUB_ENABLE_HF_TRANSFER=0
 export PATH="$HOME/.local/bin:$PATH"
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV CUDA_VISIBLE_DEVICES
 export OMNI_KIT_ACCEPT_EULA=Y
 export UV_CACHE_DIR=/workspace/.cache/uv
 export UV_LINK_MODE=copy
+GR00T_PYTHON="$PROTOSS_ROOT/Issac-GR00T-N17/.venv/bin/python"
+HF_ACCOUNT=$("$GR00T_PYTHON" -c \
+  'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
+HF_REPO_ID="${HF_REPO_ID:-$HF_ACCOUNT/$MODEL_NAME}"
 cd /workspace/RoboLab
 UV_PROJECT_ENVIRONMENT=.venv-51 uv run --no-sync --extra isaac51 \
   python policies/gr00t/run.py \
@@ -122,6 +131,12 @@ UV_PROJECT_ENVIRONMENT=.venv-51 uv run --no-sync --extra isaac51 \
   --num-envs 2 --num-runs 5 --open-loop-horizon 8 \
   --instruction-type default --video-mode none \
   --output-folder-name "$NAME"
+
+# 평가가 성공한 경우에만 모든 task의 metric을 계산하고 모델 저장소에 업로드
+"$GR00T_PYTHON" "$PROTOSS_ROOT/Protoss/process_robolab_results.py" \
+  --results-dir "/workspace/RoboLab/output/$NAME" \
+  --start-number "$EXP_NUM" \
+  --hf-repo-id "$HF_REPO_ID"
 )
 ```
 # BananaInBowlTask \
@@ -130,7 +145,11 @@ UV_PROJECT_ENVIRONMENT=.venv-51 uv run --no-sync --extra isaac51 \
 
 첫 확인은 `--num-runs 1`로 줄일 수 있다. 각 모델을 GR00T 기본 서버의 `--model-path`에 지정하고 포트 5557에 연결해 평가한다. baseline은 원본 checkpoint, Model-FM/S/E는 adapter와 processor가 있는 학습 output 경로를 사용한다. Model-S/E도 학습이 끝난 뒤 평가한다. 결과 폴더 이름을 `baseline_run01`, `modelFM_run01`, `modelS_run01`, `modelE_run01`처럼 각각 다르게 지정한다. Task 목록, control rate, horizon, simulator revision을 같게 유지하고 여러 run으로 비교한다.
 
-성공률, 성공 episode의 완료 시간, 실제 joint trajectory의 속도/가속도/jerk RMS를 함께 비교한다. 현재 코드의 motion metric은 학습 시연 command metric이며 RoboLab 실제 joint trajectory의 metric을 자동 수집하는 기능은 포함하지 않는다.
+평가가 정상 종료되면 `experiment/README_exp.md`의 task 분리·metric 평균 계산을 서버에서 자동 수행한다. 첫 등장 task부터 `RoboLab05.jsonl`, `RoboLab06.jsonl`, …으로 번호를 부여하고 **모든 task**를 계산한다. 평균은 기존 스크립트와 동일하게 성공·실패를 포함한 전체 episode의 유한한 숫자만 사용하며, metric별 유효 표본 수와 task별·전체 성공률도 기록한다. RoboLab이 기록한 `metrics`를 집계하며 HDF5에서 새 trajectory metric을 계산하지는 않는다.
+
+로컬 결과는 `/workspace/RoboLab/output/$NAME/metrics/`, 원격 결과는 모델 저장소의 `evaluations/$NAME/`에 저장된다. 원본 `episode_results.jsonl`, task별 JSONL, `metrics_summary.json`, `metrics_summary.txt`를 업로드한다. 모델 가중치·HDF5·영상은 업로드 대상이 아니다. `MODEL_NAME`은 모델 서버의 Hugging Face 저장소 이름과 맞춘다. `NAME`은 평가 결과 폴더 이름이므로 서로 달라도 된다. 다른 소유자의 모델은 블록 실행 전에 `HF_REPO_ID=소유자/모델저장소`를 export한다. 설치할 때 로그인한 쓰기 권한 토큰을 사용하며, 존재하지 않는 저장소에는 업로드하지 않는다.
+
+평가 오류 시 계산·업로드를 실행하지 않으며, 계산·업로드 오류도 종료 코드로 전달한다. 업로드만 실패했다면 평가를 다시 하지 않고 위 변수들을 설정한 뒤 마지막 `process_robolab_results.py` 명령을 재실행할 수 있다. 595 실험 환경을 사용하는 경우 결과 경로를 `/workspace/robolab-595/RoboLab/output/$NAME`으로 지정한다. 비교 실험에서는 성공률과 RoboLab이 기록한 SPARC·ISJ·경로 길이·속도 등을 같은 simulator 조건에서 비교한다.
 
 
 `--checkpoint-step 500`은 다운로드한 run의 `checkpoint-500/adapter`를 사용한다. 최종 adapter를 쓰려면 이 옵션을 생략한다. 지정 checkpoint가 없으면 오류로 종료한다. 저장 제한(현재 최대 3개)으로 이미 삭제된 step은 HF에도 없을 수 있으며 해당 adapter 파일이 별도로 남아 있어야 추론할 수 있다.
