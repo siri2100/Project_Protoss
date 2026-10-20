@@ -38,7 +38,7 @@ git lfs install
 
 ### 프로젝트 받기
 
-이미 프로젝트가 있으면 clone하지 않고 해당 경로를 사용한다. 서버에도 새 LoRA 학습·평가 코드가 포함된 revision을 준비한다.
+이미 프로젝트가 있으면 재사용하되 `v1.7` 브랜치를 먼저 준비하고 실행 파일을 확인한다. 기본 브랜치에는 `Protoss/` 실행 파일이 없을 수 있으므로 clone할 때도 브랜치를 지정한다. 기존 로컬 변경이나 브랜치 분기로 전환·fast-forward가 불가능하면 명령이 중단된다. 변경을 강제로 덮어쓰지 말고 보관한 뒤 진행한다.
 ```bash
 (
 set -e
@@ -46,12 +46,28 @@ export PROTOSS_ROOT=/workspace/Project_Protoss
 export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
 mkdir -p "$(dirname "$PROTOSS_ROOT")"
 if [ ! -d "$PROTOSS_ROOT" ]; then
-  git clone https://github.com/siri2100/Project_Protoss.git "$PROTOSS_ROOT"
+  git -c http.version=HTTP/1.1 -c protocol.version=0 \
+    clone --branch v1.7 https://github.com/siri2100/Project_Protoss.git "$PROTOSS_ROOT"
 fi
-test -f "$PROTOSS_ROOT/Protoss/train.py"
-test -f "$PROTOSS_ROOT/Protoss/prepare_droid.py"
-cd /workspace/Project_Protoss
-git checkout -b v1.7 origin/v1.7
+cd "$PROTOSS_ROOT"
+test -e .git || {
+  echo "Project_Protoss Git 저장소가 없습니다: $PROTOSS_ROOT. GR00T 소스 폴더와 프로젝트 저장소는 별개입니다." >&2
+  exit 1
+}
+git -c http.version=HTTP/1.1 -c protocol.version=0 \
+  fetch origin v1.7:refs/remotes/origin/v1.7
+if git show-ref --verify --quiet refs/heads/v1.7; then
+  git switch v1.7
+else
+  git switch -c v1.7 --track origin/v1.7
+fi
+git merge --ff-only origin/v1.7
+for entry in Protoss/train.py Protoss/prepare_droid.py Protoss/src/prepare_droid.py; do
+  test -f "$entry" || {
+    echo "필수 프로젝트 파일이 없습니다: $PROTOSS_ROOT/$entry. v1.7 소스 반영을 확인하세요." >&2
+    exit 1
+  }
+done
 )
 ```
 ### 저장 폴더 준비
@@ -234,10 +250,18 @@ export PATH="$HOME/.local/bin:$PATH"
 unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
 cd "$PROTOSS_ROOT/Issac-GR00T-N17"
 export HF_HUB_ENABLE_HF_TRANSFER=0
+for entry in Protoss/prepare_droid.py Protoss/src/prepare_droid.py; do
+  test -f "$PROTOSS_ROOT/$entry" || {
+    echo "프로젝트 파일 누락: $PROTOSS_ROOT/$entry. 학습 문서 1절의 '프로젝트 받기' 블록을 실행한 뒤 재시도하세요." >&2
+    exit 1
+  }
+done
 uv run --no-sync python "$PROTOSS_ROOT/Protoss/prepare_droid.py" download \
   --dataset-dir "$PROTOSS_ROOT/Protoss/data/source" --num-episodes 300
 )
 ```
+
+`can't open file .../Protoss/prepare_droid.py`는 다운로드 도구를 시작하기 전에 발생한 프로젝트 파일 누락 오류다. `uv` 환경 재설치로 해결되지 않는다. `PROTOSS_ROOT`가 실제 프로젝트 저장소를 가리키는지 확인하고, 1절의 수정된 '프로젝트 받기' 블록으로 `v1.7`을 준비한 뒤 이 절을 다시 실행한다. `Protoss/prepare_droid.py`는 CLI 진입점이고 구현인 `Protoss/src/prepare_droid.py`도 함께 있어야 한다. GR00T 환경과 기존 데이터·checkpoint는 다시 만들 필요가 없다.
 
 ## 5. 공통 원본 DROID 데이터 준비
 
