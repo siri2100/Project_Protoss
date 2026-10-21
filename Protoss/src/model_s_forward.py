@@ -1,6 +1,6 @@
-"""Model-S forward: pretrained flow preservation plus clean endpoint inputs.
+"""Model-S/E forward: pretrained flow preservation plus clean endpoint inputs.
 
-The noise/time/DiT prediction is shared by FM and the joint-jerk objective.
+The noise/time/DiT prediction is shared by FMD and the motion objectives.
 """
 from contextlib import contextmanager
 from types import MethodType
@@ -52,7 +52,7 @@ def flow_action_head_forward(head, backbone_output, action_input):
         kwargs.update(image_mask=backbone_output.image_mask,
                       backbone_attention_mask=backbone_output.backbone_attention_mask)
     if not callable(getattr(head.model, "disable_adapter", None)):
-        raise ValueError("Model-S flow teacher requires a PEFT DiT with disable_adapter()")
+        raise ValueError("Flow preservation teacher requires a PEFT DiT with disable_adapter()")
     # Frozen pretrained weights are the teacher: no second backbone/model copy.
     # Both passes receive the SAME hidden states, conditioning and discrete time.
     with deterministic_dit(head.model):
@@ -70,7 +70,7 @@ def flow_action_head_forward(head, backbone_output, action_input):
 
 
 @contextmanager
-def model_s_forward(head):
+def flow_preservation_forward(head):
     """Restore native forward even on failure; inference and Model-FM are unaffected."""
     had_override = "forward" in head.__dict__
     original = head.forward
@@ -82,3 +82,7 @@ def model_s_forward(head):
             head.forward = original
         else:
             del head.forward
+
+
+# Preserve the existing Model-S import while sharing the same implementation.
+model_s_forward = flow_preservation_forward

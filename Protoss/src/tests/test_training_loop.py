@@ -49,6 +49,66 @@ class TinyPolicy(nn.Module):
 
 
 class ExplicitLoopTests(unittest.TestCase):
+    def test_model_e_plot_shows_fmd_path_and_total(self):
+        from matplotlib.backends.backend_agg import FigureCanvasAgg
+        from src.model_e_loss import ModelEConfig, ModelELoss
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session = self.make_session(root)
+            session.efficiency = ModelELoss(ModelEConfig(fm_weight=2, path_length_weight=.5),
+                                           torch.ones(7), torch.zeros(7))
+            session.step = 2
+            session.trainer.state.log_history = [
+                {"step": 1, "loss": 5., "fmd_loss": 1., "path_length_loss": 6.,
+                 "fm_weight": 2., "path_length_weight": .5,
+                 "weighted_fmd_loss": 2., "weighted_path_length_loss": 3.},
+                {"step": 2, "loss": 3., "fmd_loss": .5, "path_length_loss": 4.,
+                 "fm_weight": 2., "path_length_weight": .5,
+                 "weighted_fmd_loss": 1., "weighted_path_length_loss": 2.},
+            ]
+            figures = []
+            original = FigureCanvasAgg.print_png
+            def save_png(canvas, path):
+                figures.append(canvas.figure)
+                original(canvas, path)
+            with patch.object(FigureCanvasAgg, "print_png", autospec=True, side_effect=save_png):
+                runtime.save_training_loss_plot(session)
+            self.assertEqual([axis.get_title() for axis in figures[0].axes],
+                             ["fmd_loss", "path_length_loss", "total_loss"])
+            self.assertEqual(list(figures[0].axes[1].lines[0].get_ydata()), [6., 4.])
+            with (root / "training_loss.csv").open() as stream:
+                rows = list(csv.DictReader(stream))
+            self.assertEqual(rows[0]["weighted_path_length_loss"], "3.0")
+            self.assertEqual(rows[1]["total_loss"], "3.0")
+            self.assertNotIn("normalized_jerk_loss", rows[0])
+
+    def test_model_e_state_saved_and_used_by_explicit_loop(self):
+        from src.model_e_loss import ModelEConfig, ModelELoss
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session = self.make_session(root)
+            session.args.variant = "E"
+            objective = ModelELoss(ModelEConfig(fm_weight=2., path_length_weight=3.),
+                                  torch.ones(7), torch.zeros(7))
+            def forward(model, inputs, diagnostics=False):
+                fmd = model(**inputs)["loss"]
+                path = fmd * .5
+                return 2 * fmd + 3 * path, {"fmd_loss": fmd.item(), "path_length_loss": path.item(),
+                                           "weighted_fmd_loss": 2 * fmd.item(),
+                                           "weighted_path_length_loss": 3 * path.item(),
+                                           "fm_weight": 2., "path_length_weight": 3.}
+            objective.forward = forward
+            session.efficiency = objective
+            self.run_main(session)
+            runtime.export_model(session)
+            for row in session.trainer.state.log_history:
+                self.assertAlmostEqual(row["loss"], row["weighted_fmd_loss"] + row["weighted_path_length_loss"], places=5)
+            for path in (root / "checkpoint-4/model_e_loss.json", root / "model_e_loss.json"):
+                restored = ModelELoss(objective.config, torch.ones(7), torch.zeros(7))
+                restored.load_state_dict(json.loads(path.read_text()))
+                self.assertEqual(restored.state_dict(), objective.state_dict())
+            self.assertFalse((root / "model_s_loss.json").exists())
+
     def test_model_s_plot_shows_fmd_jerk_and_total_with_resumed_history(self):
         from matplotlib.backends.backend_agg import FigureCanvasAgg
         from PIL import Image

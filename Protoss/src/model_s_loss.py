@@ -44,7 +44,7 @@ def joint_affine(processor, tag):
     """Read active pretrained normalization, never the fine-tuning subset stats.
 
     DROID joints are position offsets from ONE reference per chunk, not
-    successive increments. Adding that constant reference does not change Δ³q.
+    successive increments. Adding that constant reference does not change Δq or Δ³q.
     Use affine inverse without clipping to preserve endpoint gradients outside
     [-1, 1]; deployed upstream min/max inverse clips, so this is a smooth surrogate.
     """
@@ -102,7 +102,7 @@ def unnormalize_joints(normalized, mask, scale, offset):
 
 
 def clean_action_endpoint(noisy_action, timestep, predicted_velocity):
-    """GR00T uses x_t=(1-t)*noise+t*action and target jerk=action-noise."""
+    """GR00T uses x_t=(1-t)*noise+t*action and target flow=action-noise."""
     t = timestep.float().reshape(-1, 1, 1)
     return noisy_action.float() + (1 - t) * predicted_velocity.float()
 

@@ -7,9 +7,9 @@
 | baseline | 없음, pretrained 평가 | 없음 |
 | Model-FM | LoRA | FM |
 | Model-S | LoRA | FMD + normalized joint jerk |
-| Model-E | LoRA | FM (현재 Model-FM과 동일) |
+| Model-E | LoRA | FMD + joint path length |
 
-설치·데이터 준비·학습·업로드는 [readme_train.md](../readme_train.md), 모델 다운로드·추론·평가는 [readme_test.md](../readme_test.md)를 따른다. Model-FM(v1.6.14)은 FM 기준 모델이며 Model-S(v1.7)는 FMD + 정규화 jerk, Model-E는 현재 FM-only로 독립 학습한다.
+설치·데이터 준비·학습·업로드는 [readme_train.md](../readme_train.md), 모델 다운로드·추론·평가는 [readme_test.md](../readme_test.md)를 따른다. Model-FM(v1.6.14)은 FM 기준 모델이며 Model-S(v1.7)는 FMD + 정규화 jerk, Model-E는 FMD + 관절 경로 길이로 독립 학습한다.
 
 - 공통 데이터 준비: `prepare_groot_dataset.py`
 - Model-FM/S/E LoRA 학습: `train.py --model FM|S|E`
@@ -43,10 +43,12 @@ RoboLab이 instruction을 필드 mapping으로 전달하면 `src/robolab_gr00t_c
 
 모델 저장 위치는 프로젝트 바로 상위의 `checkpoint/`다. 예: `/workspace/Project_Protoss`의 모델은 `/workspace/checkpoint`에 저장한다. 학습 문서의 `CHECKPOINT_ROOT` 설정으로 원본 pretrained와 학습 run을 저장하고, 완료된 run 전체를 Hugging Face private 모델 저장소에 업로드한다. 추론 서버에서는 추론 문서에 따라 원본 pretrained와 업로드한 run을 Hugging Face에서 같은 `checkpoint/` 아래로 내려받고, `--model-path`에 다운로드한 run을, `--base-model-path`에 원본 pretrained 경로를 지정한다.
 
-Model-S는 `loss = fm_weight × FMD + jerk_lambda × normalized_jerk_loss`를 사용한다. FMD는 같은 관측·noise·timestep에서 pretrained와 pretrained+LoRA의 flow velocity 차이에 대한 masked MSE다. Teacher는 PEFT adapter를 끄고 gradient 없이 실행하며 student에만 LoRA를 적용한다. 기존 teacher/student 경로는 유지하고 Model-FM/E는 정답 action FM을 계속 사용한다.
+Model-S는 `loss = fm_weight × FMD + jerk_lambda × normalized_jerk_loss`를 사용한다. FMD는 같은 관측·noise·timestep에서 pretrained와 pretrained+LoRA의 flow velocity 차이에 대한 masked MSE다. Teacher는 PEFT adapter를 끄고 gradient 없이 실행하며 student에만 LoRA를 적용한다. Model-E도 같은 teacher/student 경로를 사용하며 Model-FM은 정답 action FM을 사용한다.
 
 Student clean endpoint의 관절 7개를 pretrained 통계로 역정규화한 뒤 `jerk = Δ³q/dt³`를 계산한다. 네 점이 모두 유효한 window만 평균하며 gripper·EEF·padding을 제외한다. `normalized_jerk_loss = mean(jerk²)/jerk_ref²`이고 기준 RMS는 정답 10개 batch에서 구해 고정한다. 최소 기준은 `1 rad/s³`이며 준비 단계는 optimizer step을 사용하지 않는다. 설정은 `ModelSConfig`, 계산은 `masked_jerk_loss()`에서 수정한다.
 
 `--s-fmd-weight`(기존 `--s-fm-weight`도 지원), `--s-jerk-lambda`, `--s-jerk-reference`, `--s-calibration-batches`, `--s-dt`로 실험을 조정한다. 기본 FMD 가중치는 1, jerk lambda는 0.01이다. 기준 RMS를 직접 지정하면 측정을 생략한다. 기존 velocity 옵션은 사용하지 않는다.
 
 콘솔과 CSV에 FMD·가중 FMD·jerk·total을 기록하고 그래프는 FMD/정규화 jerk/total 세 패널이다. Raw jerk와 기준 RMS도 저장한다. 이전 FMD+velocity checkpoint를 새 목적 함수로 재개하지 않고 새 output에서 학습한다. 실제 rollout의 jerk와 성공률 개선은 별도 검증한다.
+
+Model-E는 `src/model_e_loss.py`에서 `loss = fm_weight × FMD + path_length_weight × path_length_loss`로 계산한다. `path_length_loss`는 student clean endpoint를 pretrained 통계로 역정규화한 관절 7개의 `sum_t ||q[t+1]-q[t]||₂`에 대한 batch 평균이다. Gripper·EEF·padding·결측 구간을 제외하며 정규화나 dt 계수를 적용하지 않는다. `--e-fmd-weight`(기본 1), `--e-path-length-weight`(기본 0.01)로 두 항을 조절한다. 콘솔·CSV·그래프에 FMD/path length/total을 기록하고 loss 설정도 checkpoint에 저장한다. 기존 FM-only Model-E는 새 output에서 다시 학습한다.

@@ -7,9 +7,9 @@
 | baseline | 없음 | 없음 | 원본 평가 가능 |
 | Model-FM | LoRA | FM | 학습·평가 실행 경로 제공 |
 | Model-S | LoRA | FMD + normalized joint jerk | 학습·평가 실행 가능 |
-| Model-E | LoRA | FM (현재 Model-FM과 동일) | 학습·평가 실행 가능 |
+| Model-E | LoRA | weighted FMD + weighted joint path length | 학습·평가 실행 가능 |
 
-Model-FM(v1.6.14)은 All QKV, LR=1e-6의 FM 기준 모델이다. Model-S(v1.7)는 같은 pretrained 모델에서 독립적으로 pretrained flow 보존 loss와 정규화 관절 jerk loss로 학습한다. Model-E는 현재 FM-only이며 efficiency loss는 아직 적용하지 않는다. jerk 억제 효과와 성공률 보존 여부는 동일 조건의 RoboLab rollout을 Model-FM과 비교해 확인한다.
+Model-FM(v1.6.14)은 All QKV, LR=1e-6의 FM 기준 모델이다. Model-S(v1.7)는 같은 pretrained 모델에서 독립적으로 pretrained flow 보존 loss와 정규화 관절 jerk loss로 학습한다. Model-E는 FMD 보존 항과 7개 관절의 경로 길이 항으로 독립 학습한다. jerk 억제 효과와 성공률 보존 여부는 동일 조건의 RoboLab rollout을 Model-FM과 비교해 확인한다.
 
 이 문서는 환경 설치, 데이터 준비, LoRA 학습·재개와 Hugging Face 업로드를 다룬다. 추론·평가·모델 다운로드는 [readme_test.md](readme_test.md)를 따른다.
 
@@ -342,7 +342,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
 
 실험 구현은 `Protoss/src/model_s_loss.py`와 `model_s_forward.py`에 모았다. `ModelSConfig`는 설정, `joint_affine()`는 관절 역정규화, `masked_jerk_loss()`는 3차 차분 제곱 평균, `ModelSLoss`는 최종 조합을 담당한다.
 
-- 목적 함수는 `L = fm_weight × FMD + jerk_lambda × normalized_jerk_loss`다. `FMD = masked_mean((v_LoRA - stopgrad(v_pretrained))²)`이며 기존 pretrained flow velocity 보존 항을 유지한다. Model-FM/E의 정답 action FM 학습은 그대로다.
+- 목적 함수는 `L = fm_weight × FMD + jerk_lambda × normalized_jerk_loss`다. `FMD = masked_mean((v_LoRA - stopgrad(v_pretrained))²)`이며 기존 pretrained flow velocity 보존 항을 유지한다. Model-FM의 정답 action FM 학습은 그대로이며 Model-E도 같은 FMD teacher/student 경로를 사용한다.
 - Teacher/student는 관측, state 특징, noisy action, 연속 timestep과 discrete timestep을 공유한다. Teacher는 같은 PEFT DiT의 adapter를 끈 상태에서 `no_grad`로 실행하고 student에는 adapter를 적용한다. 두 pass의 DiT dropout은 끄고 이후 training 상태를 복원한다. Backbone은 한 번, DiT는 두 번 실행하며 pretrained weight를 별도로 복제하지 않는다.
 - DROID `[EEF(9), gripper(1), joints(7)]` 중 joint 7개를 pretrained 통계로 역정규화한다. Student의 `a_clean = x_t + (1-t)v_LoRA`를 사용한다. Chunk 공통 기준 위치는 3차 차분에서 상쇄된다. Gripper·EEF·padding은 jerk 계산에서 제외한다.
 - `jerk = (q[k+3]-3q[k+2]+3q[k+1]-q[k])/dt³`로 `raw_jerk_loss = mean(jerk²)`를 계산한다. 네 점이 모두 유효한 window만 사용한다. `normalized_jerk_loss = raw_jerk_loss / jerk_ref²`이며 raw 단위는 `rad²/s⁶`다. 기본 `dt=1/15`초다.
@@ -391,9 +391,20 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
 
 ### 6.3 Model-E 학습
 
+구현은 `Protoss/src/model_e_loss.py`에 있다. `ModelEConfig`에서 두 가중치를, `masked_path_length_loss()`에서 경로 길이 계산을 수정할 수 있다.
+
+- `L = fm_weight × FMD + path_length_weight × path_length_loss`다. FMD는 Model-S와 동일한 pretrained/student flow velocity의 masked MSE다. 정답 action에 대한 기존 FM loss는 Model-E에서 사용하지 않는다.
+- Student의 `a_clean = x_t + (1-t)v_LoRA`에서 joint 7개를 원본 pretrained 통계로 역정규화한다. 각 chunk의 `sum_t ||q[t+1]-q[t]||₂`를 구한 뒤 batch 평균한다. Gripper와 EEF는 경로 길이에 포함하지 않는다. Chunk 공통 기준 관절 위치는 차분에서 상쇄된다.
+- 두 시점의 7개 관절이 모두 유효한 segment만 사용하고 padding·결측 구간을 연결하지 않는다. 유효 segment가 없는 chunk는 평균에서 제외하며, batch 전체에 segment가 없으면 오류로 중단한다. 현재 관측 state에서 첫 예측 action까지의 거리는 포함하지 않는다.
+- Path length는 제곱·dt 나누기·기준값 정규화가 없는 rad 단위의 관절 공간 거리다. FMD와 단위가 다르므로 각 가중치로 상대적인 크기를 조정한다. `--e-fmd-weight`(또는 `--e-fm-weight`) 기본값은 1, `--e-path-length-weight` 기본값은 0.01이다. Path weight가 0이면 FMD만 사용한다.
+- 콘솔·CSV·checkpoint 로그에 `fmd_loss`, `weighted_fmd_loss`, `path_length_loss`, `weighted_path_length_loss`, 두 가중치와 total을 기록한다. 그래프는 FMD/path length/total 세 패널이다. Loss 설정은 `model_e_loss.json`으로 checkpoint와 최종 run에 저장한다.
+- 기존 FM-only Model-E checkpoint에서는 새 loss로 resume하지 않는다. 새 output에서 pretrained부터 시작하고, 같은 목적 함수 재개 시 원래 가중치를 유지한다. 역정규화는 Model-S처럼 clipping 없는 affine이며, 실제 경로 단축·성공률은 rollout에서 확인한다.
+
 ```bash
 (
 set -e
+L_FMD=1
+L_PATH=0.01
 export PROTOSS_ROOT=/workspace/Project_Protoss
 export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
 export HF_HOME=/workspace/.cache/huggingface
@@ -411,12 +422,13 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
   --dataset-root "$PROTOSS_ROOT/Protoss/data" \
   --base-model "$CHECKPOINT_ROOT/GR00T-N1.7-DROID" \
   --output-dir "$OUTPUT_DIR" \
+  --e-fmd-weight "$L_FMD" --e-path-length-weight "$L_PATH" \
   --lora-rank 32 --lora-alpha 64 --max-steps 2000 --save-steps 2000 \
   --batch-size 2 --gradient-accumulation 16 --lr 1e-5 --workers 2 --seed 42
 )
 ```
 
-GR00T 기본 masked flow-matching MSE를 그대로 사용한다. FM의 velocity는 물리적 관절 속도가 아니다. Model-FM/S 비교는 LoRA rank/alpha, train 데이터, seed, batch, optimizer와 step 수를 맞추고 loss만 기존 FM과 FMD + normalized jerk로 구분한다. Model-E 예시 설정은 별도 실험이다. 각 명령은 해당 모델 하나만 학습하고 종료한다. 원본 pretrained checkpoint에서 각각 시작하며 서로의 학습 weight를 이어받지 않는다. Model-S는 가중 pretrained flow 보존 loss와 정규화 관절 jerk loss를 사용한다.
+Model-FM은 기존 FM, Model-S는 FMD + normalized jerk, Model-E는 FMD + joint path length를 사용한다. 비교 시 LoRA rank/alpha, 데이터, seed, batch, LR, optimizer와 step 수를 맞춘다. 각 명령은 해당 모델 하나만 학습하고 종료하며, 같은 원본 pretrained checkpoint에서 독립적으로 시작한다. FM의 flow velocity와 실제 관절 속도는 서로 다른 값이다.
 
 ### 6.4 중단된 PEFT 학습 재개
 
@@ -491,7 +503,7 @@ uv run --no-sync python -m unittest discover \
 
 검증: CPU mock 테스트로 dataset repo type/private 생성, 전체 trainset 전송 파일 목록, 불완전한 영상/episode 수 검사, dry-run을 확인했다. 실제 계정으로 데이터 업로드·다운로드는 이 작업에서 실행하지 않았다.
 
-LoRA 검증 범위: CPU에서 초기 출력 일치, adapter만의 gradient, merge 전후 출력 일치와 native Linear state reload를 확인한다. 실제 GR00T LoRA GPU 학습/merged checkpoint 로딩은 이 작업 환경에서 실행하지 않았다. Model-S는 FMD + normalized jerk를 사용하며 Model-E는 FM-only다.
+LoRA 검증 범위: CPU에서 초기 출력 일치, adapter만의 gradient, merge 전후 출력 일치와 native Linear state reload를 확인한다. 실제 GR00T LoRA GPU 학습/merged checkpoint 로딩은 이 작업 환경에서 실행하지 않았다. Model-S는 FMD + normalized jerk, Model-E는 FMD + joint path length를 사용한다.
 
 이번 변경 검증: 데이터·학습 설정 4개, LoRA gradient/merge 1개, 네 모델의 공통 평가 조건 1개로 총 6개 CPU 테스트를 통과했다. 평가 조건 테스트는 subprocess를 mock하며 실제 VLA inference는 실행하지 않는다.
 

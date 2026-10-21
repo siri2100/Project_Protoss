@@ -19,6 +19,7 @@ class TrainingSession:
     dataloader: object = None
     iterator: object = None
     smoothness: object = None
+    efficiency: object = None
 
     @property
     def model(self):
@@ -170,6 +171,19 @@ def setup_training(config, args, lora_settings):
                     if not state_path.is_file():
                         raise ValueError("Model-S resume requires model_s_loss.json; start a new run for FM-only checkpoints")
                     session.smoothness.load_state_dict(json.loads(state_path.read_text()))
+            elif args.variant == "E":
+                import json
+                from .groot_common import TAG
+                from .model_s_loss import joint_affine
+                from .model_e_loss import ModelELoss, config_from_args
+                from gr00t.data.embodiment_tags import EmbodimentTag
+                scale, offset = joint_affine(pipeline.processor, EmbodimentTag.resolve(TAG).value)
+                session.efficiency = ModelELoss(config_from_args(args), scale, offset)
+                if checkpoint is not None:
+                    state_path = Path(checkpoint) / "model_e_loss.json"
+                    if not state_path.is_file():
+                        raise ValueError("Model-E resume requires model_e_loss.json; start a new run for FM-only checkpoints")
+                    session.efficiency.load_state_dict(json.loads(state_path.read_text()))
             # GR00T reseeds its dataset using global_step instead of skipping samples.
             session.dataloader = trainer.get_train_dataloader()
             session.iterator = iter(session.dataloader)
@@ -228,6 +242,9 @@ def save_checkpoint(training):
     if training.smoothness is not None:
         from .groot_common import write_json
         write_json(checkpoint / "model_s_loss.json", training.smoothness.state_dict())
+    if getattr(training, "efficiency", None) is not None:
+        from .groot_common import write_json
+        write_json(checkpoint / "model_e_loss.json", training.efficiency.state_dict())
     CheckpointFormatCallback(
         run_name=training.args.output_dir.name,
         exp_cfg_dir=training.args.output_dir / "experiment_cfg",
@@ -252,23 +269,37 @@ def save_training_loss_plot(training):
     losses = {row["step"]: row["loss"] for row in training.trainer.state.log_history
               if "step" in row and "loss" in row and row["step"] <= training.step}
     steps = sorted(losses)
+    model_e = getattr(training, "efficiency", None) is not None or any(
+        "path_length_loss" in row for row in training.trainer.state.log_history)
+    motion_key = "path_length_loss" if model_e else "normalized_jerk_loss"
     components = {row["step"]: row for row in training.trainer.state.log_history
-                  if "step" in row and "normalized_jerk_loss" in row and row["step"] <= training.step}
-    model_s = training.smoothness is not None or bool(components)
+                  if "step" in row and motion_key in row and row["step"] <= training.step}
+    compound = training.smoothness is not None or model_e or bool(components)
     output = training.args.output_dir
     with (output / "training_loss.csv").open("w", newline="") as stream:
         writer = csv.writer(stream)
-        keys = ["fmd_loss", "raw_jerk_loss", "normalized_jerk_loss", "total_loss",
-                "fm_weight", "weighted_fmd_loss",
-                "weighted_jerk_loss", "jerk_lambda", "jerk_reference",
-                "fmd_grad_norm", "jerk_grad_norm"] if model_s else []
+        if model_e:
+            keys = ["fmd_loss", "path_length_loss", "total_loss", "fm_weight", "weighted_fmd_loss",
+                    "weighted_path_length_loss", "path_length_weight"]
+        elif compound:
+            keys = ["fmd_loss", "raw_jerk_loss", "normalized_jerk_loss", "total_loss",
+                    "fm_weight", "weighted_fmd_loss",
+                    "weighted_jerk_loss", "jerk_lambda", "jerk_reference",
+                    "fmd_grad_norm", "jerk_grad_norm"]
+        else:
+            keys = []
         writer.writerow(["step", "loss", *keys])
         for step in steps:
             row = {**components.get(step, {}), "total_loss": losses[step]}
             writer.writerow([step, losses[step], *(row.get(key, "") for key in keys)])
 
-    figure = Figure(figsize=(9, 10) if model_s else (9, 5), layout="constrained")
-    if model_s:
+    figure = Figure(figsize=(9, 10) if compound else (9, 5), layout="constrained")
+    if model_e:
+        axes = figure.subplots(3, 1, sharex=True)
+        series = [("fmd_loss", "Pretrained flow preservation MSE"),
+                  ("path_length_loss", "Mean joint path length (rad)"),
+                  ("total_loss", "Weighted flow preservation + weighted path length")]
+    elif compound:
         axes = figure.subplots(3, 1, sharex=True)
         series = [("fmd_loss", "Pretrained flow preservation MSE"),
                   ("normalized_jerk_loss", "Normalized mean squared joint jerk"),
@@ -285,7 +316,7 @@ def save_training_loss_plot(training):
         else:
             axis.text(0.5, 0.5, "No recorded losses in this checkpoint",
                       ha="center", va="center", transform=axis.transAxes)
-        axis.set(title=key if model_s else "Training loss", ylabel=label)
+        axis.set(title=key if compound else "Training loss", ylabel=label)
         axis.xaxis.set_major_locator(MaxNLocator(integer=True))
         axis.grid(True, alpha=0.3)
     axes[-1].set_xlabel("Optimizer step")
@@ -302,6 +333,8 @@ def export_model(training):
     output = training.args.output_dir
     if training.smoothness is not None:
         write_json(output / "model_s_loss.json", training.smoothness.state_dict())
+    if getattr(training, "efficiency", None) is not None:
+        write_json(output / "model_e_loss.json", training.efficiency.state_dict())
     training.model.action_head.model.save_pretrained(output / "adapter")
     if training.lora_settings.get("processor_policy") == "pretrained-v1":
         from .training_processor_settings import save_original_processor
