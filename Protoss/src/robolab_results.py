@@ -46,7 +46,7 @@ def report_text(summary):
     return "\n\n".join(sections) + "\n"
 
 
-def process_results(results_dir, repo_id, start_number=5, run_name=None, api=None):
+def process_results(results_dir, repo_id=None, start_number=5, run_name=None, api=None, metadata=None):
     results_dir = Path(results_dir).expanduser().resolve()
     run_name = run_name or results_dir.name
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", run_name):
@@ -82,9 +82,15 @@ def process_results(results_dir, repo_id, start_number=5, run_name=None, api=Non
         (staging / "metrics_summary.json").write_text(
             json.dumps(summary, ensure_ascii=False, indent=2, allow_nan=False) + "\n", encoding="utf-8")
         (staging / "metrics_summary.txt").write_text(report, encoding="utf-8")
+        if metadata is not None:
+            (staging / "evaluation_config.json").write_text(
+                json.dumps(metadata, indent=2, allow_nan=False) + "\n", encoding="utf-8")
         for artifact in staging.iterdir():
             shutil.copyfile(artifact, output / artifact.name)
         print(report, flush=True)
+        if repo_id is None:
+            print(f"Local metrics: {output}", flush=True)
+            return summary, None
         if api is None:
             from huggingface_hub import HfApi
             api = HfApi()
@@ -103,7 +109,7 @@ def process_results(results_dir, repo_id, start_number=5, run_name=None, api=Non
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--results-dir", type=Path, required=True)
-    parser.add_argument("--hf-repo-id", required=True, help="Existing model repository: ACCOUNT/MODEL")
+    parser.add_argument("--hf-repo-id", help="Existing model repository: ACCOUNT/MODEL (omit for local metrics)")
     parser.add_argument("--start-number", type=int, default=5)
     parser.add_argument("--run-name", help="Evaluation folder name on Hugging Face (default: results directory name)")
     args = parser.parse_args()

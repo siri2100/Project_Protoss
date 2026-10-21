@@ -305,7 +305,9 @@ Model-FM/S는 `NAME`·`STEP`으로 run 폴더를 정하고, Model-E는 `mktemp -
 
 이전 `[0]` 영상·subset normalization으로 학습한 checkpoint는 새 학습으로 `--resume`하지 않는다. 새 output에서 원본 pretrained 모델부터 다시 시작한다. 데이터는 기존 공통 `trainset/`을 재사용하며 재다운로드·변환은 필요 없다. `lora_settings.json`에 `processor_policy=pretrained-v1`, 원본 processor 파일 SHA256, 영상 시점, 통계 덮어쓰기 여부를 기록하고, 다르면 재개를 거부한다. `--state-dropout-prob` override 옵션은 제거했다.
 
-학습 완료 후 run 전체를 Hugging Face private 모델 저장소에 **자동 업로드**한다. 기본 저장소는 `로그인계정/output폴더명`이다. 학습 시작 시 로그인을 확인하며, 저장소를 직접 지정하려면 학습 명령에 `--hf-repo-id ACCOUNT/REPO`를 추가한다. 오프라인 학습만 필요하면 `--no-hf-upload`를 지정한다. 모델·loss 저장과 분포 그래프 생성 후 업로드하며, 그래프 생성에 실패해도 저장된 모델의 업로드를 시도한다. 업로드 실패는 오류로 종료하며 로컬 모델은 유지된다. 이때 재학습하지 말고 8절의 수동 업로드 명령을 사용한다.
+학습 완료 후 run 전체를 Hugging Face private 모델 저장소에 **자동 업로드**한다. 기본 저장소는 `로그인계정/output폴더명`이다. 학습 시작 시 로그인을 확인하며, 저장소를 직접 지정하려면 학습 명령에 `--hf-repo-id ACCOUNT/REPO`를 추가한다. 모델·loss 저장과 분포 그래프 생성 후 업로드하며, 그래프 생성에 실패해도 저장된 모델의 업로드를 시도한다. 업로드 실패는 오류로 종료하며 로컬 모델은 유지된다. 이때 재학습하지 말고 8절의 수동 업로드 명령을 사용한다.
+
+**FM/S/E 모두 기본적으로 학습 후 RoboLab 평가·점수 계산·점수 업로드까지 자동 실행한다.** 학습만 하려면 `--no-eval`, HF 없이 로컬 학습·평가를 하려면 `--no-hf-upload`, 오프라인 학습만 하려면 두 옵션을 함께 추가한다. 먼저 6.6절에 따라 동작 확인된 595 simulator 환경에 최신 패치를 적용한다.
 
 ### 6.1 Model-FM 학습
 
@@ -428,7 +430,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
 )
 ```
 
-Model-FM은 기존 FM, Model-S는 FMD + normalized jerk, Model-E는 FMD + joint path length를 사용한다. 비교 시 LoRA rank/alpha, 데이터, seed, batch, LR, optimizer와 step 수를 맞춘다. 각 명령은 해당 모델 하나만 학습하고 종료하며, 같은 원본 pretrained checkpoint에서 독립적으로 시작한다. FM의 flow velocity와 실제 관절 속도는 서로 다른 값이다.
+Model-FM은 기존 FM, Model-S는 FMD + normalized jerk, Model-E는 FMD + joint path length를 사용한다. 비교 시 LoRA rank/alpha, 데이터, seed, batch, LR, optimizer와 step 수를 맞춘다. 각 명령은 같은 원본 pretrained checkpoint에서 해당 모델 하나를 독립적으로 학습하고 자동 평가까지 실행한다. FM의 flow velocity와 실제 관절 속도는 서로 다른 값이다.
 
 ### 6.4 중단된 PEFT 학습 재개
 
@@ -474,6 +476,48 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
 
 분석 조건을 바꾸거나 저장된 모델로 그래프만 다시 생성하려면 [추론 문서 4절](readme_test.md#4-학습-전후-action-distribution-비교)의 명령을 사용한다.
 
+### 6.6 학습 → RoboLab 테스트 → 평가점수 자동 계산
+
+동작 확인된 Isaac Sim 6.0.1 / 595 stack을 사용한다. 프로젝트 업데이트 후 아래 setup을 한 번 실행해 평가 완료 확인 패치를 적용한다. 학습 때마다 설치하거나 smoke를 반복하지 않는다. 학습 시작 전에는 GPU를 초기화하지 않고 설치·호환 패치와 포트를 검사하며, 준비되지 않았다면 학습 전에 중단한다.
+
+```bash
+bash "$PROTOSS_ROOT/Protoss/setup_robolab_595.sh" setup
+```
+
+이후 6.1~6.4의 `train.py` 명령 하나로 다음을 순서대로 실행한다.
+
+1. 학습·checkpoint·그래프 저장 → HF 모델 업로드
+2. 학습 worker 프로세스 종료 → GPU 메모리 반환
+3. 같은 HF 저장소에서 다운로드 → 최종 adapter로 추론 서버 시작 → ping 준비 확인
+4. RoboLab closed-loop 평가 → 자동 서버 종료
+5. 모든 task의 성공률·평균 score·trajectory metric 평균 계산 → 같은 모델 저장소의 `evaluations/<평가이름>/`에 업로드
+
+기본값은 `BananaOnPlateTask`, 환경 2개 × 5회 = 10 episodes, open-loop horizon 8, simulator seed 0, 영상 저장 없음이다. 학습 seed와 평가 seed는 별개다. 별도 서버·Client 터미널이나 수동 `NAME` 설정은 필요 없다. 포트는 자동으로 빈 포트를 선택하고 평가 이름에는 시각을 붙여 기존 결과를 재사용하지 않는다. CUDA_VISIBLE_DEVICES는 학습·서버·simulator가 공유하며, 추론 서버는 그 안의 `cuda:0`을 사용한다. 학습은 종료되지만 추론 서버와 simulator는 평가 중 동시에 GPU 메모리를 사용한다.
+
+실험마다 학습 명령 끝에 필요한 옵션을 추가한다.
+
+```bash
+  --eval-tasks BananaOnPlateTask \
+  --eval-num-envs 2 --eval-num-runs 5 --eval-horizon 8 --eval-seed 0 \
+  --eval-stack-root /workspace/robolab-595
+```
+
+여러 task는 `--eval-tasks BananaOnPlateTask BananaInBowlTask`로 지정한다. `--eval-device cuda:0`, `--eval-port 5558`, `--eval-server-timeout 600`도 조정할 수 있다. 환경 2개는 병렬이며 실행 횟수는 task마다 적용된다. 다른 checkout에서 학습해도 `--eval-stack-root`로 이미 확인한 stack을 재사용할 수 있다. `Project_Protoss2`는 RunPod checkout 위치이며 로컬 폴더를 추가로 만들지 않는다.
+
+모델 폴더의 `evaluation_status.json`에 단계·오류·실제 결과 경로를 기록하고, `evaluation_logs/`에 서버 로그, `evaluations/<평가이름>/`에 점수 JSON/TXT·task별 JSONL·평가 설정을 보관한다. 원본 trajectory/HDF5는 `/workspace/robolab-595/RoboLab/output/<평가이름>/`에 남기고 HF에는 올리지 않는다. RoboLab이 기록한 metric을 집계하며 HDF5에서 새 metric을 계산하지 않는다.
+
+학습·그래프·모델 업로드에 실패하면 평가를 시작하지 않는다. 평가가 정상 완료됐다는 표시와 결과 파일을 모두 확인한 뒤에만 점수를 계산·업로드한다. 실패 시 학습 모델을 보존하고, 이 명령이 띄운 서버·클라이언트를 정리하며 오류로 종료한다. `--no-hf-upload`에서는 HF 다운로드·업로드 없이 로컬 adapter로 평가하고 점수만 저장한다.
+
+이미 학습된 모델의 평가만 다시 하려면 GR00T 환경에서 실행한다. 같은 명령에 위 `--eval-*` 옵션을 추가할 수 있다. HF 업로드만 실패했다면 RoboLab 평가를 재실행하지 않고 `evaluation_status.json`의 `results_dir`을 `process_robolab_results.py --results-dir ... --hf-repo-id ACCOUNT/REPO`에 넘긴다.
+
+```bash
+uv run --no-sync python "$PROTOSS_ROOT/Protoss/evaluate_robolab.py" \
+  --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
+  --base-model "$CHECKPOINT_ROOT/GR00T-N1.7-DROID" \
+  --output-dir "$OUTPUT_DIR" \
+  --hf-repo-id "ACCOUNT/MODEL"
+```
+
 ## 7. 코드와 검증
 
 | 파일 | 역할 |
@@ -481,10 +525,14 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
 | `Protoss/prepare_droid.py` | 공개 성공 DROID subset 다운로드 (`download` 명령) |
 | `Protoss/prepare_groot_dataset.py` | 네 모델의 공통 원본 데이터 LeRobot v2 준비 |
 | `Protoss/train.py` | Model-FM/S/E의 공통 FM LoRA 학습 |
+| `Protoss/src/training_evaluation.py` | 학습 worker 종료 후 서버·RoboLab·metric 업로드 순서 관리 |
+| `Protoss/evaluate_robolab.py` | 저장된 모델을 재학습 없이 서버·평가·metric 업로드까지 실행 |
 | `Protoss/eval_groot_models.py` | baseline / Model-FM/S/E 공통 trainset·seed·horizon 평가 |
 | `Protoss/src/groot_common.py` | 공통 데이터 변환과 학습 구현 |
 | `Protoss/src/groot_lora.py` | action DiT Linear LoRA 주입과 merge |
 | `Protoss/src/tests/test_groot_common.py` | 원본 command 보존, 전체 episode 보존와 학습 설정 검증 |
+
+자동 평가 통합 검증: 학습 루프·HF 동기화·metric·RoboLab 완료 표시를 포함해 CPU 테스트 41개를 통과했다. 이 중 프로세스 통합 8개는 실제 자식 프로세스와 로컬 ZeroMQ 서버로 학습 종료 후 서버 시작, 준비 대기, 실패 시 중단·정리, 점수 보존을 검사한다. 모델·simulator는 테스트용 실행 파일이고 HF API는 mock이다. 전체 GPU 학습부터 자동 rollout·실제 HF 전송까지의 연결은 로컬에서 실행하지 않았다.
 
 ```bash
 (

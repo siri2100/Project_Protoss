@@ -1,0 +1,7 @@
+--- a/policies/gr00t/run.py
++++ b/policies/gr00t/run.py
+@@ -71,3 +71,4 @@
+ def main() -> None:
+     run_evaluation(args_cli, policy=POLICY, client_factory=make_client)
++    print("PROTOSS ROBOLAB EVALUATION COMPLETE", flush=True)
+     simulation_app.close()

@@ -15,6 +15,8 @@ def main():
     else:
         from src.hf_model_sync import download_for_server
     parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--groot-root", type=Path,
+                        default=Path(__file__).resolve().parents[1] / "Issac-GR00T-N17")
     parser.add_argument("--hf-repo-id")
     parser.add_argument("--hf-revision", default="main")
     parser.add_argument("--hf-base-repo-id", default="nvidia/GR00T-N1.7-DROID")
@@ -31,7 +33,7 @@ def main():
             from src.inference_loading import checkpoint_inference_args
         remaining = checkpoint_inference_args(remaining, args.checkpoint_step)
     sys.argv = [sys.argv[0], *remaining]
-    root = Path(__file__).resolve().parents[1] / "Issac-GR00T-N17"
+    root = args.groot_root.resolve()
     ensure_adapter_inference(root)
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     sys.path.insert(0, str(root))

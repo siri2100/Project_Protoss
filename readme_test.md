@@ -2,6 +2,8 @@
 
 이 문서는 pretrained 또는 학습된 PEFT adapter의 다운로드, open-loop 평가, RoboLab closed-loop 평가를 다룬다. 학습·재개·업로드는 [readme_train.md](readme_train.md)를 따른다.
 
+`train.py`는 이제 학습 후 추론 서버 시작·RoboLab 평가·점수 계산·HF 업로드를 자동 실행한다. [학습 문서 6.6절](readme_train.md#66-학습--robolab-테스트--평가점수-자동-계산)의 `--eval-*` 옵션으로 조건을 지정하고, 저장된 모델은 `evaluate_robolab.py`로 평가만 다시 실행한다. 아래 Server/Client 명령은 수동으로 나누어 실행할 때 사용한다.
+
 ## 1. 공통 환경 준비
 
 새 서버에서는 [학습 문서 1~3절](readme_train.md#1-환경과-프로젝트-설치)에 따라 프로젝트·GR00T 환경, 원본 pretrained weight와 데이터 의존성을 준비한다. 이미 설치한 서버는 재설치하지 않는다. RoboLab만 평가한다면 학습 데이터를 다운로드하거나 학습할 필요가 없다.

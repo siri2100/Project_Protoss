@@ -29,6 +29,8 @@ bash /workspace/Project_Protoss2/Protoss/debug_robolab_595.sh check
 
 ## 2. 모델 서버 없이 물리·카메라 검사
 
+자동 학습·평가 통합은 [학습 문서 6.6절](readme_train.md#66-학습--robolab-테스트--평가점수-자동-계산)을 따른다. 업데이트 후 setup을 한 번 실행하면 `robolab_eval_completion.patch`도 적용한다. 평가 루프 정상 반환 직후, Kit cleanup 전에 완료 표시를 출력하므로 일부 결과가 존재해도 중간 종료된 평가의 점수를 업로드하지 않는다. `train.py`는 설치된 595 stack을 검사한 뒤 학습 → HF 업로드·다운로드 → 서버·Client → metric 업로드를 자동 실행한다.
+
 153 step에서 `Simulator observation 'joint_position' contains NaN/Inf`가 나온 로그는 모델 요청 전에 시뮬레이터 관절 상태가 이미 비정상임을 보여준다. 앞선 16 step smoke는 이 구간을 검사하지 않았다. 새 기본 smoke는 2개 환경·600 step으로 늘렸으며 그리퍼 구동도 포함한다.
 
 설정 이식에서 관측 quaternion만 수정했던 누락을 보완했다. Lab 3.0의 [AssetBaseCfg.InitialStateCfg](https://github.com/isaac-sim/IsaacLab/blob/ffff603eafc6b74264a5261cc0183d6a65390d78/source/isaaclab/isaaclab/assets/asset_base_cfg.py)는 xyzw를 받으므로 기존 DROID의 `(1,0,0,0)`은 identity가 아니라 X축 180도 회전으로 해석된다. `robolab_isaac60_initial_poses.patch`는 RoboLab이 직접 지정한 로봇 초기 자세, wrist/외부 카메라 offset, EEF frame offset, table fixture, USD 물체 초기 회전과 light 회전을 API 경계에서 변환한다. SDK 기본값과 USD 내부 데이터는 그대로 사용한다. 테이블의 robot-relative 합성은 RoboLab의 wxyz 연산을 유지한 뒤 최종 결과를 xyzw로 변환한다. 이 설정 오류는 확인됐지만, NaN 발생 원인이 이것 하나인지는 GPU 재검증이 필요하다.

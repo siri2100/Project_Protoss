@@ -29,6 +29,9 @@ class ModelTrainingTests(unittest.TestCase):
                     self.assertEqual(args.s_jerk_lambda, .01)
                     self.assertEqual(args.e_fm_weight, 1.)
                     self.assertEqual(args.e_path_length_weight, .01)
+                    self.assertFalse(args.no_eval)
+                    self.assertEqual(args.eval_tasks, ["BananaOnPlateTask"])
+                    self.assertEqual((args.eval_num_envs, args.eval_num_runs, args.eval_horizon), (2, 5, 8))
                     settings.append((args.styles_dir, args.base_model, args.lora_rank,
                         args.lora_alpha, args.seed, args.lr, args.max_steps,
                         args.batch_size, args.gradient_accumulation))
@@ -47,6 +50,11 @@ class ModelTrainingTests(unittest.TestCase):
                 from src.model_e_loss import config_from_args
                 self.assertEqual(config_from_args(args).fm_weight, 2000)
                 self.assertEqual(config_from_args(args).path_length_weight, .2)
+            with patch.object(sys, "argv", [*argv, "--no-eval", "--eval-num-runs", "1"]), \
+                 patch.object(sys, "path", list(sys.path)):
+                args = training.parse_args()
+                self.assertTrue(args.no_eval)
+                self.assertEqual(args.eval_num_runs, 1)
 
 
 if __name__ == "__main__":

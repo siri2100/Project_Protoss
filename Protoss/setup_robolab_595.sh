@@ -53,6 +53,7 @@ setup)
   apply_compatibility_patch "$STACK/RoboLab" "$PROTOSS_TOOLS/patches/robolab_isaac60_droid_quaternions.patch"
   apply_compatibility_patch "$STACK/RoboLab" "$PROTOSS_TOOLS/patches/robolab_isaac60_initial_poses.patch"
   apply_compatibility_patch "$STACK/RoboLab" "$PROTOSS_TOOLS/patches/robolab_isaac60_physics_checks.patch"
+  apply_compatibility_patch "$STACK/RoboLab" "$PROTOSS_TOOLS/patches/robolab_eval_completion.patch"
   apply_compatibility_patch "$STACK/IsaacLab" "$PROTOSS_TOOLS/patches/isaaclab_60_dependencies.patch"
   python3 "$PROTOSS_TOOLS/src/isaaclab_optional_newton.py" "$STACK/IsaacLab"
   cp "$PROTOSS_TOOLS/src/robolab_gr00t_client.py" "$STACK/RoboLab/policies/gr00t/client.py"
@@ -66,13 +67,14 @@ setup)
     'import sys; from importlib.metadata import version; print(sys.executable); print("Isaac Sim", version("isaacsim")); print("Isaac Lab", version("isaaclab"))'
   echo "Installed experimental stack. Next: bash $PROTOSS_TOOLS/setup_robolab_595.sh smoke"
   ;;
-smoke|eval)
+preflight|smoke|eval)
   test -x "$STACK/.venv/bin/python" || { echo 'Run setup first.' >&2; exit 1; }
   # Fail before GPU initialization if setup's optional-backend fix did not land.
   python3 "$PROTOSS_TOOLS/src/isaaclab_optional_newton.py" "$STACK/IsaacLab" --check
   for FIX in robolab_isaac60_contact_filters.patch robolab_isaac60_sensor_data.patch \
     robolab_isaac60_recorders.patch robolab_isaac60_droid_quaternions.patch \
-    robolab_isaac60_initial_poses.patch robolab_isaac60_physics_checks.patch; do
+    robolab_isaac60_initial_poses.patch robolab_isaac60_physics_checks.patch \
+    robolab_eval_completion.patch; do
     if ! git -C "$STACK/RoboLab" apply --reverse --check "$PROTOSS_TOOLS/patches/$FIX" 2>/dev/null; then
       echo "Compatibility fix is not applied: $FIX. Run setup successfully before smoke/eval." >&2
       exit 1
@@ -85,7 +87,9 @@ smoke|eval)
   mkdir -p "$STACK/logs"
   LOG="$STACK/logs/${MODE}-$(date -u +%Y%m%dT%H%M%SZ).log"
   echo "RoboLab log: $LOG"
-  nvidia-smi --query-gpu=name,driver_version --format=csv,noheader | tee "$LOG"
+  if [ "$MODE" != preflight ]; then
+    nvidia-smi --query-gpu=name,driver_version --format=csv,noheader | tee "$LOG"
+  fi
   "$STACK/.venv/bin/python" -c '
 import sys
 from importlib.metadata import version
@@ -100,6 +104,10 @@ if actual != Path.cwd().resolve():
 if sys.version_info[:2] != (3, 12) or sim != "6.0.1.0":
     raise SystemExit("Expected Python 3.12 + Isaac Sim 6.0.1.0. Run setup again.")
 ' 2>&1 | tee -a "$LOG"
+  if [ "$MODE" = preflight ]; then
+    echo "RoboLab preflight passed: $STACK"
+    exit 0
+  fi
   if [ "$MODE" = smoke ]; then
     "$STACK/.venv/bin/python" -u "$PROTOSS_TOOLS/src/robolab_595_smoke.py" \
       --headless --device cuda:0 "$@" 2>&1 | tee -a "$LOG"
@@ -124,6 +132,10 @@ if sys.version_info[:2] != (3, 12) or sim != "6.0.1.0":
       fi
     done
     "$STACK/.venv/bin/python" -u policies/gr00t/run.py "$@" 2>&1 | tee -a "$LOG"
+    if ! grep -qx 'PROTOSS ROBOLAB EVALUATION COMPLETE' "$LOG"; then
+      echo "Evaluation did not complete. Metrics/upload stopped. Check log: $LOG" >&2
+      exit 1
+    fi
     if [ -n "$RESULT_NAME" ] && [ ! -s "$STACK/RoboLab/output/$RESULT_NAME/episode_results.jsonl" ]; then
       echo "Evaluation produced no episode results: $STACK/RoboLab/output/$RESULT_NAME/episode_results.jsonl" >&2
       echo "Metric calculation/upload stopped. Check evaluation log: $LOG" >&2
@@ -132,5 +144,5 @@ if sys.version_info[:2] != (3, 12) or sim != "6.0.1.0":
     fi
   fi
   ;;
-*) echo "Usage: bash $0 {setup|smoke|eval} [arguments...]" >&2; exit 2 ;;
+*) echo "Usage: bash $0 {setup|preflight|smoke|eval} [arguments...]" >&2; exit 2 ;;
 esac

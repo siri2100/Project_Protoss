@@ -53,7 +53,12 @@ def parse_args():
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--hf-repo-id", help="Upload destination ACCOUNT/REPO (default: logged-in account/output folder name)")
-    parser.add_argument("--no-hf-upload", action="store_true", help="Disable automatic upload for offline training")
+    parser.add_argument("--no-hf-upload", action="store_true", help="Use local models/metrics without HF download or upload")
+    if __package__:
+        from .src.training_evaluation import add_evaluation_args
+    else:
+        from src.training_evaluation import add_evaluation_args
+    add_evaluation_args(parser)
     smooth = parser.add_argument_group("Model-S smoothness experiment")
     smooth.add_argument("--s-fm-weight", "--s-fmd-weight", dest="s_fm_weight", type=float, default=1.0,
                         help="Weight for the pretrained flow preservation MSE")
@@ -258,4 +263,11 @@ def main(args):
 
 if __name__ == "__main__":
     args = parse_args()
-    main(args)
+    if args.no_eval:
+        main(args)
+    else:
+        if __package__:
+            from .src.training_evaluation import train_and_evaluate
+        else:
+            from src.training_evaluation import train_and_evaluate
+        train_and_evaluate(args, sys.argv[1:])
