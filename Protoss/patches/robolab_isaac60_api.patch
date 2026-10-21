@@ -1,0 +1,40 @@
+--- a/robolab/core/world/world_state.py
++++ b/robolab/core/world/world_state.py
+@@ -32,14 +32,13 @@
+ from isaaclab.envs import ManagerBasedRLEnv
+ from isaaclab.sensors.frame_transformer.frame_transformer import FrameTransformer
+ from isaaclab.utils.math import transform_points
+-from isaacsim.core.prims import XFormPrim
+ from pxr import Gf, Usd, UsdGeom
+ 
+ # Isaac Lab 3.0 factories return backend subclasses of BaseFrameView,
+ # rather than instances of the FrameView factory class itself.
+ from isaaclab.sim.views.base_frame_view import BaseFrameView
+ 
+-XFORM_PRIM_TYPES: tuple[type, ...] = (XFormPrim, BaseFrameView)
++XFORM_PRIM_TYPES: tuple[type, ...] = (BaseFrameView,)
+ 
+ import robolab.constants
+ import robolab.core.utils.usd_utils as usd_utils
+--- a/robolab/core/environments/scene_fixture.py
++++ b/robolab/core/environments/scene_fixture.py
+@@ -31,7 +31,7 @@
+ from isaaclab.assets import AssetBaseCfg
+ from isaaclab.sim.utils import clone
+ from isaaclab.utils import configclass
+-from isaacsim.core.utils.stage import get_current_stage
++from isaaclab.sim.utils.stage import get_current_stage
+ from pxr import Usd, UsdGeom
+ 
+ from robolab.constants import ASSET_DIR
+--- a/robolab/core/utils/usd_utils.py
++++ b/robolab/core/utils/usd_utils.py
+@@ -9,7 +9,7 @@
+ from pxr import Gf, Usd, UsdGeom, UsdPhysics, UsdShade
+ 
+ try:
+-    import isaacsim.core.utils.stage as stage_utils  # type: ignore
++    import isaaclab.sim.utils.stage as stage_utils  # type: ignore
+ except ImportError:  # pragma: no cover -- running outside Isaac-Sim
+     stage_utils = None  # noqa: N816 – keep original style for clarity
+ 

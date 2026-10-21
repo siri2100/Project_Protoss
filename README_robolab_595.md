@@ -13,7 +13,7 @@ RTX 3090 / Linux 드라이버 595.91.07에서 기존 Isaac Sim 5.1 대신 Isaac 
 
 ## 1. 별도 환경 설치
 
-이 파일과 `Protoss/setup_robolab_595.sh`, `Protoss/src/robolab_595_*.py`, `Protoss/src/robolab_isaac60_compat.py`, `Protoss/src/robolab_gr00t_client.py`, `Protoss/patches/robolab_isaac60.patch`, `Protoss/patches/isaaclab_60_dependencies.patch`가 서버의 프로젝트에 있어야 한다. 기존 `/workspace/RoboLab/.venv-51`과 GR00T 학습·추론 환경은 유지한다. Isaac Sim EULA에 동의한 뒤 실행한다.
+이 파일과 `Protoss/setup_robolab_595.sh`, `Protoss/src/robolab_595_*.py`, `Protoss/src/robolab_isaac60_compat.py`, `Protoss/src/robolab_gr00t_client.py`, `Protoss/patches/robolab_isaac60.patch`, `Protoss/patches/robolab_isaac60_api.patch`, `Protoss/patches/isaaclab_60_dependencies.patch`가 서버의 프로젝트에 있어야 한다. 기존 `/workspace/RoboLab/.venv-51`과 GR00T 학습·추론 환경은 유지한다. Isaac Sim EULA에 동의한 뒤 실행한다.
 
 ```bash
 bash /workspace/Project_Protoss/Protoss/setup_robolab_595.sh setup
@@ -25,6 +25,8 @@ bash /workspace/Project_Protoss/Protoss/setup_robolab_595.sh setup
 
 ## 2. 모델 서버 없이 물리·카메라 검사
 
+`ModuleNotFoundError: No module named 'isaacsim.core.prims'`는 RoboLab이 옛 `XFormPrim` API를 import해서 발생한다. 수정된 setup은 평가 경로에서 `BaseFrameView` 타입 검사와 `isaaclab.sim.utils.stage`를 사용하도록 추가 API 패치를 적용한다. 기존 설치도 `setup`을 다시 실행하면 업데이트된다. 단독 USD 미리보기 도구(`render_utils.py`)의 옛 World/Camera API는 이 평가 경로의 이식 범위에 포함하지 않는다.
+
 `ModuleNotFoundError: No module named 'isaaclab_contrib'`가 발생한 기존 설치는 수정된 프로젝트 파일을 반영한 뒤 `setup`을 다시 실행한다. DROID가 촉각 센서를 사용하지 않더라도 Isaac Lab의 `InteractiveScene`이 해당 config를 import하므로 `isaaclab-contrib`가 필요하다. 새 setup은 같은 Isaac Lab checkout에서 이 패키지도 설치한다.
 
 ```bash
@@ -34,6 +36,8 @@ bash /workspace/Project_Protoss/Protoss/setup_robolab_595.sh smoke
 BananaOnPlateTask를 환경 1개로 생성하고 초기 팔 자세를 유지하며 16 step 실행한다. PhysX 설정과 RGB 카메라 출력까지 확인한 뒤 `SMOKE PASS`를 출력한다. 이 검사는 작업 성공률이나 학습 모델 품질을 평가하지 않는다.
 
 실패하면 `/workspace/robolab-595/logs/smoke-*.log`에서 처음 발생한 오류와 backtrace를 확인한다. 시작 즉시 native crash가 나면 아직 렌더러/컨테이너 호환 문제가 남은 것이며, `SMOKE PASS` 없이 평가가 가능하다고 판단하지 않는다. 컨테이너에는 NVIDIA graphics/Vulkan 라이브러리도 노출되어 있어야 한다.
+
+Kit 종료 처리 때문에 프로세스가 0으로 끝나더라도 `SMOKE PASS`가 출력되지 않으면 실행 스크립트는 실패로 종료한다.
 
 ## 3. GR00T 평가
 

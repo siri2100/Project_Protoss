@@ -38,7 +38,15 @@ setup)
       git -C "$target" apply "$patch"
     fi
   }
-  apply_compatibility_patch "$STACK/RoboLab" "$PROTOSS_TOOLS/patches/robolab_isaac60.patch"
+  # The API patch changes context in the original compatibility patch. Once
+  # this second layer is present, do not try to reapply the first layer.
+  API_PATCH="$PROTOSS_TOOLS/patches/robolab_isaac60_api.patch"
+  if git -C "$STACK/RoboLab" apply --reverse --check "$API_PATCH" 2>/dev/null; then
+    echo "Already applied: $API_PATCH"
+  else
+    apply_compatibility_patch "$STACK/RoboLab" "$PROTOSS_TOOLS/patches/robolab_isaac60.patch"
+    apply_compatibility_patch "$STACK/RoboLab" "$API_PATCH"
+  fi
   apply_compatibility_patch "$STACK/IsaacLab" "$PROTOSS_TOOLS/patches/isaaclab_60_dependencies.patch"
   cp "$PROTOSS_TOOLS/src/robolab_gr00t_client.py" "$STACK/RoboLab/policies/gr00t/client.py"
   cp "$PROTOSS_TOOLS/src/robolab_isaac60_compat.py" "$STACK/RoboLab/robolab/protoss_isaac60.py"
@@ -74,6 +82,10 @@ if sys.version_info[:2] != (3, 12) or sim != "6.0.1.0":
   if [ "$MODE" = smoke ]; then
     "$STACK/.venv/bin/python" -u "$PROTOSS_TOOLS/src/robolab_595_smoke.py" \
       --headless --device cuda:0 "$@" 2>&1 | tee -a "$LOG"
+    if ! grep -q '^SMOKE PASS:' "$LOG"; then
+      echo "Smoke did not complete. Check log: $LOG" >&2
+      exit 1
+    fi
   else
     # Kit may terminate without a completed episode. Exit status alone is not
     # enough to authorize post-processing an evaluation's result file.
