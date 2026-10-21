@@ -13,7 +13,7 @@ RTX 3090 / Linux 드라이버 595.91.07에서 기존 Isaac Sim 5.1 대신 Isaac 
 
 ## 1. 별도 환경 설치
 
-이 파일과 `Protoss/setup_robolab_595.sh`, `Protoss/src/robolab_595_*.py`, `Protoss/src/robolab_isaac60_compat.py`, `Protoss/src/robolab_gr00t_client.py`, `Protoss/patches/robolab_isaac60.patch`, `Protoss/patches/robolab_isaac60_api.patch`, `Protoss/patches/isaaclab_60_dependencies.patch`가 서버의 프로젝트에 있어야 한다. 기존 `/workspace/RoboLab/.venv-51`과 GR00T 학습·추론 환경은 유지한다. Isaac Sim EULA에 동의한 뒤 실행한다.
+이 파일과 `Protoss/setup_robolab_595.sh`, `Protoss/src/robolab_595_*.py`, `Protoss/src/robolab_isaac60_compat.py`, `Protoss/src/robolab_gr00t_client.py`, `Protoss/patches/robolab_isaac60.patch`, `Protoss/patches/robolab_isaac60_api.patch`, `Protoss/patches/isaaclab_60_dependencies.patch`, `Protoss/patches/isaaclab_60_optional_newton.patch`가 서버의 프로젝트에 있어야 한다. 기존 `/workspace/RoboLab/.venv-51`과 GR00T 학습·추론 환경은 유지한다. Isaac Sim EULA에 동의한 뒤 실행한다.
 
 ```bash
 bash /workspace/Project_Protoss/Protoss/setup_robolab_595.sh setup
@@ -24,6 +24,8 @@ bash /workspace/Project_Protoss/Protoss/setup_robolab_595.sh setup
 공식 RoboLab의 `isaac51` extra는 선택하지 않는다. Lab의 PhysX 실행에 필요한 패키지와 Sim 6.0.1을 하나의 uv 프로젝트에서 해결하여 설치 후 `uv pip check`로 충돌을 검사한다. Lab의 테스트 도구 `coverage` 의존성은 Sim kernel이 요구하는 7.4.4로 맞춘다. Kit 시작 시 별도 RL·Newton·Mimic task suite를 자동 로드하는 항목은 제거하고, RoboLab의 Python task config를 Gym registry에서 직접 읽는다. 수정된 GR00T 클라이언트도 새 checkout에 적용한다. 이후 `uv sync --extra isaac51`을 실행하면 안 된다.
 
 ## 2. 모델 서버 없이 물리·카메라 검사
+
+`Original error: No module named 'isaaclab_newton'`가 PhysX `Articulation` 생성 중 발생하면 `Protoss/patches/isaaclab_60_optional_newton.patch`도 서버에 반영하고 `setup`을 다시 실행한다. 고정한 Isaac Lab 버전은 선택 기능인 Newton actuator를 검사할 때 상위 패키지가 없는 경우를 처리하지 못한다. 추가 패치는 상위 패키지부터 확인해, Newton이 없으면 선택 기능을 끄고 기존 PhysX actuator 경로를 사용하게 한다. 설치된 Newton 패키지 내부의 다른 오류는 숨기지 않는다.
 
 `ModuleNotFoundError: No module named 'isaacsim.core.prims'`는 RoboLab이 옛 `XFormPrim` API를 import해서 발생한다. 수정된 setup은 평가 경로에서 `BaseFrameView` 타입 검사와 `isaaclab.sim.utils.stage`를 사용하도록 추가 API 패치를 적용한다. 기존 설치도 `setup`을 다시 실행하면 업데이트된다. 단독 USD 미리보기 도구(`render_utils.py`)의 옛 World/Camera API는 이 평가 경로의 이식 범위에 포함하지 않는다.
 

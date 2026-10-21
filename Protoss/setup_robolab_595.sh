@@ -48,6 +48,7 @@ setup)
     apply_compatibility_patch "$STACK/RoboLab" "$API_PATCH"
   fi
   apply_compatibility_patch "$STACK/IsaacLab" "$PROTOSS_TOOLS/patches/isaaclab_60_dependencies.patch"
+  apply_compatibility_patch "$STACK/IsaacLab" "$PROTOSS_TOOLS/patches/isaaclab_60_optional_newton.patch"
   cp "$PROTOSS_TOOLS/src/robolab_gr00t_client.py" "$STACK/RoboLab/policies/gr00t/client.py"
   cp "$PROTOSS_TOOLS/src/robolab_isaac60_compat.py" "$STACK/RoboLab/robolab/protoss_isaac60.py"
   if [ ! -e "$STACK/.venv" ]; then uv venv --python 3.12 "$STACK/.venv"; fi

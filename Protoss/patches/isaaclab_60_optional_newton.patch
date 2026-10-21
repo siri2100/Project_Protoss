@@ -1,0 +1,14 @@
+--- a/source/isaaclab_physx/isaaclab_physx/assets/articulation/articulation.py
++++ b/source/isaaclab_physx/isaaclab_physx/assets/articulation/articulation.py
+@@ -31,7 +31,10 @@
+ from isaaclab.utils.wrench_composer import WrenchComposer
+-_HAS_NEWTON_ACTUATORS = importlib.util.find_spec("isaaclab_newton.actuators") is not None
++_HAS_NEWTON_ACTUATORS = (
++    importlib.util.find_spec("isaaclab_newton") is not None
++    and importlib.util.find_spec("isaaclab_newton.actuators") is not None
++)
+ 
+ 
+ from isaaclab_physx.assets import kernels as shared_kernels
+ from isaaclab_physx.assets.articulation import kernels as articulation_kernels
+ from isaaclab_physx.physics import PhysxManager as SimulationManager
