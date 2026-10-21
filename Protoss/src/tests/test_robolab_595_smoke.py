@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from src import robolab_595_smoke
+from src import robolab_isaac60_compat
 
 
 class SmokeFailureTests(unittest.TestCase):
@@ -43,6 +44,8 @@ class SmokeFailureTests(unittest.TestCase):
             modules[name] = ModuleType(name)
         modules["isaaclab.app"].AppLauncher = Launcher
         modules["robolab.protoss_isaac60"].CONTACT_FILTER_SETTING = "/physics/tensors/recursiveLeafPatternMatch"
+        modules["robolab.protoss_isaac60"].as_torch = robolab_isaac60_compat.as_torch
+        modules["robolab.protoss_isaac60"].get_backend_contact_sensors = robolab_isaac60_compat.get_backend_contact_sensors
         modules["robolab.constants"].set_output_dir = Mock()
         modules["robolab.registrations.droid.auto_env_registrations_jointpos"].auto_register_droid_envs = Mock()
         modules["robolab.core.environments.factory"].get_envs = Mock(return_value=["BananaOnPlateTask_0"])

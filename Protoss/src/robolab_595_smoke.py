@@ -34,7 +34,7 @@ def main():
         from robolab.registrations.droid.auto_env_registrations_jointpos import auto_register_droid_envs
         from robolab.core.environments.factory import get_envs
         from robolab.core.environments.runtime import create_env
-        from robolab.protoss_isaac60 import CONTACT_FILTER_SETTING
+        from robolab.protoss_isaac60 import CONTACT_FILTER_SETTING, as_torch, get_backend_contact_sensors
 
         output = Path.cwd() / "output" / "protoss_isaac60_smoke"
         output.mkdir(parents=True, exist_ok=True)
@@ -61,6 +61,19 @@ def main():
             stage = "reset"
             print(f"SMOKE stage: {stage}", flush=True)
             env.reset()
+            stage = "contact_validation"
+            print(f"SMOKE stage: {stage}", flush=True)
+            contacts = get_backend_contact_sensors(env.scene)
+            if not contacts:
+                registered = {name: type(sensor).__name__ for name, sensor in env.scene.sensors.items()}
+                raise RuntimeError(f"No contact sensors discovered; registered sensor types: {registered}")
+            for name, sensor in contacts.items():
+                matrix = as_torch(sensor.data.force_matrix_w)
+                if matrix is None or matrix.ndim != 4 or matrix.shape[0] != env.num_envs or matrix.shape[-1] != 3:
+                    raise RuntimeError(f"Invalid contact force matrix for {name}: {getattr(matrix, 'shape', None)}")
+                if not torch.isfinite(matrix).all():
+                    raise RuntimeError(f"Non-finite contact force matrix for {name}")
+            print(f"SMOKE contacts: {len(contacts)} sensors; force matrices valid", flush=True)
             # Hold the initial pose; zero joint-position commands would move the arm.
             robot = env.scene["robot"]
             joints = [robot.data.joint_names.index(f"panda_joint{i}") for i in range(1, 8)]

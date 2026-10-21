@@ -15,7 +15,7 @@ Linux 드라이버 595.91.07에서 기존 Isaac Sim 5.1 대신 Isaac Sim 6.0을 
 
 이 문서의 디버깅 코드는 RunPod의 `/workspace/Project_Protoss2`에서 실행한다. 로컬에 별도 Project_Protoss2 폴더를 만들지 않는다. 업데이트한 프로젝트 파일을 원격 경로에 반영한 뒤 아래 진입점을 사용한다. 기존 simulator stack `/workspace/robolab-595`를 이어 사용하며, `PROTOSS_DEBUG_ROOT`로 디버깅 checkout 위치를 바꿀 수 있다.
 
-이 파일과 `Protoss/debug_robolab_595.sh`, `Protoss/setup_robolab_595.sh`, `Protoss/src/robolab_595_*.py`, `Protoss/src/robolab_isaac60_compat.py`, `Protoss/src/robolab_gr00t_client.py`, `Protoss/patches/robolab_isaac60.patch`, `Protoss/patches/robolab_isaac60_api.patch`, `Protoss/patches/robolab_isaac60_contact_filters.patch`, `Protoss/patches/isaaclab_60_dependencies.patch`, `Protoss/src/isaaclab_optional_newton.py`가 서버의 프로젝트에 있어야 한다. 기존 `/workspace/RoboLab/.venv-51`과 GR00T 학습·추론 환경은 유지한다. Isaac Sim EULA에 동의한 뒤 실행한다.
+이 파일과 `Protoss/debug_robolab_595.sh`, `Protoss/setup_robolab_595.sh`, `Protoss/src/robolab_595_*.py`, `Protoss/src/robolab_isaac60_compat.py`, `Protoss/src/robolab_gr00t_client.py`, `Protoss/patches/robolab_isaac60.patch`, `Protoss/patches/robolab_isaac60_api.patch`, `Protoss/patches/robolab_isaac60_contact_filters.patch`, `Protoss/patches/robolab_isaac60_sensor_data.patch`, `Protoss/patches/isaaclab_60_dependencies.patch`, `Protoss/src/isaaclab_optional_newton.py`가 서버의 프로젝트에 있어야 한다. 기존 `/workspace/RoboLab/.venv-51`과 GR00T 학습·추론 환경은 유지한다. Isaac Sim EULA에 동의한 뒤 실행한다.
 
 ```bash
 bash /workspace/Project_Protoss2/Protoss/debug_robolab_595.sh check
@@ -28,6 +28,10 @@ bash /workspace/Project_Protoss2/Protoss/debug_robolab_595.sh check
 공식 RoboLab의 `isaac51` extra는 선택하지 않는다. Lab의 PhysX 실행에 필요한 패키지와 Sim 6.0.1을 하나의 uv 프로젝트에서 해결하여 설치 후 `uv pip check`로 충돌을 검사한다. Lab의 테스트 도구 `coverage` 의존성은 Sim kernel이 요구하는 7.4.4로 맞춘다. Kit 시작 시 별도 RL·Newton·Mimic task suite를 자동 로드하는 항목은 제거하고, RoboLab의 Python task config를 Gym registry에서 직접 읽는다. 수정된 GR00T 클라이언트도 새 checkout에 적용한다. 이후 `uv sync --extra isaac51`을 실행하면 안 된다.
 
 ## 2. 모델 서버 없이 물리·카메라 검사
+
+환경 생성과 reset 이후 `Contact sensor banana__plate_large ... not found. available sensors: dict_keys([])`로 실패하면, 생성된 센서를 예전 타입 검사에서 제외하고 있는 것이다. Isaac Lab 3.0의 [ContactSensor factory](https://github.com/isaac-sim/IsaacLab/blob/ffff603eafc6b74264a5261cc0183d6a65390d78/source/isaaclab/isaaclab/sensors/contact_sensor/contact_sensor.py)는 factory 자체의 인스턴스가 아닌 `BaseContactSensor`의 backend subclass를 반환한다. 새 sensor-data 패치는 이 공통 기반 클래스로 센서를 조회하고, WorldState의 접촉력·관절·자세 데이터는 ProxyArray의 `.torch`를 사용해 인덱싱과 합산 전에 변환한다. articulation 타입 검사도 같은 방식으로 기반 클래스를 사용한다.
+
+이 경우 setup, compat 모듈, smoke와 `robolab_isaac60_sensor_data.patch`를 함께 업데이트한 뒤 `check`를 다시 실행한다. smoke는 reset 다음 `contact_validation` 단계에서 센서 개수와 `(num_envs, bodies, filters, 3)` force matrix를 확인하고 `SMOKE contacts: ... sensors; force matrices valid`를 출력한다. 실제 step과 카메라 검사까지 통과해야 `SMOKE PASS`가 나온다.
 
 `Filter pattern '.../plate_large' ... (expected 1, found 3)` 다음에 `AttributeError: 'NoneType' object has no attribute 'filter_count'`가 나오면 접촉 센서 초기화가 실패한 것이다. 동일한 고정 버전의 [Isaac Lab #6424](https://github.com/isaac-sim/IsaacLab/issues/6424)에 보고된 다중 collider 필터 오류와 일치한다. [NVIDIA Arena의 우회 설정](https://github.com/isaac-sim/IsaacLab-Arena/commit/8b82dca224f2b5af08f339f987613c59ce9cdbaa)을 따라 `/physics/tensors/recursiveLeafPatternMatch=False`를 환경의 `sim.render.carb_settings`에 추가한다. 접촉 view가 만들어지기 전에 적용되며 smoke와 eval 모두 사용한다. 센서나 collider를 삭제하지 않는다.
 
@@ -51,7 +55,7 @@ BananaOnPlateTask를 환경 1개로 생성하고 초기 팔 자세를 유지하�
 
 Kit 종료 처리 때문에 프로세스가 0으로 끝나더라도 `SMOKE PASS`가 출력되지 않으면 실행 스크립트는 실패로 종료한다.
 
-`SimulationContext cleared` 다음에 traceback 없이 `Smoke did not complete`만 보이면 smoke 스크립트도 최신 파일로 반영한다. 실패 시 `app.close()`보다 먼저 `SMOKE FAILED at stage: ...`와 원래 traceback을 출력하도록 수정되어 있다. 로그의 `environment_creation`, `reset`, `stepping`, `camera_validation` 단계와 traceback으로 실제 실패 원인을 확인한다.
+`SimulationContext cleared` 다음에 traceback 없이 `Smoke did not complete`만 보이면 smoke 스크립트도 최신 파일로 반영한다. 실패 시 `app.close()`보다 먼저 `SMOKE FAILED at stage: ...`와 원래 traceback을 출력하도록 수정되어 있다. 로그의 `environment_creation`, `reset`, `contact_validation`, `stepping`, `camera_validation` 단계와 traceback으로 실제 실패 원인을 확인한다.
 
 ## 3. GR00T 평가
 

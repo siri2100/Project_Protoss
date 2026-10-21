@@ -6,10 +6,32 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from src.robolab_595_environment import environment, write_project
-from src.robolab_isaac60_compat import CONTACT_FILTER_SETTING, configure_contact_filters, load_cfg_from_registry
+from src.robolab_isaac60_compat import (
+    CONTACT_FILTER_SETTING, configure_contact_filters, get_backend_contact_sensors, load_cfg_from_registry,
+)
 
 
 class EnvironmentTests(unittest.TestCase):
+    def test_discovers_backend_contacts_without_inheriting_factory(self):
+        class BaseContactSensor:
+            pass
+
+        class FactoryContactSensor(BaseContactSensor):
+            pass
+
+        class PhysxContactSensor(BaseContactSensor):
+            pass
+
+        sensor = PhysxContactSensor()
+        self.assertNotIsInstance(sensor, FactoryContactSensor)
+        scene = SimpleNamespace(sensors={"banana__plate_large": sensor,
+                                         "gripper__all_objs": PhysxContactSensor(), "camera": object()})
+        module = SimpleNamespace(BaseContactSensor=BaseContactSensor)
+        with patch.dict("sys.modules", {"isaaclab.sensors.contact_sensor.base_contact_sensor": module}):
+            contacts = get_backend_contact_sensors(scene)
+        self.assertEqual(set(contacts), {"banana__plate_large", "gripper__all_objs"})
+        self.assertIs(contacts["banana__plate_large"], sensor)
+
     def test_contact_filter_workaround_preserves_other_settings_and_shared_defaults(self):
         defaults = {"/rtx/rendermode": "RaytracedLighting", CONTACT_FILTER_SETTING: True}
         sim = SimpleNamespace(render=SimpleNamespace(carb_settings=defaults))
