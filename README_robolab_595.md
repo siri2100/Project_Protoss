@@ -15,7 +15,7 @@ Linux 드라이버 595.91.07에서 기존 Isaac Sim 5.1 대신 Isaac Sim 6.0을 
 
 이 문서의 디버깅 코드는 RunPod의 `/workspace/Project_Protoss2`에서 실행한다. 로컬에 별도 Project_Protoss2 폴더를 만들지 않는다. 업데이트한 프로젝트 파일을 원격 경로에 반영한 뒤 아래 진입점을 사용한다. 기존 simulator stack `/workspace/robolab-595`를 이어 사용하며, `PROTOSS_DEBUG_ROOT`로 디버깅 checkout 위치를 바꿀 수 있다.
 
-이 파일과 `Protoss/debug_robolab_595.sh`, `Protoss/setup_robolab_595.sh`, `Protoss/src/robolab_595_*.py`, `Protoss/src/robolab_isaac60_compat.py`, `Protoss/src/robolab_gr00t_client.py`, `Protoss/patches/robolab_isaac60.patch`, `Protoss/patches/robolab_isaac60_api.patch`, `Protoss/patches/robolab_isaac60_contact_filters.patch`, `Protoss/patches/robolab_isaac60_sensor_data.patch`, `Protoss/patches/isaaclab_60_dependencies.patch`, `Protoss/src/isaaclab_optional_newton.py`가 서버의 프로젝트에 있어야 한다. 기존 `/workspace/RoboLab/.venv-51`과 GR00T 학습·추론 환경은 유지한다. Isaac Sim EULA에 동의한 뒤 실행한다.
+이 파일과 `Protoss/debug_robolab_595.sh`, `Protoss/setup_robolab_595.sh`, `Protoss/src/robolab_595_*.py`, `Protoss/src/robolab_isaac60_compat.py`, `Protoss/src/robolab_gr00t_client.py`, `Protoss/patches/robolab_isaac60.patch`, `Protoss/patches/robolab_isaac60_api.patch`, `Protoss/patches/robolab_isaac60_contact_filters.patch`, `Protoss/patches/robolab_isaac60_sensor_data.patch`, `Protoss/patches/robolab_isaac60_recorders.patch`, `Protoss/patches/isaaclab_60_dependencies.patch`, `Protoss/src/isaaclab_optional_newton.py`가 서버의 프로젝트에 있어야 한다. 기존 `/workspace/RoboLab/.venv-51`과 GR00T 학습·추론 환경은 유지한다. Isaac Sim EULA에 동의한 뒤 실행한다.
 
 ```bash
 bash /workspace/Project_Protoss2/Protoss/debug_robolab_595.sh check
@@ -28,6 +28,10 @@ bash /workspace/Project_Protoss2/Protoss/debug_robolab_595.sh check
 공식 RoboLab의 `isaac51` extra는 선택하지 않는다. Lab의 PhysX 실행에 필요한 패키지와 Sim 6.0.1을 하나의 uv 프로젝트에서 해결하여 설치 후 `uv pip check`로 충돌을 검사한다. Lab의 테스트 도구 `coverage` 의존성은 Sim kernel이 요구하는 7.4.4로 맞춘다. Kit 시작 시 별도 RL·Newton·Mimic task suite를 자동 로드하는 항목은 제거하고, RoboLab의 Python task config를 Gym registry에서 직접 읽는다. 수정된 GR00T 클라이언트도 새 checkout에 적용한다. 이후 `uv sync --extra isaac51`을 실행하면 안 된다.
 
 ## 2. 모델 서버 없이 물리·카메라 검사
+
+`SMOKE contacts: 22 sensors; force matrices valid` 이후 `basic_recorders.py`의 `subtract_frame_transforms`에서 `quat_inv() ... Tensor ... ProxyArray`가 나오면 EE recorder가 아직 변환되지 않은 것이다. `robolab_isaac60_recorders.patch`는 EE 위치·자세·속도, robot root pose와 두 카메라 extrinsics recorder를 Tensor로 변환한 뒤 연산·기록하도록 수정한다. Recorder를 끄지 않으므로 평가 metric에 필요한 채널도 계속 기록한다.
+
+고정한 Lab 3.0의 [수학 함수](https://github.com/isaac-sim/IsaacLab/blob/ffff603eafc6b74264a5261cc0183d6a65390d78/source/isaaclab/isaaclab/utils/math.py)는 xyzw quaternion을 받는다. 해당 형식으로 상대 EE 자세를 계산한 뒤, EE/root 기록 채널은 RoboLab의 기존 wxyz 순서로 저장한다. 카메라 ROS quaternion은 기존 xyzw를 유지한다. setup, compat 모듈과 새 recorder 패치를 함께 업데이트하고 1절의 `check`를 다시 실행한다. smoke/eval은 recorder 패치가 빠져 있어도 GPU 초기화 전에 중단한다. 실제 GPU의 16 step과 카메라 검사는 RunPod에서 재실행해야 한다.
 
 환경 생성과 reset 이후 `Contact sensor banana__plate_large ... not found. available sensors: dict_keys([])`로 실패하면, 생성된 센서를 예전 타입 검사에서 제외하고 있는 것이다. Isaac Lab 3.0의 [ContactSensor factory](https://github.com/isaac-sim/IsaacLab/blob/ffff603eafc6b74264a5261cc0183d6a65390d78/source/isaaclab/isaaclab/sensors/contact_sensor/contact_sensor.py)는 factory 자체의 인스턴스가 아닌 `BaseContactSensor`의 backend subclass를 반환한다. 새 sensor-data 패치는 이 공통 기반 클래스로 센서를 조회하고, WorldState의 접촉력·관절·자세 데이터는 ProxyArray의 `.torch`를 사용해 인덱싱과 합산 전에 변환한다. articulation 타입 검사도 같은 방식으로 기반 클래스를 사용한다.
 

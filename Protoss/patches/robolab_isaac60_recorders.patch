@@ -1,0 +1,86 @@
+--- a/robolab/core/events/basic_recorders.py
++++ b/robolab/core/events/basic_recorders.py
+@@ -8,7 +8,7 @@
+ from isaaclab.managers.recorder_manager import RecorderTerm, RecorderTermCfg
+ from isaaclab.sensors import Camera
+ from isaaclab.utils import configclass
+-from isaaclab.utils.math import subtract_frame_transforms
++from robolab.protoss_isaac60 import as_torch, record_end_effector_state
+
+ ########################################################################################
+ # Recorder terms. Adapted from isaaclab.envs.mdp.recorders.recorders.
+@@ -54,13 +54,13 @@
+         for name, camera in self._cameras.items():
+             if env_ids is not None:
+                 camera_poses[name] = {
+-                    "position": (camera.data.pos_w[env_ids] - origins[env_ids]).clone(),  # (len(env_ids), 3)
+-                    "orientation": camera.data.quat_w_ros[env_ids].clone(),  # (len(env_ids), 4)
++                    "position": (as_torch(camera.data.pos_w)[env_ids] - origins[env_ids]).clone(),  # (len(env_ids), 3)
++                    "orientation": as_torch(camera.data.quat_w_ros)[env_ids].clone(),  # (len(env_ids), 4)
+                 }
+             else:
+                 camera_poses[name] = {
+-                    "position": (camera.data.pos_w - origins).clone(),  # (num_envs, 3)
+-                    "orientation": camera.data.quat_w_ros.clone(),  # (num_envs, 4)
++                    "position": (as_torch(camera.data.pos_w) - origins).clone(),  # (num_envs, 3)
++                    "orientation": as_torch(camera.data.quat_w_ros).clone(),  # (num_envs, 4)
+                 }
+         return camera_poses
+
+@@ -162,27 +162,7 @@
+         if self._robot is None or self._ee_body_idx is None:
+             return None, None
+
+-        # Get body pose from articulation (already computed by physics, no extra cost)
+-        # and express it in the robot-root frame (docs/frames.md). For robots whose
+-        # root sits at the env origin with identity rotation (Franka family) this is
+-        # numerically identical to the old env-local recording.
+-        ee_pos, ee_quat = subtract_frame_transforms(
+-            self._robot.data.root_pos_w,
+-            self._robot.data.root_quat_w,
+-            self._robot.data.body_pos_w[:, self._ee_body_idx, :],
+-            self._robot.data.body_quat_w[:, self._ee_body_idx, :],
+-        )  # (num_envs, 3), (num_envs, 4)
+-
+-        # Get body velocity from articulation
+-        ee_lin_vel = self._robot.data.body_lin_vel_w[:, self._ee_body_idx, :]  # (num_envs, 3)
+-        ee_ang_vel = self._robot.data.body_ang_vel_w[:, self._ee_body_idx, :]  # (num_envs, 3)
+-
+-        return self._record_key, {
+-            "position": ee_pos,
+-            "orientation": ee_quat,
+-            "linear_velocity": ee_lin_vel,
+-            "angular_velocity": ee_ang_vel,
+-        }
++        return self._record_key, record_end_effector_state(self._robot, self._ee_body_idx)
+
+
+ class PostStepRobotRootPoseRecorder(RecorderTerm):
+@@ -213,8 +193,8 @@
+         if self._robot is None:
+             return None, None
+
+-        root_pos = self._robot.data.root_pos_w - self._env.scene.env_origins[:, 0:3]  # (num_envs, 3), env-local
+-        root_quat = self._robot.data.root_quat_w  # (num_envs, 4), (w, x, y, z)
++        root_pos = as_torch(self._robot.data.root_pos_w) - self._env.scene.env_origins[:, 0:3]  # (num_envs, 3), env-local
++        root_quat = as_torch(self._robot.data.root_quat_w).roll(1, dims=-1)  # (num_envs, 4), (w, x, y, z)
+         return "robot_root_pose", {
+             "position": root_pos,
+             "orientation": root_quat,
+@@ -272,12 +252,12 @@
+         for name, camera in self._cameras.items():
+             if env_ids is not None:
+                 camera_poses[name] = {
+-                    "position": (camera.data.pos_w[env_ids] - origins[env_ids]).clone(),  # (len(env_ids), 3)
+-                    "orientation": camera.data.quat_w_ros[env_ids].clone(),  # (len(env_ids), 4)
++                    "position": (as_torch(camera.data.pos_w)[env_ids] - origins[env_ids]).clone(),  # (len(env_ids), 3)
++                    "orientation": as_torch(camera.data.quat_w_ros)[env_ids].clone(),  # (len(env_ids), 4)
+                 }
+             else:
+                 camera_poses[name] = {
+-                    "position": (camera.data.pos_w - origins).clone(),  # (num_envs, 3)
+-                    "orientation": camera.data.quat_w_ros.clone(),  # (num_envs, 4)
++                    "position": (as_torch(camera.data.pos_w) - origins).clone(),  # (num_envs, 3)
++                    "orientation": as_torch(camera.data.quat_w_ros).clone(),  # (num_envs, 4)
+                 }
+         return camera_poses

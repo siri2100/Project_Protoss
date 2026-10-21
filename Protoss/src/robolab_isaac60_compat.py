@@ -23,6 +23,26 @@ def as_torch(value):
     return getattr(value, "torch", value)
 
 
+def record_end_effector_state(robot, body_index):
+    """Read Sim 6 data and preserve RoboLab's robot-root EE recording schema."""
+    from isaaclab.utils.math import subtract_frame_transforms
+
+    data = robot.data
+    position, orientation = subtract_frame_transforms(
+        as_torch(data.root_pos_w),
+        as_torch(data.root_quat_w),
+        as_torch(data.body_pos_w)[:, body_index, :],
+        as_torch(data.body_quat_w)[:, body_index, :],
+    )
+    # Lab 3 math uses xyzw; RoboLab's recorded EE/root pose channels use wxyz.
+    return {
+        "position": position,
+        "orientation": orientation.roll(1, dims=-1),
+        "linear_velocity": as_torch(data.body_lin_vel_w)[:, body_index, :].clone(),
+        "angular_velocity": as_torch(data.body_ang_vel_w)[:, body_index, :].clone(),
+    }
+
+
 def configure_contact_filters(sim_cfg):
     """Avoid the Sim 6.0.1 multi-collider contact-filter regression (#6424).
 

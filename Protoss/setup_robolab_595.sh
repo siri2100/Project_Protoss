@@ -49,6 +49,7 @@ setup)
   fi
   apply_compatibility_patch "$STACK/RoboLab" "$PROTOSS_TOOLS/patches/robolab_isaac60_contact_filters.patch"
   apply_compatibility_patch "$STACK/RoboLab" "$PROTOSS_TOOLS/patches/robolab_isaac60_sensor_data.patch"
+  apply_compatibility_patch "$STACK/RoboLab" "$PROTOSS_TOOLS/patches/robolab_isaac60_recorders.patch"
   apply_compatibility_patch "$STACK/IsaacLab" "$PROTOSS_TOOLS/patches/isaaclab_60_dependencies.patch"
   python3 "$PROTOSS_TOOLS/src/isaaclab_optional_newton.py" "$STACK/IsaacLab"
   cp "$PROTOSS_TOOLS/src/robolab_gr00t_client.py" "$STACK/RoboLab/policies/gr00t/client.py"
@@ -65,7 +66,7 @@ smoke|eval)
   test -x "$STACK/.venv/bin/python" || { echo 'Run setup first.' >&2; exit 1; }
   # Fail before GPU initialization if setup's optional-backend fix did not land.
   python3 "$PROTOSS_TOOLS/src/isaaclab_optional_newton.py" "$STACK/IsaacLab" --check
-  for FIX in robolab_isaac60_contact_filters.patch robolab_isaac60_sensor_data.patch; do
+  for FIX in robolab_isaac60_contact_filters.patch robolab_isaac60_sensor_data.patch robolab_isaac60_recorders.patch; do
     if ! git -C "$STACK/RoboLab" apply --reverse --check "$PROTOSS_TOOLS/patches/$FIX" 2>/dev/null; then
       echo "Compatibility fix is not applied: $FIX. Run setup successfully before smoke/eval." >&2
       exit 1
