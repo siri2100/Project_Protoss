@@ -9,7 +9,7 @@
 | Model-S | LoRA | FMD + normalized joint jerk | 학습·평가 실행 가능 |
 | Model-E | LoRA | weighted FMD + weighted joint path length | 학습·평가 실행 가능 |
 
-Model-FM(v1.6.14)은 All QKV, LR=1e-6의 FM 기준 모델이다. Model-S(v1.7)는 같은 pretrained 모델에서 독립적으로 pretrained flow 보존 loss와 정규화 관절 jerk loss로 학습한다. Model-E는 FMD 보존 항과 7개 관절의 경로 길이 항으로 독립 학습한다. jerk 억제 효과와 성공률 보존 여부는 동일 조건의 RoboLab rollout을 Model-FM과 비교해 확인한다.
+Model-FM(v1.6.14)은 All QKV, LR=1e-6으로 학습했던 FM 기준 모델이다. 현재 코드에서 새로 학습하는 FM/S/E는 모두 QKV + FFN LoRA를 사용한다. Model-S(v1.7)는 같은 pretrained 모델에서 독립적으로 pretrained flow 보존 loss와 정규화 관절 jerk loss로 학습한다. Model-E는 FMD 보존 항과 7개 관절의 경로 길이 항으로 독립 학습한다. jerk 억제 효과와 성공률 보존 여부는 동일 조건의 RoboLab rollout을 Model-FM과 비교해 확인한다.
 
 이 문서는 환경 설치, 데이터 준비, LoRA 학습·재개와 Hugging Face 업로드를 다룬다. 추론·평가·모델 다운로드는 [readme_test.md](readme_test.md)를 따른다.
 
@@ -231,7 +231,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" --help
 )
 ```
 
-Model-FM/S/E의 LoRA 대상은 action DiT 내부 `nn.Linear` weight다. LLM, vision encoder, projector, state/action encoder/decoder 및 pretrained weight를 고정하고 두 low-rank 행렬만 학습한다. CLI 기본 rank=64, alpha=128이며 아래 학습 예시는 사용자가 지정한 rank=32, alpha=64를 유지한다. Adapter dropout=0이다. 이는 이 프로젝트의 LoRA 적용 범위이며 NVIDIA 공식 LoRA 옵션이 아니다.
+Model-FM/S/E의 LoRA 대상은 action DiT 각 `transformer_blocks.*`의 Q/K/V projection(`attn1.to_q`, `attn1.to_k`, `attn1.to_v`)과 FFN(`ff.*`) 내부 모든 `nn.Linear` weight다. 현재 FFN에서는 `ff.net.0.proj`, `ff.net.2`에 적용한다. Attention output projection은 대상에서 제외한다. LLM, vision encoder, projector, state/action encoder/decoder 및 pretrained weight를 고정하고 두 low-rank 행렬만 학습한다. CLI 기본 rank=64, alpha=128이며 아래 학습 예시는 사용자가 지정한 rank=32, alpha=64를 유지한다. Adapter dropout=0이다. 이는 이 프로젝트의 LoRA 적용 범위이며 NVIDIA 공식 LoRA 옵션이 아니다.
 
 ## 4. DROID 데이터 다운로드
 
@@ -353,7 +353,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
 - `--s-gradient-diagnostics`를 추가하면 첫 microbatch의 FMD·정규화 jerk LoRA gradient norm을 기록한다. 추가 autograd 비용이 있다.
 - CSV와 checkpoint에 `fmd_loss`, `weighted_fmd_loss`, raw/정규화/가중 jerk, 각 가중치와 기준 RMS를 기록한다. 그래프는 `fmd_loss`, `normalized_jerk_loss`, `total_loss` 세 패널이다. 콘솔은 step마다 FMD·가중 FMD·jerk·total을 한 줄에 출력한다. 기준값과 누적 통계는 재개 시 복원한다.
 
-아래 명령은 All QKV, rank/alpha=32/64, LR=1e-6으로 학습한다. 코드 기본 jerk lambda는 0.01이며 아래 `L_JERK`는 실험값이다. 기존 output과 구분하도록 NAME을 새로 지정한다.
+아래 명령은 All QKV + FFN, rank/alpha=32/64, LR=1e-6으로 학습한다. 코드 기본 jerk lambda는 0.01이며 아래 `L_JERK`는 실험값이다. 기존 output과 구분하도록 NAME을 새로 지정한다.
 
 이전 FMD+velocity, jerk-only, FM+jerk checkpoint는 새 FMD+정규화 jerk 학습으로 재개하지 않는다. Pretrained부터 새 run으로 시작한다. 동일 목적 함수 재개 시 원래 설정을 유지한다.
 
@@ -462,7 +462,7 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
 - `adapter/`: PEFT 표준 `adapter_config.json`과 `adapter_model.safetensors`. 원본 DiT에 로드하는 adapter이며 standalone GR00T 모델은 아니다.
 - `processor/`: 학습에서 사용한 processor와 normalization 통계.
 - `inference/adapter_inference.json`: 원본 pretrained 모델, adapter, processor 경로를 연결하는 설정 파일. 학습 종료 시 병합 모델을 저장하지 않는다. 추론 모드는 `--lora-mode`로 선택한다. 기본 `unmerged`는 adapter를 forward마다 적용하며, `merged`는 FP32로 병합한 뒤 추론 dtype으로 변환한다.
-- `lora_settings.json`, `lora_run.json`: LoRA backend(`peft`), 설정과 적용 layer 목록. 다른 backend/rank/alpha/base/data/seed로 resume하면 중단한다. 이전 자체 LoRA checkpoint는 PEFT 학습으로 resume할 수 없으며 새 output 경로를 사용한다. 기존 merged `inference/`는 계속 평가에 사용할 수 있다.
+- `lora_settings.json`, `lora_run.json`: LoRA backend(`peft`), 설정과 적용 layer 목록. `target_scope=action-dit-qkv-ffn-v1`로 적용 범위를 기록한다. 기존 QKV 전용 checkpoint는 QKV + FFN 설정으로 재개하지 않고 새 output 폴더에서 pretrained부터 학습한다. 다른 backend/rank/alpha/base/data/seed로 resume하면 중단한다. 이전 자체 LoRA checkpoint는 PEFT 학습으로 resume할 수 없으며 새 output 경로를 사용한다. 기존 merged `inference/`는 계속 평가에 사용할 수 있다.
 
 단일 CUDA GPU 경로를 제공한다. LoRA는 trainable parameter와 optimizer 메모리를 줄이지만 전체 모델 weight와 action-head activation은 필요하다. 해당 구성의 GPU peak와 학습 시간은 아직 측정하지 않았다.
 

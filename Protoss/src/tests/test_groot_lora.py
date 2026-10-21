@@ -38,7 +38,7 @@ class LoRATests(unittest.TestCase):
         self.assertIsInstance(model.action_head.model, PeftModel)
         self.assertEqual(targets, [f"action_head.model.transformer_blocks.{i}.{projection}"
                                    for i in range(4) for projection in
-                                   ("attn1.to_q", "attn1.to_k", "attn1.to_v")])
+                                   ("attn1.to_q", "attn1.to_k", "attn1.to_v", "ff.net.0.proj", "ff.net.2")])
         torch.testing.assert_close(original, model.action_head.model(x))
         optimizer = torch.optim.SGD([p for p in model.parameters() if p.requires_grad], lr=.1)
         for _ in range(2):
@@ -47,6 +47,11 @@ class LoRATests(unittest.TestCase):
             optimizer.step()
         trainable = [name for name, p in model.named_parameters() if p.requires_grad]
         self.assertTrue(all((".lora_A." in name or ".lora_B." in name) for name in trainable))
+        for block in model.action_head.model.base_model.model.transformer_blocks:
+            self.assertIsNone(block.attn1.to_out.weight.grad)
+            for layer in (block.ff.net[0].proj, block.ff.net[2]):
+                self.assertIsNone(layer.base_layer.weight.grad)
+                self.assertGreater(layer.lora_B["default"].weight.grad.abs().sum().item(), 0)
         self.assertIsNone(model.backbone.weight.grad)
         adapted = model.action_head.model(x).detach()
         self.assertFalse(torch.equal(original, adapted))
@@ -85,7 +90,7 @@ class LoRATests(unittest.TestCase):
         targets = install_lora(model, 2, 4)
         self.assertEqual(targets, [f"action_head.model.transformer_blocks.{i}.{projection}"
                                    for i in range(2) for projection in
-                                   ("attn1.to_q", "attn1.to_k", "attn1.to_v")])
+                                   ("attn1.to_q", "attn1.to_k", "attn1.to_v", "ff.net.0.proj", "ff.net.2")])
         model.eval()
         torch.testing.assert_close(model.action_head.model(**inputs), expected)
         for name, parameter in model.named_parameters():
@@ -95,6 +100,9 @@ class LoRATests(unittest.TestCase):
         optimizer.step()
         adapted = model.action_head.model(**inputs).detach()
         self.assertFalse(torch.equal(adapted, expected))
+        # Model-S/E use the same DiT with every adapter disabled as the teacher.
+        with model.action_head.model.disable_adapter():
+            torch.testing.assert_close(model.action_head.model(**inputs), expected)
         merge_lora(model)
         torch.testing.assert_close(model.action_head.model(**inputs), adapted)
         self.assertIsInstance(model.action_head.model, module.AlternateVLDiT)

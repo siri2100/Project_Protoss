@@ -97,9 +97,11 @@ def prepare_training(args):
 
     if __package__:
         from .src.groot_common import TAG, write_json
+        from .src.groot_lora import LORA_TARGET_SCOPE
         from .src.dataset_paths import split_path, require_unsplit
     else:
         from src.groot_common import TAG, write_json
+        from src.groot_lora import LORA_TARGET_SCOPE
         from src.dataset_paths import split_path, require_unsplit
 
     report = json.loads((args.styles_dir / "styles.json").read_text())
@@ -130,6 +132,7 @@ def prepare_training(args):
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     lora_settings = {"backend": "peft", "variant": args.variant, "rank": args.lora_rank, "alpha": args.lora_alpha,
+                        "target_scope": LORA_TARGET_SCOPE,
                         "base_model": str(args.base_model.resolve()), "dataset": str(dataset),
                         "seed": args.seed, "loss": "FM",
                         "processor_policy": "pretrained-v1", "processor_sha256": processor_contract(args.base_model),

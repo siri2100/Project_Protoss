@@ -7,6 +7,13 @@ from peft import LoraConfig, PeftModel, get_peft_model
 from torch import nn
 
 
+LORA_TARGET_SCOPE = "action-dit-qkv-ffn-v1"
+LORA_TARGET_PATTERN = re.compile(
+    r"transformer_blocks\.\d+\."
+    r"(?:attn1\.(?:to_q|to_k|to_v)|ff\..+)"
+)
+
+
 def install_lora(model, rank=8, alpha=16):
     if rank < 1 or alpha <= 0 or not math.isfinite(alpha):
         raise ValueError("LoRA rank and alpha must be positive")
@@ -14,17 +21,16 @@ def install_lora(model, rank=8, alpha=16):
     if isinstance(dit, PeftModel):
         raise ValueError("LoRA is already installed on the action DiT")
     names = []
-    for name, param in dit.named_modules():
-        if not name or not isinstance(param, nn.Linear):
+    for name, module in dit.named_modules():
+        if not name or not isinstance(module, nn.Linear):
             continue
-        # match = re.fullmatch(r"transformer_blocks\.\d+\.(?:attn1\.(?:to_q|to_k|to_v)|ff\..+)", name) # v1.6.13
-        match = re.fullmatch(r"transformer_blocks\.\d+\.attn1\.(?:to_q|to_k|to_v)", name) # v1.6.14
-        if match:
+        # All attention Q/K/V projections and every Linear inside each FFN.
+        if LORA_TARGET_PATTERN.fullmatch(name):
             names.append(name)
             print(name)
 
     if not names:
-        raise ValueError("No Q/K/V Linear modules found in GR00T DiT blocks")
+        raise ValueError("No Q/K/V or FFN Linear modules found in GR00T DiT blocks")
 
     model.requires_grad_(False)
     config = LoraConfig(
