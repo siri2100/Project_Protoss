@@ -23,7 +23,7 @@ Model-FM/S/E는 같은 원본 DROID 전체 데이터와 pretrained 모델에서 
 
 프로젝트 경로는 실행 파일 위치에서 계산하고 checkpoint는 **프로젝트 바로 상위의 `checkpoint/`**에 저장한다. RunPod의 `Project_Protoss2`에서도 그 checkout의 실행 파일을 사용하면 된다. 로컬에 Project_Protoss2 폴더를 따로 만들지 않는다. `HF_HOME=/workspace/.cache/huggingface`, GPU 0을 기본으로 사용하며 config에서 바꾼다.
 
-명령만 확인하려면 `--dry-run`을 붙인다. 로그인·다운로드·설치·파일 쓰기를 실행하지 않는다.
+매번 config를 수정하지 않고 `--name`, `--steps`, `--save-steps`, `--lr`, 각 loss 옵션을 직접 지정할 수 있다. 명령만 확인하려면 `--dry-run`을 붙인다. 로그인·다운로드·설치·파일 쓰기를 실행하지 않는다.
 
 ```bash
 python3 Protoss/run.py train-s --dry-run
@@ -114,7 +114,7 @@ Train/test 분할 없이 원본 episode 전체를 공통 trainset으로 변환�
 결과는 `Protoss/data/trainset/`, `styles.json`, `inspection.json`이다. 300개이면 `Prepared train=300`을 확인한다. 기존 trainset/testset 또는 manifest가 있으면 중단한다. 이전 분할·변형 데이터는 백업한 뒤 source에서 다시 변환하며 자동 삭제하지 않는다. 진단만 하려면 다음 명령을 사용한다.
 
 ```bash
-python3 Protoss/run.py prepare-data -- --inspect-only
+python3 Protoss/run.py prepare-data --inspect-only
 ```
 
 ## 6. Model-FM/S/E LoRA 학습
@@ -207,16 +207,16 @@ python3 Protoss/run.py smoke-robolab
 
 이후 학습 명령 하나로 자동 평가한다. 기본은 BananaOnPlateTask, 환경 2개 × 5회, horizon 8, simulator seed 0, 영상 저장 없음이다. `EVALUATION`에서 변경한다. 학습 프로세스는 종료된 뒤 서버를 시작하지만, 평가 중 추론 서버와 simulator는 GPU 메모리를 함께 사용한다.
 
-학습만 실행하려면 다음과 같이 기존 옵션을 `--` 뒤에 넘긴다.
+모델 이름·step·LR·loss weight는 명령 인자로 바로 지정할 수 있다. 명령 인자는 `run_config.py` 기본값보다 우선한다. `--steps`, `--step`, `--max-steps`는 같은 학습 step 옵션이며, `--model-name`은 `--name`과 같다. `--name`을 생략하면 변경한 step을 실험 이름에도 반영한다. 학습만 실행하려면 다음을 사용한다.
 
 ```bash
-python3 Protoss/run.py train-s -- --no-eval
+python3 Protoss/run.py train-s --no-eval
 ```
 
-HF 없이 로컬 학습·평가는 `--no-hf-upload`, 오프라인 학습만 하려면 두 옵션을 함께 넘긴다. 모든 원래 train.py 옵션은 `--` 뒤에 추가할 수 있지만 모델·기본 경로는 `--name`/`--project-root`/config에서 지정한다. 단발성 loss 변경 예시는 다음과 같다.
+HF 없이 로컬 학습·평가는 `--no-hf-upload`, 오프라인 학습만 하려면 두 옵션을 함께 넘긴다. 원래 train.py 옵션도 구분자 없이 바로 추가할 수 있다. 모델·기본 경로는 `--name`/`--project-root`/config에서 지정한다. 기존 `--` 구분자도 계속 지원한다. 단발성 loss 변경 예시는 다음과 같다.
 
 ```bash
-python3 Protoss/run.py train-s --name my_model_s -- --s-fmd-weight 1000 --s-jerk-lambda 0.001
+python3 Protoss/run.py train-s --name my_model_s --steps 2000 --lr 1e-6 --s-fmd-weight 1000 --s-jerk-lambda 0.001
 ```
 
 저장된 모델의 서버 시작·평가·점수 업로드만 실행하려면 다음을 사용한다. `MODEL_NAME` 또는 `--name`으로 선택하며 재학습하지 않는다.

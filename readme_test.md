@@ -21,7 +21,7 @@
 | `RESULT_NAME` | 기본 `None`: 실행마다 시각을 붙인 새 결과 이름 |
 | `HF_ACCOUNT` | 기본 로그인 계정 또는 organization |
 
-한 번만 다르게 실행하려면 `--name 모델이름`, `--port 5558`, `--repo-id OWNER/MODEL`을 붙인다. 원래 CLI 옵션은 `--` 뒤에 넘긴다. `--dry-run`은 로그인·다운로드·쓰기 없이 실행 명령만 출력한다.
+한 번만 다르게 실행하려면 `--name 모델이름`(또는 `--model-name`), `--checkpoint-step 500`, `--port 5558`, `--repo-id OWNER/MODEL`을 붙인다. 원래 CLI 옵션도 구분자 없이 바로 지정한다. 명령 인자가 config 기본값보다 우선하며 기존 `--` 구분자도 지원한다. `--dry-run`은 로그인·다운로드·쓰기 없이 실행 명령만 출력한다.
 
 ## 2. RoboLab
 
@@ -61,7 +61,7 @@ Client는 서버의 영상 `[0]` 또는 `[-15, 0]` 설정에 맞춰 환경별 �
 python3 Protoss/run.py evaluate
 ```
 
-`EVALUATION` 기본값은 BananaOnPlateTask, 환경 2개 × 5회 = 10 episodes, horizon 8, seed 0이다. 평가마다 새 이름과 빈 포트를 선택하고 종료·실패 시 자신이 띄운 서버를 정리한다. HF 없이 로컬 모델로 평가하려면 `-- --no-hf-upload`를 추가한다.
+`EVALUATION` 기본값은 BananaOnPlateTask, 환경 2개 × 5회 = 10 episodes, horizon 8, seed 0이다. 평가마다 새 이름과 빈 포트를 선택하고 종료·실패 시 자신이 띄운 서버를 정리한다. HF 없이 로컬 모델로 평가하려면 `--no-hf-upload`를 추가한다.
 
 ### Server
 
@@ -71,7 +71,7 @@ python3 Protoss/run.py evaluate
 python3 Protoss/run.py server
 ```
 
-서버는 로그인계정/MODEL_NAME과 원본 pretrained를 HF에서 다운로드한 뒤 로드한다. 다른 소유자는 `--repo-id OWNER/MODEL`로 지정한다. `CHECKPOINT_STEP`, `LORA_MODE`는 config에서 바꾼다. `-- --hf-revision COMMIT_SHA --hf-base-revision COMMIT_SHA`로 다운로드 revision을 고정할 수 있다.
+서버는 로그인계정/MODEL_NAME과 원본 pretrained를 HF에서 다운로드한 뒤 로드한다. 다른 소유자는 `--repo-id OWNER/MODEL`로 지정한다. `CHECKPOINT_STEP`, `LORA_MODE`는 config에서 바꾼다. `--hf-revision COMMIT_SHA --hf-base-revision COMMIT_SHA`로 다운로드 revision을 고정할 수 있다.
 
 | LORA_MODE | 가중치 | Processor |
 |---|---|---|
@@ -97,7 +97,7 @@ python3 Protoss/run.py client
 원래 CLI의 반복 수만 바꾸는 예시다.
 
 ```bash
-python3 Protoss/run.py client -- --num-runs 1
+python3 Protoss/run.py client --num-runs 1
 ```
 
 `--stack 51`은 기존 5.1 checkout을 사용한다. `--result-name 새이름`으로 결과 폴더를 직접 지정할 수 있지만 기존 폴더는 재사용하지 않는다. Baseline 점수를 보관할 때도 `--repo-id OWNER/EXISTING_MODEL`로 기존 업로드 저장소를 명시한다. 추론 서버와 simulator는 동시에 VRAM을 사용하므로 필요하면 환경 수를 1로 줄인다.

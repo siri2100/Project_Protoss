@@ -15,7 +15,7 @@ from unittest.mock import patch
 from src import experiment_recipes as experiments
 from src import setup_recipes as setup
 from src.recipe_runtime import Recipe
-from src.run_recipes import COMMANDS
+from src.run_recipes import COMMANDS, main
 
 
 class RecipeTests(unittest.TestCase):
@@ -80,6 +80,40 @@ path.write_text(json.dumps({"args": sys.argv[1:], "root": os.environ["PROTOSS_RO
         experiments.train(self.ctx, "E", ["--max-steps", "1000"])
         arguments = self.captured()["args"]
         self.assertEqual(Path(arguments[arguments.index("--output-dir") + 1]).name, "v1711_model_e_step1000")
+
+    def test_cli_accepts_name_steps_lr_and_loss_without_separator(self):
+        result = main(["train-s", "--project-root", str(self.root), "--model-name", "from_cli",
+                       "--steps", "750", "--save-steps", "100", "--lr", "3e-6",
+                       "--s-fmd-weight", "1000", "--s-jerk-lambda", "0.02", "--no-eval"])
+        self.assertEqual(result, 0)
+        arguments = self.captured()["args"]
+        for flag, expected in (("--output-dir", str(self.ctx.checkpoints / "from_cli")),
+                               ("--max-steps", "750"), ("--save-steps", "100"), ("--lr", "3e-6"),
+                               ("--s-fmd-weight", "1000"), ("--s-jerk-lambda", "0.02")):
+            values = [arguments[i + 1] for i, token in enumerate(arguments) if token == flag]
+            self.assertEqual(values[-1], expected)
+        self.assertIn("--no-eval", arguments)
+
+    def test_cli_steps_alias_updates_generated_name_and_resume(self):
+        self.assertEqual(main(["train-e", "--project-root", str(self.root), "--step", "800"]), 0)
+        arguments = self.captured()["args"]
+        self.assertEqual(Path(arguments[arguments.index("--output-dir") + 1]).name,
+                         "v1711_model_e_step800")
+        self.assertEqual(main(["resume-e", "--project-root", str(self.root), "--max-steps", "1200"]), 0)
+        arguments = self.captured()["args"]
+        self.assertEqual([arguments[i + 1] for i, token in enumerate(arguments) if token == "--max-steps"][-1], "1200")
+        self.assertIn("--resume", arguments)
+
+    def test_cli_still_accepts_explicit_separator(self):
+        self.assertEqual(main(["train-fm", "--project-root", str(self.root),
+                               "--", "--max-steps", "600", "--no-eval"]), 0)
+        self.assertIn("--no-eval", self.captured()["args"])
+
+    def test_cli_rejects_invalid_steps_before_writing_launch(self):
+        with self.assertRaises(SystemExit) as caught:
+            main(["train-s", "--project-root", str(self.root), "--steps", "0"])
+        self.assertEqual(caught.exception.code, 2)
+        self.assertFalse(self.ctx.checkpoints.exists())
 
     def test_local_evaluation_does_not_query_hf_login(self):
         self.config.HF_ACCOUNT = None
