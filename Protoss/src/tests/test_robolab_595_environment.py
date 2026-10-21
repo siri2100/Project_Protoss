@@ -6,10 +6,25 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from src.robolab_595_environment import environment, write_project
-from src.robolab_isaac60_compat import load_cfg_from_registry
+from src.robolab_isaac60_compat import CONTACT_FILTER_SETTING, configure_contact_filters, load_cfg_from_registry
 
 
 class EnvironmentTests(unittest.TestCase):
+    def test_contact_filter_workaround_preserves_other_settings_and_shared_defaults(self):
+        defaults = {"/rtx/rendermode": "RaytracedLighting", CONTACT_FILTER_SETTING: True}
+        sim = SimpleNamespace(render=SimpleNamespace(carb_settings=defaults))
+        configure_contact_filters(sim)
+        self.assertIs(sim.render.carb_settings[CONTACT_FILTER_SETTING], False)
+        self.assertEqual(sim.render.carb_settings["/rtx/rendermode"], "RaytracedLighting")
+        self.assertIs(defaults[CONTACT_FILTER_SETTING], True)
+        configure_contact_filters(sim)
+        self.assertIs(sim.render.carb_settings[CONTACT_FILTER_SETTING], False)
+
+    def test_contact_filter_workaround_accepts_unset_settings(self):
+        sim = SimpleNamespace(render=SimpleNamespace(carb_settings=None))
+        configure_contact_filters(sim)
+        self.assertEqual(sim.render.carb_settings, {CONTACT_FILTER_SETTING: False})
+
     def test_loads_task_factory_once_without_importing_isaaclab_tasks(self):
         calls = []
         def factory():

@@ -38,9 +38,11 @@ class SmokeFailureTests(unittest.TestCase):
             "robolab.registrations.droid.auto_env_registrations_jointpos",
             "robolab.core", "robolab.core.environments",
             "robolab.core.environments.factory", "robolab.core.environments.runtime",
+            "robolab.protoss_isaac60",
         ):
             modules[name] = ModuleType(name)
         modules["isaaclab.app"].AppLauncher = Launcher
+        modules["robolab.protoss_isaac60"].CONTACT_FILTER_SETTING = "/physics/tensors/recursiveLeafPatternMatch"
         modules["robolab.constants"].set_output_dir = Mock()
         modules["robolab.registrations.droid.auto_env_registrations_jointpos"].auto_register_droid_envs = Mock()
         modules["robolab.core.environments.factory"].get_envs = Mock(return_value=["BananaOnPlateTask_0"])

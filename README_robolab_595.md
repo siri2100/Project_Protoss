@@ -15,7 +15,7 @@ Linux 드라이버 595.91.07에서 기존 Isaac Sim 5.1 대신 Isaac Sim 6.0을 
 
 이 문서의 디버깅 코드는 RunPod의 `/workspace/Project_Protoss2`에서 실행한다. 로컬에 별도 Project_Protoss2 폴더를 만들지 않는다. 업데이트한 프로젝트 파일을 원격 경로에 반영한 뒤 아래 진입점을 사용한다. 기존 simulator stack `/workspace/robolab-595`를 이어 사용하며, `PROTOSS_DEBUG_ROOT`로 디버깅 checkout 위치를 바꿀 수 있다.
 
-이 파일과 `Protoss/debug_robolab_595.sh`, `Protoss/setup_robolab_595.sh`, `Protoss/src/robolab_595_*.py`, `Protoss/src/robolab_isaac60_compat.py`, `Protoss/src/robolab_gr00t_client.py`, `Protoss/patches/robolab_isaac60.patch`, `Protoss/patches/robolab_isaac60_api.patch`, `Protoss/patches/isaaclab_60_dependencies.patch`, `Protoss/src/isaaclab_optional_newton.py`가 서버의 프로젝트에 있어야 한다. 기존 `/workspace/RoboLab/.venv-51`과 GR00T 학습·추론 환경은 유지한다. Isaac Sim EULA에 동의한 뒤 실행한다.
+이 파일과 `Protoss/debug_robolab_595.sh`, `Protoss/setup_robolab_595.sh`, `Protoss/src/robolab_595_*.py`, `Protoss/src/robolab_isaac60_compat.py`, `Protoss/src/robolab_gr00t_client.py`, `Protoss/patches/robolab_isaac60.patch`, `Protoss/patches/robolab_isaac60_api.patch`, `Protoss/patches/robolab_isaac60_contact_filters.patch`, `Protoss/patches/isaaclab_60_dependencies.patch`, `Protoss/src/isaaclab_optional_newton.py`가 서버의 프로젝트에 있어야 한다. 기존 `/workspace/RoboLab/.venv-51`과 GR00T 학습·추론 환경은 유지한다. Isaac Sim EULA에 동의한 뒤 실행한다.
 
 ```bash
 bash /workspace/Project_Protoss2/Protoss/debug_robolab_595.sh check
@@ -28,6 +28,10 @@ bash /workspace/Project_Protoss2/Protoss/debug_robolab_595.sh check
 공식 RoboLab의 `isaac51` extra는 선택하지 않는다. Lab의 PhysX 실행에 필요한 패키지와 Sim 6.0.1을 하나의 uv 프로젝트에서 해결하여 설치 후 `uv pip check`로 충돌을 검사한다. Lab의 테스트 도구 `coverage` 의존성은 Sim kernel이 요구하는 7.4.4로 맞춘다. Kit 시작 시 별도 RL·Newton·Mimic task suite를 자동 로드하는 항목은 제거하고, RoboLab의 Python task config를 Gym registry에서 직접 읽는다. 수정된 GR00T 클라이언트도 새 checkout에 적용한다. 이후 `uv sync --extra isaac51`을 실행하면 안 된다.
 
 ## 2. 모델 서버 없이 물리·카메라 검사
+
+`Filter pattern '.../plate_large' ... (expected 1, found 3)` 다음에 `AttributeError: 'NoneType' object has no attribute 'filter_count'`가 나오면 접촉 센서 초기화가 실패한 것이다. 동일한 고정 버전의 [Isaac Lab #6424](https://github.com/isaac-sim/IsaacLab/issues/6424)에 보고된 다중 collider 필터 오류와 일치한다. [NVIDIA Arena의 우회 설정](https://github.com/isaac-sim/IsaacLab-Arena/commit/8b82dca224f2b5af08f339f987613c59ce9cdbaa)을 따라 `/physics/tensors/recursiveLeafPatternMatch=False`를 환경의 `sim.render.carb_settings`에 추가한다. 접촉 view가 만들어지기 전에 적용되며 smoke와 eval 모두 사용한다. 센서나 collider를 삭제하지 않는다.
+
+수정된 setup, compat 모듈, smoke 스크립트와 `robolab_isaac60_contact_filters.patch`를 서버에 함께 반영하고 1절의 `check` 명령을 다시 실행한다. 기존 환경에 추가 패치만 적용하며, smoke/eval을 바로 실행했을 때 패치가 빠져 있으면 GPU 초기화 전에 중단한다. 환경 생성에 성공하면 smoke 로그의 `SMOKE contact filter: /physics/tensors/recursiveLeafPatternMatch=False`로 실제 적용값도 확인한다. 실제 GPU 통과 여부는 재실행 결과로 확인해야 한다.
 
 이전에 `isaaclab_60_optional_newton.patch does not apply`로 중단된 문제는 `isaaclab_optional_newton.py`로 수정한다. 주변 import·공백에 의존하지 않고 `_HAS_NEWTON_ACTUATORS` 대입문을 AST로 확인해 상위 패키지부터 검사하도록 바꾼다. 원본은 `articulation.py.before_protoss_optional_newton`에 보관하며, 이미 수정된 대입문은 그대로 둔다. 예상과 다른 대입문은 덮어쓰지 않고 중단한다. smoke/eval도 GPU 초기화 전에 이 수정의 적용 여부를 확인한다.
 

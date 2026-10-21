@@ -7,6 +7,20 @@ RL trainer dependencies. RoboLab only needs the Gym registry config factory.
 import importlib
 
 
+CONTACT_FILTER_SETTING = "/physics/tensors/recursiveLeafPatternMatch"
+
+
+def configure_contact_filters(sim_cfg):
+    """Avoid the Sim 6.0.1 multi-collider contact-filter regression (#6424).
+
+    Set through RenderCfg so it lands before PhysX creates its contact views.
+    Keep other renderer settings and do not mutate a shared settings dictionary.
+    """
+    settings = dict(sim_cfg.render.carb_settings or {})
+    settings[CONTACT_FILTER_SETTING] = False
+    sim_cfg.render.carb_settings = settings
+
+
 def load_cfg_from_registry(task_name, entry_point_key):
     import gymnasium as gym
 

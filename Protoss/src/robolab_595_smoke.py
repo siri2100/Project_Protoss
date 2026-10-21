@@ -34,6 +34,7 @@ def main():
         from robolab.registrations.droid.auto_env_registrations_jointpos import auto_register_droid_envs
         from robolab.core.environments.factory import get_envs
         from robolab.core.environments.runtime import create_env
+        from robolab.protoss_isaac60 import CONTACT_FILTER_SETTING
 
         output = Path.cwd() / "output" / "protoss_isaac60_smoke"
         output.mkdir(parents=True, exist_ok=True)
@@ -48,6 +49,12 @@ def main():
         print(f"SMOKE stage: {stage}", flush=True)
         env, cfg = create_env(tasks[0], device=args.device, seed=0, num_envs=1,
                               instruction_type=["default"], policy="gr00t")
+        import carb
+
+        filter_setting = carb.settings.get_settings().get(CONTACT_FILTER_SETTING)
+        if cfg.sim.render.carb_settings.get(CONTACT_FILTER_SETTING) is not False or filter_setting is not False:
+            raise RuntimeError(f"Contact-filter workaround is not active: {filter_setting!r}. Run setup again.")
+        print(f"SMOKE contact filter: {CONTACT_FILTER_SETTING}={filter_setting}", flush=True)
         assert cfg.sim.physics.__class__.__name__ == "PhysxCfg"
         assert cfg.sim.physics.max_position_iteration_count == 32
         with torch.inference_mode():

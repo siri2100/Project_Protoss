@@ -1,0 +1,13 @@
+--- a/robolab/core/environments/base.py
++++ b/robolab/core/environments/base.py
+@@ -215,5 +215,10 @@
+         self.viewer.resolution = (1280, 720)
+         self.sim.dt = 1 / (60 * 2)
+         self.sim.render_interval = 8
++        # Sim 6.0.1: avoid counting descendant colliders as extra filter bodies.
++        # NVIDIA's workaround for IsaacLab #6424; applies to smoke and eval.
++        from robolab.protoss_isaac60 import configure_contact_filters
++
++        configure_contact_filters(self.sim)
+         self.scene.env_spacing = 2.0
+         self.sim.use_fabric = True
