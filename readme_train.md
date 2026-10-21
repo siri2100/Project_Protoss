@@ -1,344 +1,137 @@
 # Project Protoss v1.7 — 학습
 
-네 모델은 분할하지 않은 같은 원본 DROID 데이터 전체을 사용한다. baseline은 원본 pretrained 평가 전용이며, Model-FM/S/E는 같은 pretrained 모델에서 독립적으로 LoRA 학습한다.
+Model-FM/S/E는 같은 원본 DROID 전체 데이터와 pretrained 모델에서 독립적으로 QKV + FFN LoRA를 학습한다. Baseline은 원본 pretrained 평가 전용이다. Model-FM(v1.6.14)은 All QKV, LR=1e-6으로 학습했던 기준 모델이며, 새 FM 실험은 현재 QKV + FFN 범위를 사용한다.
 
-| 모델 | 학습 | Loss | 구현 상태 |
-|---|---|---|---|
-| baseline | 없음 | 없음 | 원본 평가 가능 |
-| Model-FM | LoRA | FM | 학습·평가 실행 경로 제공 |
-| Model-S | LoRA | FMD + normalized joint jerk | 학습·평가 실행 가능 |
-| Model-E | LoRA | weighted FMD + weighted joint path length | 학습·평가 실행 가능 |
+| 모델 | Loss |
+|---|---|
+| Model-FM | 정답 action의 FM |
+| Model-S | weighted FMD + normalized joint jerk |
+| Model-E | weighted FMD + joint path length |
 
-Model-FM(v1.6.14)은 All QKV, LR=1e-6으로 학습했던 FM 기준 모델이다. 현재 코드에서 새로 학습하는 FM/S/E는 모두 QKV + FFN LoRA를 사용한다. Model-S(v1.7)는 같은 pretrained 모델에서 독립적으로 pretrained flow 보존 loss와 정규화 관절 jerk loss로 학습한다. Model-E는 FMD 보존 항과 7개 관절의 경로 길이 항으로 독립 학습한다. jerk 억제 효과와 성공률 보존 여부는 동일 조건의 RoboLab rollout을 Model-FM과 비교해 확인한다.
+모든 실행 블록은 **한 줄**이다. 프로젝트 루트에서 `python3 Protoss/run.py 명령`을 실행한다. launcher는 Python 표준 라이브러리만 사용하고, 학습·추론은 자동으로 GR00T `.venv/bin/python`을 사용한다. 환경 export, uv 활성화, cd를 매번 입력할 필요가 없다. Python 파일은 `bash`가 아닌 `python3`로 실행한다.
 
-이 문서는 환경 설치, 데이터 준비, LoRA 학습·재개와 Hugging Face 업로드를 다룬다. 추론·평가·모델 다운로드는 [readme_test.md](readme_test.md)를 따른다.
+자주 바꾸는 값은 [Protoss/run_config.py](Protoss/run_config.py)에 모았다.
+
+| 설정 | 의미 |
+|---|---|
+| `TRAIN_COMMON` | rank/alpha, batch, gradient accumulation, workers, seed |
+| `TRAIN["FM"/"S"/"E"]` | version, 학습/save step, LR, 각 loss weight |
+| `EVALUATION` | task, 환경 수, 반복 수, horizon, seed, device |
+| `MODEL_NAME`, `CHECKPOINT_STEP` | 별도 평가·서버·업로드에서 선택할 저장 모델 |
+| `HF_ACCOUNT` | 기본은 로그인 계정; organization이면 직접 지정 |
+| `ROBOLAB_STACK_ROOT` | 동작 확인된 595 simulator stack 경로 |
+
+프로젝트 경로는 실행 파일 위치에서 계산하고 checkpoint는 **프로젝트 바로 상위의 `checkpoint/`**에 저장한다. RunPod의 `Project_Protoss2`에서도 그 checkout의 실행 파일을 사용하면 된다. 로컬에 Project_Protoss2 폴더를 따로 만들지 않는다. `HF_HOME=/workspace/.cache/huggingface`, GPU 0을 기본으로 사용하며 config에서 바꾼다.
+
+명령만 확인하려면 `--dry-run`을 붙인다. 로그인·다운로드·설치·파일 쓰기를 실행하지 않는다.
+
+```bash
+python3 Protoss/run.py train-s --dry-run
+```
 
 ## 1. 환경과 프로젝트 설치
 
-RunPod의 Ubuntu 22.04/24.04, Linux x86_64, NVIDIA CUDA GPU와 Bash를 기준으로 한다. 명령의 프로젝트 경로는 `/workspace/Project_Protoss`이며 실제 위치가 다르면 모든 블록의 `PROTOSS_ROOT`를 변경한다. OS 설치 명령은 root 기준이고 일반 계정은 `apt-get`, `ldconfig`에 `sudo`를 붙인다. 아래 설치·학습 명령은 원격 Linux용이다.
+RunPod Ubuntu 22.04/24.04, Linux x86_64, CUDA/RTX GPU 기준이다. 아래 시스템 설치는 root에서 실행한다. 프로젝트가 없다면 먼저 받는다. 기존 checkout이 있다면 clone은 생략한다.
 
-GR00T 소스는 `Issac-GR00T-N17/`, pretrained weight는 `../checkpoint/GR00T-N1.7-DROID/`, 데이터는 `Protoss/data/` 아래에 둔다. GPU 0을 기본으로 사용하며 모델별로 독립 실행한다. 괄호 안의 `set -e`는 오류 발생 시 해당 블록만 중단한다.
 ```bash
-(
-set -e
-test "$(uname -s)" = Linux
-test "$(uname -m)" = x86_64
-nvidia-smi -L
-apt-get update
-apt-get install -y git git-lfs curl build-essential ffmpeg \
-  vulkan-tools libvulkan1 libglvnd0 libgl1 libegl1 libglu1-mesa \
-  libxt6 libx11-6 libxext6 libxrender1 libxrandr2 libxinerama1 \
-  libxcursor1 libxi6 libxkbcommon0 libgomp1 libsm6 libice6
-ldconfig
-curl -LsSf https://astral.sh/uv/install.sh | sh
-export PATH="$HOME/.local/bin:$PATH"
-git lfs install
-)
+git clone --branch v1.7 https://github.com/siri2100/Project_Protoss.git /workspace/Project_Protoss
+```
+
+프로젝트 루트로 이동한 뒤 시스템 의존성·uv·Git LFS를 설치한다. Git 자체가 없는 최소 이미지에서는 먼저 OS 패키지 관리자로 Git을 설치해야 한다.
+
+```bash
+python3 Protoss/run.py setup-system
 ```
 
 ### 프로젝트 받기
 
-이미 프로젝트가 있으면 재사용하되 `v1.7` 브랜치를 먼저 준비하고 실행 파일을 확인한다. 기본 브랜치에는 `Protoss/` 실행 파일이 없을 수 있으므로 clone할 때도 브랜치를 지정한다. 기존 로컬 변경이나 브랜치 분기로 전환·fast-forward가 불가능하면 명령이 중단된다. 변경을 강제로 덮어쓰지 말고 보관한 뒤 진행한다.
+기존 checkout의 `v1.7`을 fetch하고 fast-forward한다. 로컬 변경이나 분기가 있으면 강제로 덮어쓰지 않고 중단한다.
+
 ```bash
-(
-set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
-export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
-mkdir -p "$(dirname "$PROTOSS_ROOT")"
-if [ ! -d "$PROTOSS_ROOT" ]; then
-  git -c http.version=HTTP/1.1 -c protocol.version=0 \
-    clone --branch v1.7 https://github.com/siri2100/Project_Protoss.git "$PROTOSS_ROOT"
-fi
-cd "$PROTOSS_ROOT"
-test -e .git || {
-  echo "Project_Protoss Git 저장소가 없습니다: $PROTOSS_ROOT. GR00T 소스 폴더와 프로젝트 저장소는 별개입니다." >&2
-  exit 1
-}
-git -c http.version=HTTP/1.1 -c protocol.version=0 \
-  fetch origin v1.7:refs/remotes/origin/v1.7
-if git show-ref --verify --quiet refs/heads/v1.7; then
-  git switch v1.7
-else
-  git switch -c v1.7 --track origin/v1.7
-fi
-git merge --ff-only origin/v1.7
-for entry in Protoss/train.py Protoss/prepare_droid.py Protoss/src/prepare_droid.py; do
-  test -f "$entry" || {
-    echo "필수 프로젝트 파일이 없습니다: $PROTOSS_ROOT/$entry. v1.7 소스 반영을 확인하세요." >&2
-    exit 1
-  }
-done
-)
+python3 Protoss/run.py update-project
 ```
+
 ### 저장 폴더 준비
 
-프로젝트 바로 상위 디렉터리에 `checkpoint`를 생성한다. 예를 들어 `/workspace/Project_Protoss`와 `/workspace/checkpoint`가 나란히 위치한다. 프로젝트 폴더 이름이 달라도 `CHECKPOINT_ROOT`는 상위 경로에서 계산한다. 새 Pod에서는 다음 명령으로 준비한다.
 ```bash
-(
-set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
-export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
-mkdir -p "$PROTOSS_ROOT/Protoss/data/source" \
-  "$PROTOSS_ROOT/Protoss/data/trainset" \
-  "$CHECKPOINT_ROOT"
-)
+python3 Protoss/run.py folders
 ```
 
-원본은 `Protoss/data/source`, 변환된 데이터는 `Protoss/data/trainset`, pretrained 및 학습 모델은 `../checkpoint`에 저장한다. 변환 명령의 output-dir과 학습·평가 명령의 dataset-root는 공통 부모 `Protoss/data`다. 보고서는 `styles.json`과 `inspection.json`으로 같은 폴더 안에 저장한다. 기존 다른 경로의 데이터/checkpoint는 자동 이동하지 않으며 필요하면 해당 CLI 경로를 지정해 재사용한다.
+원본은 `Protoss/data/source`, 변환 데이터는 `Protoss/data/trainset`, pretrained 및 학습 모델은 `../checkpoint`에 둔다. 기존 다른 경로의 파일을 자동 이동하지 않는다.
 
 ## 2. GR00T-N1.7 설치와 weight 다운로드
 
-이미 설치·다운로드했다면 이 단계는 생략한다. 새 설치는 기존 v1.0에서 사용한 N1.7 소스 커밋을 사용한다.
-Hugging Face 로그인 계정은 [Cosmos-Reason2-2B](https://huggingface.co/nvidia/Cosmos-Reason2-2B)에 접근할 수 있어야 한다.
+이미 설치했다면 생략한다. GR00T는 `51d4c89f72fda44cbf77285c6a8114b52676b8a1`로 고정한다. Git 설정 격리, HTTP/1.1·protocol v0, submodule/LFS, Python 3.12 환경 설치, HF 로그인 확인, Cosmos 접근 확인, pretrained 다운로드를 순서대로 실행한다.
 
 ```bash
-(
-set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
-export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
-export HF_HOME=/workspace/.cache/huggingface
-export HF_HUB_ENABLE_HF_TRANSFER=0
-export PATH="$HOME/.local/bin:$PATH"
-unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-# 이 블록 안에서만 시스템·사용자 Git 설정과 주입된 인증 설정을 격리한다.
-export GIT_CONFIG_NOSYSTEM=1
-export GIT_CONFIG_GLOBAL=/dev/null
-unset GIT_CONFIG GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS GIT_ASKPASS SSH_ASKPASS GIT_TERMINAL_PROMPT
-cd "$PROTOSS_ROOT"
-if [ -e Issac-GR00T-N17 ] && [ ! -d Issac-GR00T-N17/.git ]; then
-  backup=$(mktemp -d "$PROTOSS_ROOT/Issac-GR00T-N17.incomplete.XXXXXX")
-  mv Issac-GR00T-N17 "$backup/source"
-  echo "불완전한 기존 폴더 보관: $backup/source"
-fi
-if [ ! -d Issac-GR00T-N17/.git ]; then
-  staging=$(mktemp -d "$PROTOSS_ROOT/.n17-clone.XXXXXX")
-  GIT_LFS_SKIP_SMUDGE=1 git -c credential.helper= -c http.extraHeader= \
-    -c http.version=HTTP/1.1 -c protocol.version=0 \
-    clone --no-checkout https://github.com/NVIDIA/Isaac-GR00T.git "$staging/source"
-  git -C "$staging/source" lfs install --local
-  GIT_LFS_SKIP_SMUDGE=1 git -C "$staging/source" checkout 51d4c89f72fda44cbf77285c6a8114b52676b8a1
-  mv "$staging/source" Issac-GR00T-N17
-  rmdir "$staging"
-fi
-test "$(git -C Issac-GR00T-N17 rev-parse HEAD)" = 51d4c89f72fda44cbf77285c6a8114b52676b8a1 || {
-  echo "N1.7 소스 버전이 다릅니다. 기존 폴더를 백업하고 지정 커밋으로 설치하세요." >&2
-  exit 1
-}
-cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-test -f pyproject.toml
-git -c credential.helper= -c http.extraHeader= \
-  -c http.version=HTTP/1.1 -c protocol.version=0 \
-  submodule update --init --recursive
-git -c credential.helper= -c http.extraHeader= \
-  -c http.version=HTTP/1.1 -c protocol.version=0 \
-  lfs pull --include="scripts/deployment/dgpu/wheels/**"
-uv sync --locked --python 3.12
-uv run --no-sync hf auth whoami || uv run --no-sync hf auth login
-HF_HUB_ENABLE_HF_TRANSFER=0 uv run --no-sync hf download nvidia/Cosmos-Reason2-2B config.json \
-  --local-dir "$PROTOSS_ROOT/Protoss/access-check/cosmos"
-HF_HUB_ENABLE_HF_TRANSFER=0 uv run --no-sync hf download nvidia/GR00T-N1.7-DROID \
-  --local-dir "$CHECKPOINT_ROOT/GR00T-N1.7-DROID"
-)
+python3 Protoss/run.py setup-groot
 ```
 
-기존 N1.7 폴더가 `Isaac-GR00T-N17`이라면 위 경로를 실제 이름으로 바꾼다.
-이 문서의 기본 이름은 프로젝트의 실제 로컬 폴더명인 `Issac-GR00T-N17`이다.
-FFmpeg는 N1.7 torchcodec이 지원하는 4~7 버전을 사용한다.
+`.git` 없는 불완전한 소스는 삭제하지 않고 백업한다. 다른 커밋의 기존 GR00T checkout은 덮어쓰지 않는다. 디렉터리 이름은 config의 `GROOT_DIRECTORY`로 지정하며 기본은 실제 프로젝트 이름인 `Issac-GR00T-N17`이다.
 
 ### GitHub clone에서 Username 오류가 발생한 경우
 
-Isaac-GR00T 소스는 공개 저장소다. `could not read Username`은 GitHub 모델 접근 승인과
-별개인 Git HTTPS 인증 실패다. 사용자·시스템 Git의 URL 변환, 인증 헤더, credential 설정이나
-프록시의 인증 응답 등이 원인일 수 있으며, 이 메시지만으로 원인을 확정할 수 없다.
-위 설치 블록은 subshell에서 해당 Git 설정을 격리하고 임시 경로에서 clone·checkout을
-완료한 뒤 설치 폴더로 옮긴다. `.git`이 없는 기존 폴더는 삭제하지 않고 백업한다.
-
-설정 격리만으로 HTTP 401이 발생했던 서버에서는 HTTP/1.1과 Git protocol v0를
-지정한 `ls-remote`가 성공했다. 위 clone 명령에도 같은 옵션을 적용했다.
-LIBERO·robocasa 등 submodule의 clone에도 적용되도록 `submodule update`와
-후속 Git LFS 명령에도 같은 옵션을 지정한다. 본체 clone만 성공한 상태라면
-기존 폴더를 지우지 않고 수정한 설치 블록을 재실행해 submodule 단계부터 이어간다.
-접근 확인에서 출력되는 원격 HEAD와 관계없이 설치용 고정 커밋
-`51d4c89f72fda44cbf77285c6a8114b52676b8a1`은 유지한다.
-
-설정 격리 후에도 GitHub Username을 요구하면 입력을 취소한다. 공개 저장소에 GitHub 비밀번호를
-입력해서 해결하는 절차가 아니다. 서버의 프록시·네트워크 접근과 실제 오류 응답을 확인해야 한다.
-실패한 임시 clone 폴더는 남을 수 있지만 다음 실행의 설치 경로와 충돌하지 않는다.
-[Git 환경변수 문서](https://git-scm.com/docs/git),
-[공개 upstream 저장소](https://github.com/NVIDIA/Isaac-GR00T).
+공개 저장소의 HTTPS 인증 실패이며 모델 접근 승인과 별개다. launcher는 사용자·시스템 Git 인증 설정을 해당 설치 프로세스에서만 격리하고 본체·submodule·LFS에 같은 HTTP 옵션을 사용한다. 본체 clone만 성공했다면 `setup-groot`를 다시 실행해 이어간다. 계속 Username을 요구하면 입력을 취소하고 프록시·네트워크 응답을 확인한다. GitHub 비밀번호 입력으로 해결하는 절차가 아니다.
 
 ### Cosmos 접근 확인에서 401 / GatedRepoError가 발생한 경우
 
-`Cosmos-Reason2-2B/resolve/main/config.json`의 401은 Cosmos 접근 확인 실패다.
-`hf auth whoami` 성공은 로그인 확인이며 gated 모델 접근 승인을 확인하지 않는다.
-
-1. 브라우저에서 [Cosmos 모델 페이지](https://huggingface.co/nvidia/Cosmos-Reason2-2B)에 로그인하고 약관 동의·접근 신청을 완료한다. 승인 대기 상태라면 승인 후 진행한다.
-2. **승인받은 동일 계정**의 [읽기 토큰](https://huggingface.co/settings/tokens)을 준비한다. Fine-grained 토큰은 해당 gated 모델을 읽을 권한도 허용해야 한다.
-3. 아래 블록으로 서버에서 다시 로그인하고 실패한 단계부터 실행한다. 토큰은 `hf auth login`의 입력 프롬프트에 붙여넣는다.
-
-`HF_TOKEN` 환경변수는 저장된 로그인 토큰보다 우선한다. 아래 복구 블록은 subshell 안에서만
-기존 토큰 환경변수를 해제하며, `HF_HOME`을 설치·서버 실행과 동일하게 사용한다.
-[Hugging Face gated 모델 안내](https://huggingface.co/docs/hub/models-gated),
-[인증 환경변수 안내](https://huggingface.co/docs/huggingface_hub/package_reference/environment_variables).
+[Cosmos 모델 페이지](https://huggingface.co/nvidia/Cosmos-Reason2-2B)에서 접근 승인을 받은 같은 계정으로 로그인한다. 토큰은 모델 읽기 및 저장소 생성·쓰기 권한이 있어야 한다. `whoami` 성공만으로 gated 접근 승인이 확인되지는 않는다.
 
 ```bash
-(
-set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
-export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
-export HF_HOME=/workspace/.cache/huggingface
-export HF_HUB_ENABLE_HF_TRANSFER=0
-export PATH="$HOME/.local/bin:$PATH"
-unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV HF_TOKEN HUGGING_FACE_HUB_TOKEN HF_HUB_DISABLE_IMPLICIT_TOKEN
-cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-uv run --no-sync hf auth login
-uv run --no-sync hf auth whoami
-uv run --no-sync hf download nvidia/Cosmos-Reason2-2B config.json \
-  --local-dir "$PROTOSS_ROOT/Protoss/access-check/cosmos"
-uv run --no-sync hf download nvidia/GR00T-N1.7-DROID \
-  --local-dir "$CHECKPOINT_ROOT/GR00T-N1.7-DROID"
-)
+python3 Protoss/run.py login
 ```
 
-계속 실패하면 `whoami` 계정과 웹에서 승인받은 계정, 토큰의 읽기 권한을 다시 확인한다.
-Cosmos 접근 확인을 생략해도 N1.7 모델 로딩에서 같은 권한 오류가 발생할 수 있다.
-새 서버 터미널에도 오래된 `HF_TOKEN`이 설정되어 있다면 해제하거나 승인된 토큰으로 교체한다.
-
-### 초기 설정: Hugging Face 업로드 권한 확인
-
-2절의 `hf auth login`에서 모델 저장소 생성·쓰기 권한이 있는 토큰으로 로그인한다. Cosmos 접근도 같은 계정에서 승인되어 있어야 한다. 토큰을 코드나 Git에 기록하지 않는다. 학습·추론 터미널에서 동일한 `HF_HOME`을 사용한다. `HF_TOKEN` 환경변수가 있으면 저장된 로그인보다 우선한다.
+이 복구 명령은 기존 토큰 환경변수를 자식 프로세스에서 해제하고 로그인·접근 확인·pretrained 다운로드를 다시 실행한다. 다른 터미널의 오래된 `HF_TOKEN`도 해제하거나 교체해야 한다. 토큰은 코드나 Git에 기록하지 않는다. 학습·평가는 저장된 로그인을 재사용한다.
 
 ## 3. 데이터 준비 의존성 확인
-GR00T 전용 `.venv`에서 다운로드·변환·학습을 모두 실행한다. 데이터 준비용 의존성을 같은 환경에 설치한다. `--no-sync`로 실행해 추가 설치한 패키지를 유지한다.
+
+GR00T 환경에 HF·PyArrow·Pandas·SciPy를 설치하고 CUDA 텐서 생성 및 학습 CLI를 확인한다.
 
 ```bash
-(
-set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
-export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
-export PATH="$HOME/.local/bin:$PATH"
-unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-uv pip install --python .venv/bin/python \
-  'huggingface-hub>=0.34,<2' 'pyarrow>=18,<24' 'pandas>=2.2,<3' 'scipy>=1.13,<2'
-uv run --no-sync python - <<'CHECK'
-import torch
-import numpy, pandas, pyarrow, scipy, huggingface_hub
-print("PyTorch:", torch.__version__, "CUDA:", torch.version.cuda)
-print(torch.ones(1, device="cuda"), torch.cuda.get_device_name(0))
-CHECK
-uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" --help
-)
+python3 Protoss/run.py setup-data
 ```
 
-Model-FM/S/E의 LoRA 대상은 action DiT 각 `transformer_blocks.*`의 Q/K/V projection(`attn1.to_q`, `attn1.to_k`, `attn1.to_v`)과 FFN(`ff.*`) 내부 모든 `nn.Linear` weight다. 현재 FFN에서는 `ff.net.0.proj`, `ff.net.2`에 적용한다. Attention output projection은 대상에서 제외한다. LLM, vision encoder, projector, state/action encoder/decoder 및 pretrained weight를 고정하고 두 low-rank 행렬만 학습한다. CLI 기본 rank=64, alpha=128이며 아래 학습 예시는 사용자가 지정한 rank=32, alpha=64를 유지한다. Adapter dropout=0이다. 이는 이 프로젝트의 LoRA 적용 범위이며 NVIDIA 공식 LoRA 옵션이 아니다.
+LoRA 대상은 action DiT의 `attn1.to_q/to_k/to_v`와 `ff.*` 내부 Linear(`ff.net.0.proj`, `ff.net.2`)다. Attention output projection은 제외한다. LLM, vision encoder, projector, state/action encoder/decoder와 pretrained weight는 고정한다. 실행 config는 rank=32, alpha=64이며 adapter dropout=0이다.
 
 ## 4. DROID 데이터 다운로드
 
-1~3절 설치 후 진행한다. Fine-tuning에는 이미지·언어·정답 action이 필요하다. 아래 다운로드 명령은 GR00T 전용 Python 환경에서 실행한다.
-
-`HF_HUB_ENABLE_HF_TRANSFER=0`으로 일반 다운로드를 사용한다. 서버에서 해당 변수가 `1`로 설정되어 있어도 아래 블록에서 덮어쓰므로 선택 패키지 `hf_transfer`를 설치할 필요가 없다. 실패하면 같은 명령을 다시 실행해 다운로드 cache를 재사용한다.
-
-이미 받은 300개 `Protoss/data/source`를 그대로 사용한다. 다시 다운로드할 필요는 없다. 공통 데이터 준비는 동일 instruction 반복을 요구하지 않으며 최소 1개 원본 episode로 실행할 수 있다. 아래 다운로드 명령은 데이터가 아직 없을 때만 실행한다. 다운로드 helper는 첫 metadata shard의 성공·언어 있는 episode를 선택한다.
+이미 받은 source가 있다면 생략한다. 성공·언어 있는 episode 300개를 기본으로 다운로드하며 개수는 config의 `DOWNLOAD_EPISODES`에서 바꾼다. 일반 HF 다운로드를 사용하고 같은 명령을 재실행하면 캐시를 재사용한다.
 
 ```bash
-(
-set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
-export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
-export PATH="$HOME/.local/bin:$PATH"
-unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-export HF_HUB_ENABLE_HF_TRANSFER=0
-for entry in Protoss/prepare_droid.py Protoss/src/prepare_droid.py; do
-  test -f "$PROTOSS_ROOT/$entry" || {
-    echo "프로젝트 파일 누락: $PROTOSS_ROOT/$entry. 학습 문서 1절의 '프로젝트 받기' 블록을 실행한 뒤 재시도하세요." >&2
-    exit 1
-  }
-done
-uv run --no-sync python "$PROTOSS_ROOT/Protoss/prepare_droid.py" download \
-  --dataset-dir "$PROTOSS_ROOT/Protoss/data/source" --num-episodes 300
-)
+python3 Protoss/run.py download-droid
 ```
 
-`can't open file .../Protoss/prepare_droid.py`는 다운로드 도구를 시작하기 전에 발생한 프로젝트 파일 누락 오류다. `uv` 환경 재설치로 해결되지 않는다. `PROTOSS_ROOT`가 실제 프로젝트 저장소를 가리키는지 확인하고, 1절의 수정된 '프로젝트 받기' 블록으로 `v1.7`을 준비한 뒤 이 절을 다시 실행한다. `Protoss/prepare_droid.py`는 CLI 진입점이고 구현인 `Protoss/src/prepare_droid.py`도 함께 있어야 한다. GR00T 환경과 기존 데이터·checkpoint는 다시 만들 필요가 없다.
+프로젝트 파일이 없다는 오류는 uv 재설치로 해결되지 않는다. 실제 프로젝트 checkout과 `Protoss/prepare_droid.py`, `Protoss/src/prepare_droid.py`를 확인한다.
 
 ## 5. 공통 원본 DROID 데이터 준비
 
-수정된 코드를 서버에 반영한 뒤 아래 경로에 생성한다. 이미 변형한 이전 데이터는 원래 궤적으로 되돌릴 수 없으므로 원본 `Protoss/data/source`에서 다시 변환한다. 원본 다운로드는 다시 하지 않는다. 기존 다운로드 폴더가 `droid_styles_source`라면 아래 `--dataset-dir`만 그 경로로 변경한다.
-
 ```bash
-(
-set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
-export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
-export PATH="$HOME/.local/bin:$PATH"
-unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-uv run --no-sync python "$PROTOSS_ROOT/Protoss/prepare_groot_dataset.py" \
-  --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
-  --dataset-dir "$PROTOSS_ROOT/Protoss/data/source" \
-  --output-dir "$PROTOSS_ROOT/Protoss/data" \
-  --style-method original --seed 42
-)
+python3 Protoss/run.py prepare-data
 ```
 
-Train/test 분할 없이 원본 episode 전체를 변환한다. 300개면 300개 모두 공통 trainset에 포함한다. Model-FM/S/E는 같은 `trainset/` 폴더를 읽으므로 데이터와 통계가 동일하며 모델별 데이터를 중복 생성하지 않는다. 원래 joint/gripper command, 관측 state, frame 순서와 15Hz를 유지한다. 배속 변형, smoothing, 시간 보간은 적용하지 않는다.
+Train/test 분할 없이 원본 episode 전체를 공통 trainset으로 변환한다. Joint/gripper command, state, frame 순서와 15Hz를 유지하며 smoothing·배속·시간 보간은 적용하지 않는다. DROID `[EEF(9), gripper(1), joints(7)]` 계약과 GR00T normalization/relative 통계를 사용한다. 영상은 H.264 재인코딩으로 압축이 바뀌지만 시간 축은 유지한다.
 
-GR00T의 DROID 변환과 동일한 `[eef_9d(9), gripper(1), joint(7)]` LeRobot v2 계약으로 저장한다. EEF 변환과 normalization/relative 통계는 설치된 GR00T 함수를 사용한다. 두 카메라는 원본 시작 시점에서 decode한 뒤 H.264로 재인코딩하므로 영상 압축은 바뀌지만 시간 축은 유지한다. 전체 GR00T pretraining 데이터셋을 재현하는 것이 아니라 다운로드한 공개 DROID subset의 형식을 GR00T 학습에 맞춘다.
+결과는 `Protoss/data/trainset/`, `styles.json`, `inspection.json`이다. 300개이면 `Prepared train=300`을 확인한다. 기존 trainset/testset 또는 manifest가 있으면 중단한다. 이전 분할·변형 데이터는 백업한 뒤 source에서 다시 변환하며 자동 삭제하지 않는다. 진단만 하려면 다음 명령을 사용한다.
 
-결과: `Protoss/data/trainset/`, `Protoss/data/styles.json`. 성공 출력은 `Prepared train=300`이다. 보고서의 `style_method`는 `original`, `synthetic`은 `false`다. `testset/`은 생성하지 않는다. 학습과 open-loop 평가에 같은 데이터를 사용하므로 이 평가는 학습 데이터의 imitation 오차를 비교한다.
-
-이미 생성된 trainset/testset 또는 styles.json이 있으면 중단한다. 기존 240/60 분할 데이터는 그대로 사용하지 않는다. 기존 `trainset/`, `testset/`, `styles.json`, `inspection.json`을 별도 백업 경로로 옮긴 뒤 5절 변환을 다시 실행한다. `source/`는 그대로 재사용하며 재다운로드하지 않는다. 학습·평가·데이터 업로드는 기존 분할 manifest를 거부한다. 빈 폴더와 .gitkeep는 허용한다. 진단만 필요하면 `--inspect-only`를 추가한다. 기존 변형 데이터와 checkpoint는 자동으로 삭제하지 않는다. 새로운 공통 데이터 실험은 새 checkpoint output 경로를 사용하고 기존 변형 데이터 학습을 `--resume`으로 이어붙이지 않는다.
+```bash
+python3 Protoss/run.py prepare-data -- --inspect-only
+```
 
 ## 6. Model-FM/S/E LoRA 학습
 
-Model-FM/S는 `NAME`·`STEP`으로 run 폴더를 정하고, Model-E는 `mktemp -d`로 매번 고유한 빈 PEFT 실험 폴더를 생성한다. 생성 경로는 터미널과 `../checkpoint/latest_*_lora_v16.txt`에 기록한다. 데이터는 5절의 `Protoss/data`를 재사용한다.
+실험 이름은 `version_model_<모델>_step<max_steps>`로 생성한다. 같은 이름의 output이 비어 있지 않으면 덮어쓰지 않는다. 새 실험은 config의 version을 바꾸거나 `--name 새이름`을 지정한다. 실행 인자는 `../checkpoint/launches/<이름>.json`, 최근 경로는 `latest_<모델>_lora_v16.txt`에 기록한다.
 
-`ValueError: Output is nonempty; choose a new path or --resume`는 지정한 output 폴더에 파일이 있어 덮어쓰기를 막았다는 뜻이다. 이전 실행이 학습 전에 중단되어 설정 JSON만 남아 있어도 발생한다. 같은 명령을 반복하면 같은 오류가 난다.
+원본 pretrained processor·normalization·영상 시점을 유지하고 subset 통계로 덮어쓰지 않는다. `lora_settings.json`의 processor 계약이나 loss/LoRA 설정이 다르면 resume를 거부한다. 이전 QKV-only·velocity·jerk-only·다른 목적 함수 checkpoint는 새 학습으로 이어붙이지 않는다.
 
-- 새 학습: 아래 명령은 기존 폴더를 보존하면서 새 폴더를 자동 생성한다. `latest_*_lora_v16.txt`는 가장 최근에 시작한 실험을 가리키며, 이전 실험은 실제 폴더 경로를 직접 지정한다.
-- 학습 재개: 같은 PEFT 실험의 `checkpoint-*`에 모델·optimizer·scheduler·RNG 상태가 모두 있을 때만 기존 output 경로와 원래 학습 설정을 유지하고 `--resume`을 추가한다.
-- 설정 JSON만 있거나 이전 자체 LoRA/full fine-tuning checkpoint만 있는 폴더는 `--resume`으로 해결되지 않는다. 새 output 경로에서 pretrained 모델부터 시작한다.
-
-현재 학습은 **원본 pretrained processor, normalization 통계, 영상 시점을 그대로 유지**한다. `override_pretraining_statistics=False`로 학습 subset 통계 덮어쓰기를 막고, pretrained processor를 추가 override 없이 직접 로드한다. 원본 영상 시점이 `[-15, 0]`이면 학습에서도 그대로 사용한다. 저장되는 `processor/`의 JSON 파일은 원본 파일을 그대로 복사한다. Model config도 원본 checkpoint에서 읽고 기존 파라미터는 동결한 채 선택한 LoRA A/B만 학습한다.
-
-이전 `[0]` 영상·subset normalization으로 학습한 checkpoint는 새 학습으로 `--resume`하지 않는다. 새 output에서 원본 pretrained 모델부터 다시 시작한다. 데이터는 기존 공통 `trainset/`을 재사용하며 재다운로드·변환은 필요 없다. `lora_settings.json`에 `processor_policy=pretrained-v1`, 원본 processor 파일 SHA256, 영상 시점, 통계 덮어쓰기 여부를 기록하고, 다르면 재개를 거부한다. `--state-dropout-prob` override 옵션은 제거했다.
-
-학습 완료 후 run 전체를 Hugging Face private 모델 저장소에 **자동 업로드**한다. 기본 저장소는 `로그인계정/output폴더명`이다. 학습 시작 시 로그인을 확인하며, 저장소를 직접 지정하려면 학습 명령에 `--hf-repo-id ACCOUNT/REPO`를 추가한다. 모델·loss 저장과 분포 그래프 생성 후 업로드하며, 그래프 생성에 실패해도 저장된 모델의 업로드를 시도한다. 업로드 실패는 오류로 종료하며 로컬 모델은 유지된다. 이때 재학습하지 말고 8절의 수동 업로드 명령을 사용한다.
-
-**FM/S/E 모두 기본적으로 학습 후 RoboLab 평가·점수 계산·점수 업로드까지 자동 실행한다.** 학습만 하려면 `--no-eval`, HF 없이 로컬 학습·평가를 하려면 `--no-hf-upload`, 오프라인 학습만 하려면 두 옵션을 함께 추가한다. 먼저 6.6절에 따라 동작 확인된 595 simulator 환경에 최신 패치를 적용한다.
+기본적으로 **학습 → 그래프 저장 → HF 모델 업로드 → 학습 프로세스 종료 → HF 다운로드·추론 서버 → RoboLab 평가 → 점수 계산·HF 업로드**까지 실행한다. 먼저 6.6절의 simulator setup을 완료한다. 모델 저장소 기본값은 `로그인계정/output폴더명`이며 config의 `HF_ACCOUNT` 또는 `--repo-id ACCOUNT/REPO`로 바꾼다.
 
 ### 6.1 Model-FM 학습
 
 ```bash
-(
-set -e
-NAME=v1614
-STEP=500
-LR=1e-6
-FOLDER=Project_Protoss
-
-export "PROTOSS_ROOT=/workspace/$FOLDER"
-export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
-export HF_HOME=/workspace/.cache/huggingface
-export HF_HUB_ENABLE_HF_TRANSFER=0
-export PATH="$HOME/.local/bin:$PATH"
-export CUDA_VISIBLE_DEVICES=0
-unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-mkdir -p "$CHECKPOINT_ROOT"
-OUTPUT_DIR="$CHECKPOINT_ROOT/${NAME}_model_fm_step${STEP}"
-printf '%s\n' "$OUTPUT_DIR" > "$CHECKPOINT_ROOT/latest_FM_lora_v16.txt"
-uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
-  --model FM --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
-  --dataset-root "$PROTOSS_ROOT/Protoss/data" \
-  --base-model "$CHECKPOINT_ROOT/GR00T-N1.7-DROID" \
-  --output-dir "$OUTPUT_DIR" \
-  --lora-rank 32 --lora-alpha 64 --max-steps "$STEP" --save-steps "$STEP" \
-  --batch-size 2 --gradient-accumulation 16 --lr "$LR" --workers 2 --seed 42
-)
+python3 Protoss/run.py train-fm
 ```
+
+현재 설정은 `v1614_model_fm_step500`, LR=1e-6, 500 step이다. 이름은 설정에서 변경할 수 있다.
 
 ### 6.2 Model-S 학습
 
@@ -350,46 +143,18 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
 - `jerk = (q[k+3]-3q[k+2]+3q[k+1]-q[k])/dt³`로 `raw_jerk_loss = mean(jerk²)`를 계산한다. 네 점이 모두 유효한 window만 사용한다. `normalized_jerk_loss = raw_jerk_loss / jerk_ref²`이며 raw 단위는 `rad²/s⁶`다. 기본 `dt=1/15`초다.
 - 학습 중 action 역정규화는 gradient 유지를 위해 clipping 없는 affine 변환을 사용한다. Clean endpoint는 실제 multi-step 추론 action의 추정값이므로 jerk 감소와 성공률 보존은 RoboLab rollout으로 확인한다.
 - 기본 첫 10개 target batch에서 정답 관절 jerk RMS를 구해 기준값으로 고정한다. 유효 window 수로 가중 평균하고, 정지 시연에서 기준값은 최소 `1 rad/s³`로 둔다. 이 준비 단계는 모델 forward/backward와 optimizer·scheduler 업데이트를 하지 않는다.
-- `--s-fmd-weight` 또는 기존 이름 `--s-fm-weight`로 FMD 가중치를 조정한다(기본값 `1.0`). 아래 명령은 `L_FMD`로 FMD, `L_JERK`로 jerk 강도를 독립 조정한다.
+- `--s-fmd-weight` 또는 기존 이름 `--s-fm-weight`로 FMD 가중치를 조정한다(기본값 `1.0`). `run_config.py`의 `s_fmd_weight`, `s_jerk_lambda`로 두 항을 독립 조정한다.
 - `--s-jerk-lambda 0.01`이 jerk 항의 가중치이며 0이면 FMD만 사용한다. `--s-jerk-reference 300`으로 기준 RMS(rad/s³)를 직접 지정하면 측정을 생략한다. `--s-calibration-batches 10`은 기준값 측정에 사용하는 batch 수다. 기존 velocity 옵션은 사용하지 않는다.
 - `--s-gradient-diagnostics`를 추가하면 첫 microbatch의 FMD·정규화 jerk LoRA gradient norm을 기록한다. 추가 autograd 비용이 있다.
 - CSV와 checkpoint에 `fmd_loss`, `weighted_fmd_loss`, raw/정규화/가중 jerk, 각 가중치와 기준 RMS를 기록한다. 그래프는 `fmd_loss`, `normalized_jerk_loss`, `total_loss` 세 패널이다. 콘솔은 step마다 FMD·가중 FMD·jerk·total을 한 줄에 출력한다. 기준값과 누적 통계는 재개 시 복원한다.
 
-아래 명령은 All QKV + FFN, rank/alpha=32/64, LR=1e-6으로 학습한다. 코드 기본 jerk lambda는 0.01이며 아래 `L_JERK`는 실험값이다. 기존 output과 구분하도록 NAME을 새로 지정한다.
+실행 설정은 `TRAIN["S"]`에 있다. 현재 2000 step, save=500, LR=1e-6, workers=1, FMD weight=1, jerk lambda=1e-3이다. 새 실험은 version 또는 `--name`을 바꾼다.
 
 이전 FMD+velocity, jerk-only, FM+jerk checkpoint는 새 FMD+정규화 jerk 학습으로 재개하지 않는다. Pretrained부터 새 run으로 시작한다. 동일 목적 함수 재개 시 원래 설정을 유지한다.
 
 ```bash
-(
-set -e
-STEP=500
-NAME=v179_model_s_step"${STEP}"
-LR=1e-6
-FOLDER=Project_Protoss
-L_FMD=1
-L_JERK=1e-3
-
-export PROTOSS_ROOT=/workspace/"$FOLDER"
-export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
-export HF_HOME=/workspace/.cache/huggingface
-export HF_HUB_ENABLE_HF_TRANSFER=0
-export PATH="$HOME/.local/bin:$PATH"
-export CUDA_VISIBLE_DEVICES=0
-unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-mkdir -p "$CHECKPOINT_ROOT"
-OUTPUT_DIR="$CHECKPOINT_ROOT/${NAME}"
-uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
-  --model S --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
-  --dataset-root "$PROTOSS_ROOT/Protoss/data" \
-  --base-model "$CHECKPOINT_ROOT/GR00T-N1.7-DROID" \
-  --output-dir "$OUTPUT_DIR" \
-  --s-fmd-weight "$L_FMD" --s-jerk-lambda "$L_JERK" --s-calibration-batches 10 \
-  --lora-rank 32 --lora-alpha 64 --max-steps "$STEP" --save-steps 500 \
-  --batch-size 2 --gradient-accumulation 16 --lr "$LR" --workers 1 --seed 42 \
-)
+python3 Protoss/run.py train-s
 ```
-
 
 ### 6.3 Model-E 학습
 
@@ -403,263 +168,134 @@ uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
 - 기존 FM-only Model-E checkpoint에서는 새 loss로 resume하지 않는다. 새 output에서 pretrained부터 시작하고, 같은 목적 함수 재개 시 원래 가중치를 유지한다. 역정규화는 Model-S처럼 clipping 없는 affine이며, 실제 경로 단축·성공률은 rollout에서 확인한다.
 
 ```bash
-(
-set -e
-L_FMD=1
-L_PATH=0.01
-export PROTOSS_ROOT=/workspace/Project_Protoss
-export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
-export HF_HOME=/workspace/.cache/huggingface
-export HF_HUB_ENABLE_HF_TRANSFER=0
-export PATH="$HOME/.local/bin:$PATH"
-export CUDA_VISIBLE_DEVICES=0
-unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-mkdir -p "$CHECKPOINT_ROOT"
-OUTPUT_DIR="$(mktemp -d "$CHECKPOINT_ROOT/model_E_lora_v16_peft_XXXXXXXX")"
-printf '%s\n' "$OUTPUT_DIR" > "$CHECKPOINT_ROOT/latest_E_lora_v16.txt"
-printf 'Training output: %s\n' "$OUTPUT_DIR"
-uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
-  --model E --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
-  --dataset-root "$PROTOSS_ROOT/Protoss/data" \
-  --base-model "$CHECKPOINT_ROOT/GR00T-N1.7-DROID" \
-  --output-dir "$OUTPUT_DIR" \
-  --e-fmd-weight "$L_FMD" --e-path-length-weight "$L_PATH" \
-  --lora-rank 32 --lora-alpha 64 --max-steps 2000 --save-steps 2000 \
-  --batch-size 2 --gradient-accumulation 16 --lr 1e-5 --workers 2 --seed 42
-)
+python3 Protoss/run.py train-e
 ```
 
-Model-FM은 기존 FM, Model-S는 FMD + normalized jerk, Model-E는 FMD + joint path length를 사용한다. 비교 시 LoRA rank/alpha, 데이터, seed, batch, LR, optimizer와 step 수를 맞춘다. 각 명령은 같은 원본 pretrained checkpoint에서 해당 모델 하나를 독립적으로 학습하고 자동 평가까지 실행한다. FM의 flow velocity와 실제 관절 속도는 서로 다른 값이다.
+현재 설정은 실제 기존 학습값인 500 step, LR=1e-5다. 이전 README에서 NAME의 step=2000과 max_steps=500이 달랐던 부분은 `max_steps`에서 이름을 생성해 일치시켰다.
 
 ### 6.4 중단된 PEFT 학습 재개
 
-6.1의 PEFT 학습이 checkpoint 저장 이후 중단된 경우에만 사용한다. 아래 명령은 `latest_FM_lora_v16.txt`가 가리키는 실험을 재개하므로, 새 학습 명령을 다시 실행하기 전에 사용한다. 디버그 출력 후 종료되어 설정 파일만 남은 경우에는 6.1에서 새 run 경로를 사용한다. 다른 실험을 재개할 때는 해당 실험의 원래 output 경로와 모든 학습 옵션을 유지한다.
-
 ```bash
-(
-set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
-export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
-export HF_HOME=/workspace/.cache/huggingface
-export HF_HUB_ENABLE_HF_TRANSFER=0
-export PATH="$HOME/.local/bin:$PATH"
-export CUDA_VISIBLE_DEVICES=0
-unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-uv run --no-sync python "$PROTOSS_ROOT/Protoss/train.py" \
-  --model FM --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
-  --dataset-root "$PROTOSS_ROOT/Protoss/data" \
-  --base-model "$CHECKPOINT_ROOT/GR00T-N1.7-DROID" \
-  --output-dir "$(cat "$CHECKPOINT_ROOT/latest_FM_lora_v16.txt")" \
-  --lora-rank 32 --lora-alpha 64 --max-steps 1000 --save-steps 100 \
-  --batch-size 2 --gradient-accumulation 16 --lr 1e-5 --workers 2 --seed 42 \
-  --resume
-)
+python3 Protoss/run.py resume-s
 ```
 
-산출물:
+FM/E는 `resume-fm`, `resume-e`를 사용한다. 최근 run의 저장된 실행 인자를 사용하므로 현재 config의 변경값이 원래 loss/LR을 바꾸지 않는다. 기존 README로 만든 run은 `--name 기존이름`을 지정하면 `style_run.json`, `lora_settings.json`에서 설정을 복원한다. Optimizer·scheduler·RNG·trainer 상태가 포함된 checkpoint가 필요하며, 설정 JSON만 남은 output은 resume할 수 없다.
 
-- `checkpoint-*`: `adapter/`와 optimizer·scheduler·RNG·trainer 상태를 저장하는 재개용 checkpoint. pretrained 가중치는 중복 저장하지 않는다. 같은 학습 명령에 `--resume`을 추가해 재개한다. 기본 서버에 바로 전달하지 않는다.
-- `adapter/`: PEFT 표준 `adapter_config.json`과 `adapter_model.safetensors`. 원본 DiT에 로드하는 adapter이며 standalone GR00T 모델은 아니다.
-- `processor/`: 학습에서 사용한 processor와 normalization 통계.
-- `inference/adapter_inference.json`: 원본 pretrained 모델, adapter, processor 경로를 연결하는 설정 파일. 학습 종료 시 병합 모델을 저장하지 않는다. 추론 모드는 `--lora-mode`로 선택한다. 기본 `unmerged`는 adapter를 forward마다 적용하며, `merged`는 FP32로 병합한 뒤 추론 dtype으로 변환한다.
-- `lora_settings.json`, `lora_run.json`: LoRA backend(`peft`), 설정과 적용 layer 목록. `target_scope=action-dit-qkv-ffn-v1`로 적용 범위를 기록한다. 기존 QKV 전용 checkpoint는 QKV + FFN 설정으로 재개하지 않고 새 output 폴더에서 pretrained부터 학습한다. 다른 backend/rank/alpha/base/data/seed로 resume하면 중단한다. 이전 자체 LoRA checkpoint는 PEFT 학습으로 resume할 수 없으며 새 output 경로를 사용한다. 기존 merged `inference/`는 계속 평가에 사용할 수 있다.
-
-단일 CUDA GPU 경로를 제공한다. LoRA는 trainable parameter와 optimizer 메모리를 줄이지만 전체 모델 weight와 action-head activation은 필요하다. 해당 구성의 GPU peak와 학습 시간은 아직 측정하지 않았다.
+주요 산출물은 `checkpoint-*/`, `adapter/`, `processor/`, `inference/adapter_inference.json`, `lora_settings.json`, 학습 loss CSV/PNG다. Adapter는 원본 pretrained와 함께 로드하며 standalone GR00T 모델이 아니다. 학습 시 merged 모델을 별도 저장하지 않는다.
 
 ### 6.5 학습 완료 후 자동 그래프 저장
 
-`train.py`는 마지막 checkpoint와 adapter export, `training_loss.png` 저장을 마친 뒤 학습 모델·optimizer를 해제하고 pretrained와 최종 adapter를 순차 로드해 action 분포를 비교한다. 별도 명령 없이 `--output-dir`로 지정한 모델 저장 폴더에 **`distribution_plot.png`**가 생성된다.
+학습 종료 시 loss와 `distribution_plot.png`를 모델 폴더에 저장한다. 원본 trajectory 0의 최대 32개 프레임에서 같은 관측·seed로 pretrained와 최종 adapter의 역정규화 action 분포를 비교한다. 추론은 unmerged, denoising 4 steps다. 그래프만 다시 만들려면 다음을 실행한다.
 
-학습 데이터의 trajectory 0에서 최대 32개 프레임을 균등 선택하고, 같은 관측과 샘플별 seed로 학습 전후 추론 action의 차원별 분포를 그린다. 원본 processor의 역정규화된 action 값이며, 전체 예측 chunk를 사용한다. 추론은 `unmerged`, denoising 4 steps로 실행한다. 이 단계에는 추가 추론 시간이 들며, 중단된 학습에서는 실행하지 않는다. 그래프 생성 중 오류가 나도 이미 저장된 checkpoint와 adapter는 유지된다.
-
-분석 조건을 바꾸거나 저장된 모델로 그래프만 다시 생성하려면 [추론 문서 4절](readme_test.md#4-학습-전후-action-distribution-비교)의 명령을 사용한다.
+```bash
+python3 Protoss/run.py plot-distribution
+```
 
 ### 6.6 학습 → RoboLab 테스트 → 평가점수 자동 계산
 
-동작 확인된 Isaac Sim 6.0.1 / 595 stack을 사용한다. 프로젝트 업데이트 후 아래 setup을 한 번 실행해 평가 완료 확인 패치를 적용한다. 학습 때마다 설치하거나 smoke를 반복하지 않는다. 학습 시작 전에는 GPU를 초기화하지 않고 설치·호환 패치와 포트를 검사하며, 준비되지 않았다면 학습 전에 중단한다.
+동작 확인된 595/Isaac Sim 6.0.1 stack에 프로젝트 업데이트 후 setup을 한 번 적용한다.
 
 ```bash
-bash "$PROTOSS_ROOT/Protoss/setup_robolab_595.sh" setup
+python3 Protoss/run.py setup-robolab
 ```
 
-이후 6.1~6.4의 `train.py` 명령 하나로 다음을 순서대로 실행한다.
-
-1. 학습·checkpoint·그래프 저장 → HF 모델 업로드
-2. 학습 worker 프로세스 종료 → GPU 메모리 반환
-3. 같은 HF 저장소에서 다운로드 → 최종 adapter로 추론 서버 시작 → ping 준비 확인
-4. RoboLab closed-loop 평가 → 자동 서버 종료
-5. 모든 task의 성공률·평균 score·trajectory metric 평균 계산 → 같은 모델 저장소의 `evaluations/<평가이름>/`에 업로드
-
-기본값은 `BananaOnPlateTask`, 환경 2개 × 5회 = 10 episodes, open-loop horizon 8, simulator seed 0, 영상 저장 없음이다. 학습 seed와 평가 seed는 별개다. 별도 서버·Client 터미널이나 수동 `NAME` 설정은 필요 없다. 포트는 자동으로 빈 포트를 선택하고 평가 이름에는 시각을 붙여 기존 결과를 재사용하지 않는다. CUDA_VISIBLE_DEVICES는 학습·서버·simulator가 공유하며, 추론 서버는 그 안의 `cuda:0`을 사용한다. 학습은 종료되지만 추론 서버와 simulator는 평가 중 동시에 GPU 메모리를 사용한다.
-
-실험마다 학습 명령 끝에 필요한 옵션을 추가한다.
+새 stack의 물리·카메라 확인은 다음 명령이다. 기본 2개 환경·600 step을 검사한다.
 
 ```bash
-  --eval-tasks BananaOnPlateTask \
-  --eval-num-envs 2 --eval-num-runs 5 --eval-horizon 8 --eval-seed 0 \
-  --eval-stack-root /workspace/robolab-595
+python3 Protoss/run.py smoke-robolab
 ```
 
-여러 task는 `--eval-tasks BananaOnPlateTask BananaInBowlTask`로 지정한다. `--eval-device cuda:0`, `--eval-port 5558`, `--eval-server-timeout 600`도 조정할 수 있다. 환경 2개는 병렬이며 실행 횟수는 task마다 적용된다. 다른 checkout에서 학습해도 `--eval-stack-root`로 이미 확인한 stack을 재사용할 수 있다. `Project_Protoss2`는 RunPod checkout 위치이며 로컬 폴더를 추가로 만들지 않는다.
+이후 학습 명령 하나로 자동 평가한다. 기본은 BananaOnPlateTask, 환경 2개 × 5회, horizon 8, simulator seed 0, 영상 저장 없음이다. `EVALUATION`에서 변경한다. 학습 프로세스는 종료된 뒤 서버를 시작하지만, 평가 중 추론 서버와 simulator는 GPU 메모리를 함께 사용한다.
 
-모델 폴더의 `evaluation_status.json`에 단계·오류·실제 결과 경로를 기록하고, `evaluation_logs/`에 서버 로그, `evaluations/<평가이름>/`에 점수 JSON/TXT·task별 JSONL·평가 설정을 보관한다. 원본 trajectory/HDF5는 `/workspace/robolab-595/RoboLab/output/<평가이름>/`에 남기고 HF에는 올리지 않는다. RoboLab이 기록한 metric을 집계하며 HDF5에서 새 metric을 계산하지 않는다.
-
-학습·그래프·모델 업로드에 실패하면 평가를 시작하지 않는다. 평가가 정상 완료됐다는 표시와 결과 파일을 모두 확인한 뒤에만 점수를 계산·업로드한다. 실패 시 학습 모델을 보존하고, 이 명령이 띄운 서버·클라이언트를 정리하며 오류로 종료한다. `--no-hf-upload`에서는 HF 다운로드·업로드 없이 로컬 adapter로 평가하고 점수만 저장한다.
-
-이미 학습된 모델의 평가만 다시 하려면 GR00T 환경에서 실행한다. 같은 명령에 위 `--eval-*` 옵션을 추가할 수 있다. HF 업로드만 실패했다면 RoboLab 평가를 재실행하지 않고 `evaluation_status.json`의 `results_dir`을 `process_robolab_results.py --results-dir ... --hf-repo-id ACCOUNT/REPO`에 넘긴다.
+학습만 실행하려면 다음과 같이 기존 옵션을 `--` 뒤에 넘긴다.
 
 ```bash
-uv run --no-sync python "$PROTOSS_ROOT/Protoss/evaluate_robolab.py" \
-  --groot-root "$PROTOSS_ROOT/Issac-GR00T-N17" \
-  --base-model "$CHECKPOINT_ROOT/GR00T-N1.7-DROID" \
-  --output-dir "$OUTPUT_DIR" \
-  --hf-repo-id "ACCOUNT/MODEL"
+python3 Protoss/run.py train-s -- --no-eval
+```
+
+HF 없이 로컬 학습·평가는 `--no-hf-upload`, 오프라인 학습만 하려면 두 옵션을 함께 넘긴다. 모든 원래 train.py 옵션은 `--` 뒤에 추가할 수 있지만 모델·기본 경로는 `--name`/`--project-root`/config에서 지정한다. 단발성 loss 변경 예시는 다음과 같다.
+
+```bash
+python3 Protoss/run.py train-s --name my_model_s -- --s-fmd-weight 1000 --s-jerk-lambda 0.001
+```
+
+저장된 모델의 서버 시작·평가·점수 업로드만 실행하려면 다음을 사용한다. `MODEL_NAME` 또는 `--name`으로 선택하며 재학습하지 않는다.
+
+```bash
+python3 Protoss/run.py evaluate
+```
+
+자동 평가 결과는 모델 폴더의 `evaluation_status.json`, `evaluation_logs/`, `evaluations/<평가이름>/`에 남는다. 원본 HDF5는 stack의 `RoboLab/output/`에 보관하고 HF에는 JSONL·점수 JSON/TXT·평가 설정만 업로드한다. RoboLab이 기록한 metric을 집계하며 HDF5에서 새 metric을 계산하지 않는다.
+
+학습·그래프·모델 업로드가 실패하면 평가를 시작하지 않는다. 서버 준비와 평가 완료 표시·결과 파일을 확인한 뒤에만 metric을 업로드한다. 실패 시 모델을 보존하고 이 명령이 시작한 서버·Client를 정리한다. 점수 업로드만 실패했다면 평가를 반복하지 않고 재전송한다.
+
+```bash
+python3 Protoss/run.py metrics
 ```
 
 ## 7. 코드와 검증
 
-| 파일 | 역할 |
-|---|---|
-| `Protoss/prepare_droid.py` | 공개 성공 DROID subset 다운로드 (`download` 명령) |
-| `Protoss/prepare_groot_dataset.py` | 네 모델의 공통 원본 데이터 LeRobot v2 준비 |
-| `Protoss/train.py` | Model-FM/S/E의 공통 FM LoRA 학습 |
-| `Protoss/src/training_evaluation.py` | 학습 worker 종료 후 서버·RoboLab·metric 업로드 순서 관리 |
-| `Protoss/evaluate_robolab.py` | 저장된 모델을 재학습 없이 서버·평가·metric 업로드까지 실행 |
-| `Protoss/eval_groot_models.py` | baseline / Model-FM/S/E 공통 trainset·seed·horizon 평가 |
-| `Protoss/src/groot_common.py` | 공통 데이터 변환과 학습 구현 |
-| `Protoss/src/groot_lora.py` | action DiT Linear LoRA 주입과 merge |
-| `Protoss/src/tests/test_groot_common.py` | 원본 command 보존, 전체 episode 보존와 학습 설정 검증 |
-
-자동 평가 통합 검증: 학습 루프·HF 동기화·metric·RoboLab 완료 표시를 포함해 CPU 테스트 41개를 통과했다. 이 중 프로세스 통합 8개는 실제 자식 프로세스와 로컬 ZeroMQ 서버로 학습 종료 후 서버 시작, 준비 대기, 실패 시 중단·정리, 점수 보존을 검사한다. 모델·simulator는 테스트용 실행 파일이고 HF API는 mock이다. 전체 GPU 학습부터 자동 rollout·실제 HF 전송까지의 연결은 로컬에서 실행하지 않았다.
-
 ```bash
-(
-set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
-export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
-export PATH="$HOME/.local/bin:$PATH"
-unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-uv run --no-sync python -m unittest discover \
-  -s "$PROTOSS_ROOT/Protoss/src/tests" -t "$PROTOSS_ROOT/Protoss" -p 'test_*.py' -v
-)
+python3 Protoss/run.py check
 ```
 
-공통 데이터와 학습 설정 CPU 테스트 4개를 통과했다. 영상 encoder, GR00T 통계 함수와 GPU trainer는 테스트에서 mock을 사용했다. 실제 GPU 학습 및 네 모델의 성능 비교는 이 로컬 환경에서 검증하지 않았다.
+| 파일 | 역할 |
+|---|---|
+| `Protoss/run.py`, `run_config.py` | 한 줄 실행 진입점과 실험 설정 |
+| `Protoss/src/recipe_runtime.py` | 환경·경로·전용 Python·명령 실행 |
+| `Protoss/src/setup_recipes.py` | 설치·인증·데이터 준비 |
+| `Protoss/src/experiment_recipes.py` | 학습·재개·Server/Client·업로드 |
+| `Protoss/train.py`, `src/training_evaluation.py` | 학습과 자동 평가 흐름 |
+| `Protoss/src/model_s_loss.py`, `model_e_loss.py` | 모델별 loss |
 
-검증: CPU mock 테스트로 dataset repo type/private 생성, 전체 trainset 전송 파일 목록, 불완전한 영상/episode 수 검사, dry-run을 확인했다. 실제 계정으로 데이터 업로드·다운로드는 이 작업에서 실행하지 않았다.
+자동 학습·평가 통합은 CPU/프로세스 테스트 41개로 검증했다. 실제 자식 프로세스·로컬 ZeroMQ를 사용하며 모델/simulator와 HF 전송은 테스트용 실행 파일·mock으로 검사한다. 전체 GPU 학습부터 실제 rollout·HF 전송까지는 로컬에서 실행하지 않았다.
 
-LoRA 검증 범위: CPU에서 초기 출력 일치, adapter만의 gradient, merge 전후 출력 일치와 native Linear state reload를 확인한다. 실제 GR00T LoRA GPU 학습/merged checkpoint 로딩은 이 작업 환경에서 실행하지 않았다. Model-S는 FMD + normalized jerk, Model-E는 FMD + joint path length를 사용한다.
-
-이번 변경 검증: 데이터·학습 설정 4개, LoRA gradient/merge 1개, 네 모델의 공통 평가 조건 1개로 총 6개 CPU 테스트를 통과했다. 평가 조건 테스트는 subprocess를 mock하며 실제 VLA inference는 실행하지 않는다.
-
-폴더 정리 후 현재 데이터·LoRA·평가·업로드 테스트 총 10개를 통과했다. 이전 blending/refiner, 스타일 데이터 변형과 A/B 전용 진입점은 삭제했다.
-
-Model-S endpoint 복원, 3차 차분과 mask 처리, LoRA gradient 전달과 resume는 CPU 테스트로 검증한다. 실제 GPU 학습과 rollout 개선 여부는 별도로 확인한다.
-
+한 줄 실행 도구와 관련 회귀 테스트 20개를 통과했다. 전용 Python·환경·경로, 실제 자식 프로세스 인자, 저장 설정으로 재개, 실패 시 업로드 중단, dry-run의 무실행을 확인했다. README의 실행 블록 40개는 모두 한 줄이며 FM/S/E 생성 인자가 실제 학습 parser에서 허용되는지도 검사했다.
 
 ## 8. Hugging Face에 checkpoint 보관
 
-현재 PEFT 실험은 학습 완료 후 **run 폴더 전체**를 private 모델 저장소에 자동 업로드한다. 아래 수동 명령은 업로드 재시도나 별도 보관에 사용한다. 원본 pretrained 모델은 포함하지 않는다. `adapter/`, `processor/`, `inference/adapter_inference.json`과 실험 설정·loss 기록을 함께 보관한다. 업로드 중에는 해당 폴더를 수정하지 않는다.
-
 ### 8.1 인증
 
-로그인은 초기 설정의 2절에서 완료한다. 자동 업로드는 저장된 토큰을 재사용한다.
+로그인은 2절 설치 때 완료한다. 토큰은 저장된 캐시에서 재사용하며 코드에 넣지 않는다.
 
 ### 8.2 모델별 adapter output 업로드
 
-2절 초기 설정에서 로그인한 뒤 실행한다. 아래 Model-FM은 6.1절의 `v1614_model_fm_step500` 폴더를 사용한다. `FOLDER`, `NAME`, step은 실제 학습 설정과 동일하게 지정한다. S/E의 폴더와 step은 실제 학습 결과에 맞춘다. Organization은 `HF_ACCOUNT`를 해당 이름으로 지정한다.
-
-**`--folder`에는 `/inference`를 붙이지 않는다.** PEFT output에는 전체 모델 `config.json`이 없으며, `adapter/adapter_config.json`과 adapter weight가 있다. `inference/`는 경로 설정뿐이므로 단독 업로드하지 않는다. 전체 run을 업로드하면 `processor/`, normalization 통계, `lora_settings.json`, `training_loss.png`·`training_loss.csv`, checkpoint의 loss 기록과 재개 상태가 함께 보관된다. 기존 loss log 복사 명령은 필요 없다.
+자동 업로드 재시도 또는 별도 보관에 사용한다. `MODEL_NAME` 또는 `--name`으로 선택한다.
 
 ```bash
-(
-set -e
-FOLDER=Project_Protoss2
-NAME=v1614
-export PROTOSS_ROOT=/workspace/"$FOLDER"
-export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
-export HF_HOME=/workspace/.cache/huggingface
-export HF_HUB_ENABLE_HF_TRANSFER=0
-export PATH="$HOME/.local/bin:$PATH"
-unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-HF_ACCOUNT=$(uv run --no-sync python -c \
-  'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
-uv run --no-sync python "$PROTOSS_ROOT/Protoss/upload_checkpoint_hf.py" \
-  --folder "$CHECKPOINT_ROOT/"$NAME"_model_fm_step500" \
-  --repo-id "$HF_ACCOUNT/${NAME}_model_fm_step500" --workers 2
-)
+python3 Protoss/run.py upload-model
 ```
 
-파일 검증만 하려면 업로드 명령에 `--dry-run`을 추가한다. 스크립트의 dry-run은 네트워크 요청을 하지 않지만, 위 계정명 조회는 네트워크를 사용한다. 실제 업로드는 private 저장소만 허용하며, 완료 후 원격 파일 목록을 확인한다. 중단 시 같은 폴더·저장소로 다시 실행하고 `.cache/huggingface`를 유지한다.
+전체 run을 private 모델 저장소에 업로드한다. `inference/`만 따로 올리지 않는다. Adapter·processor·통계·설정·loss·checkpoint의 재개 상태를 함께 보관한다. 전송 중 output을 수정하지 않는다. 완료 후 원격 파일 목록을 확인하고 누락 파일은 직접 재전송한다. 같은 명령으로 재시도하며 캐시·원격 파일을 삭제할 필요가 없다.
 
-`committed: N/N`인데 원격 검증에서 파일이 누락되면, SDK의 이전 업로드 상태와 현재 저장소가 어긋났을 수 있다. 수정된 업로드 코드는 누락 파일만 `upload_file`로 정확한 원격 경로에 다시 전송하고 재검증한다. 같은 명령으로 재실행하면 되며, 전체 캐시 삭제나 기존 원격 파일 삭제는 필요 없다. 끝까지 누락되면 성공으로 처리하지 않고 저장소 URL과 누락 경로를 출력한다.
+실제 전송 없이 파일을 검증하려면 아래처럼 downstream dry-run을 사용한다. 계정 조회까지 네트워크 없이 실행하려면 `--repo-id ACCOUNT/MODEL`도 지정한다. launcher의 `--dry-run`은 파일 검증도 실행하지 않고 명령만 출력한다.
+
+```bash
+python3 Protoss/run.py upload-model --repo-id ACCOUNT/MODEL -- --dry-run
+```
 
 ## 9. 공통 데이터를 Hugging Face에 보관
 
-`Protoss/upload_dataset_hf.py`로 **`Protoss/data`의 변환된 학습·평가 데이터**를 private dataset 저장소에 업로드한다. trainset의 parquet, 영상, metadata/통계 및 `styles.json`이 모두 포함된다. 5절이 `Prepared train=300`으로 완료된 뒤 실행한다. 코드가 metadata의 episode 수와 필요한 파일의 존재/빈 파일 여부를 검사하며, 생성 중이거나 불완전한 폴더는 업로드 전에 중단한다. 영상 decode나 parquet 내용 검증은 하지 않는다.
-
-원본 `Protoss/data/source`는 이 스크립트의 업로드 대상이 아니다. 보관한 생성 데이터만 있으면 5절을 다시 실행하지 않고 학습할 수 있지만, subset 설정을 바꿔 재생성하려면 원본도 별도로 보관해야 한다. 실행 파일과 `Protoss/src/`를 서버에 함께 반영한다.
-
 ### 9.1 데이터 업로드
 
-8.1절처럼 dataset 저장소 생성·쓰기 권한이 있는 토큰으로 로그인한다. 아래 명령은 로그인된 실제 계정명을 자동으로 읽으므로 `YOUR_HF_ACCOUNT`를 입력할 필요가 없다. Organization에 올릴 때는 `HF_ACCOUNT`를 해당 organization 이름으로 직접 지정한다.
-
 ```bash
-(
-set -e
-export PROTOSS_ROOT=/workspace/Project_Protoss
-export CHECKPOINT_ROOT="$(dirname "$PROTOSS_ROOT")/checkpoint"
-export HF_HOME=/workspace/.cache/huggingface
-export HF_HUB_ENABLE_HF_TRANSFER=0
-export PATH="$HOME/.local/bin:$PATH"
-unset UV_PROJECT_ENVIRONMENT VIRTUAL_ENV
-cd "$PROTOSS_ROOT/Issac-GR00T-N17"
-HF_ACCOUNT=$(uv run --no-sync python -c \
-  'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])')
-uv run --no-sync python "$PROTOSS_ROOT/Protoss/upload_dataset_hf.py" \
-  --folder "$PROTOSS_ROOT/Protoss/data" \
-  --repo-id "$HF_ACCOUNT/protoss-groot-v16-shared-data" --workers 2
-)
+python3 Protoss/run.py upload-data
 ```
 
-네트워크 없이 파일 수와 용량을 확인하려면 업로드 명령에 `--dry-run`을 추가한다(계정명 자동 조회 명령은 별도로 네트워크를 사용한다). Private dataset 저장소를 자동 생성하며 기존 public 저장소에는 업로드하지 않는다. 대용량 업로드가 중단되면 같은 폴더/저장소로 재실행한다. `.cache/huggingface` 전송 상태는 유지한다. `.cache`, `.git`, `.DS_Store`는 보관 대상에서 제외한다. 완료 시 원격 파일 목록에 대상 파일이 있는지 검사한다. 다른 subset/seed의 데이터는 새 저장소 이름에 보관한다.
+Private dataset 저장소에 변환된 `Protoss/data` 전체를 보관한다. 원본 `source/`, `.cache`, `.git`은 제외한다. Manifest·episode 수·필수 파일을 검사하고 불완전한 데이터는 전송 전에 중단한다. 저장소 이름은 config의 `DATASET_REPO`로 지정한다. 다른 subset/seed는 새 저장소를 사용한다.
 
 ### 9.2 데이터 다운로드
 
-보관한 데이터를 내려받아 재학습하려면 [추론·평가 문서 3절](readme_test.md#3-평가-데이터-다운로드)을 따른 뒤 이 문서 6절부터 진행한다.
-
-## 10. 코드 폴더 구조
-
-`Protoss/`에는 CLI 진입점, README, data/를 두고, 모델은 프로젝트 바로 상위의 `checkpoint/`에 둔다. 구현은 `Protoss/src/`, 테스트는 `Protoss/src/tests/`에 있다. Python package import를 사용하므로 실행 명령의 현재 작업 디렉터리에 의존하지 않는다. 서버에는 src 폴더도 함께 복사한다. 데이터는 `Protoss/data/trainset`, 모델은 `$CHECKPOINT_ROOT`를 사용한다.
-
-```text
-상위 디렉터리/
-├── checkpoint/                 # 원본 pretrained 및 학습 run, HF 다운로드 모델
-└── Project_Protoss/             # 프로젝트 루트
-
-Project_Protoss/Protoss/
-├── README.md
-├── data/
-│   ├── source/                  # 원본 다운로드
-│   └── trainset/                # 전체 episode, 학습·open-loop 평가 공통
-├── prepare_droid.py
-├── prepare_groot_dataset.py
-├── train.py
-├── eval_groot_models.py
-├── upload_checkpoint_hf.py
-├── upload_dataset_hf.py
-└── src/
-    ├── __init__.py
-    ├── groot_common.py
-    ├── groot_lora.py
-    ├── ... 각 CLI의 구현 모듈
-    └── tests/
+```bash
+python3 Protoss/run.py download-data
 ```
 
-저장 경로 변경 검증: 전체 trainset 생성, 같은 폴더를 읽는 학습·평가, 데이터 업로드의 source 제외를 포함해 CPU 테스트 11개를 통과했다. 실제 다운로드·GPU 학습·원격 업로드는 실행하지 않았다.
+다른 소유자의 데이터는 `--repo-id OWNER/DATASET`을 지정한다. 보관한 변환 데이터가 있으면 재변환 없이 학습할 수 있다. Source subset을 바꿔 다시 생성하려면 원본도 별도로 보관해야 한다.
 
-v1.6: train/test 분할을 제거하고 원본 episode 전체를 trainset에 변환한다. Open-loop 평가는 같은 trainset을 사용한다. 기존 분할 manifest는 학습·평가·데이터 업로드에서 거부한다.
+## 10. 경로와 실행
+
+GR00T는 `<프로젝트>/Issac-GR00T-N17`, 데이터는 `<프로젝트>/Protoss/data`, 모델은 `<프로젝트 상위>/checkpoint`다. 모든 명령은 실행 파일 위치에서 경로를 계산하므로 다른 위치에서도 run.py의 절대경로로 실행할 수 있다. 원래 개별 Python CLI도 그대로 사용할 수 있다. 전체 명령 목록은 다음과 같다.
+
+```bash
+python3 Protoss/run.py --help
+```

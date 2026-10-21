@@ -1,0 +1,163 @@
+"""Verify README recipes with an actual isolated Python child and saved settings."""
+
+import copy
+import importlib.util
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+from types import SimpleNamespace
+import unittest
+from unittest.mock import patch
+
+from src import experiment_recipes as experiments
+from src import setup_recipes as setup
+from src.recipe_runtime import Recipe
+from src.run_recipes import COMMANDS
+
+
+class RecipeTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name).resolve() / "Project Protoss2"
+        self.root.mkdir()
+        config_path = Path(__file__).resolve().parents[2] / "run_config.py"
+        spec = importlib.util.spec_from_file_location("test_settings", config_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.config = SimpleNamespace(**{k: copy.deepcopy(v) for k, v in vars(module).items() if k.isupper()})
+        self.config.ROBOLAB_STACK_ROOT = str(self.root / "simulator")
+        self.config.HF_ACCOUNT = "test-owner"
+        self.args = SimpleNamespace(project_root=self.root, dry_run=False, repo_id=None,
+                                    name=None, port=None, stack=None, result_name=None)
+        self.ctx = Recipe(self.args, self.config)
+        self.ctx.tools.mkdir()
+        self.ctx.python.parent.mkdir(parents=True)
+        self.ctx.python.symlink_to(sys.executable)
+        (self.ctx.tools / "train.py").write_text('''
+import json, os, pathlib, sys
+path = pathlib.Path(os.environ["PROTOSS_ROOT"]) / "captured.json"
+path.write_text(json.dumps({"args": sys.argv[1:], "root": os.environ["PROTOSS_ROOT"],
+    "hf_transfer": os.environ["HF_HUB_ENABLE_HF_TRANSFER"],
+    "venv": os.environ.get("VIRTUAL_ENV"), "uv_env": os.environ.get("UV_PROJECT_ENVIRONMENT")}))
+''')
+
+    def captured(self):
+        return json.loads((self.root / "captured.json").read_text())
+
+    def test_actual_child_uses_checkout_paths_environment_and_s_loss_settings(self):
+        with patch.dict(os.environ, {"PROTOSS_ROOT": "/wrong/project", "VIRTUAL_ENV": "/wrong/venv",
+                                     "UV_PROJECT_ENVIRONMENT": "/wrong/uv", "HF_HUB_ENABLE_HF_TRANSFER": "1"}):
+            self.ctx = Recipe(self.args, self.config)
+            experiments.train(self.ctx, "S", ["--no-eval"])
+        record = self.captured()
+        arguments = record["args"]
+        self.assertEqual(record["root"], str(self.root))
+        self.assertEqual(record["hf_transfer"], "0")
+        self.assertIsNone(record["venv"])
+        self.assertIsNone(record["uv_env"])
+        for flag, value in (("--model", "S"), ("--max-steps", "2000"), ("--save-steps", "500"),
+                            ("--workers", "1"), ("--s-fmd-weight", "1"), ("--s-jerk-lambda", "0.001")):
+            self.assertEqual(arguments[arguments.index(flag) + 1], value)
+        output = self.ctx.checkpoints / "v1711_model_s_step2000"
+        self.assertEqual(arguments[arguments.index("--output-dir") + 1], str(output))
+        self.assertFalse(output.exists())  # launch metadata must not make train.py reject a new run
+        self.assertTrue((self.ctx.checkpoints / "launches/v1711_model_s_step2000.json").is_file())
+
+    def test_resume_uses_saved_loss_and_lr_after_config_changes(self):
+        experiments.train(self.ctx, "S", ["--no-eval"])
+        self.config.TRAIN["S"].update(lr=1., s_jerk_lambda=999, max_steps=7)
+        experiments.resume(self.ctx, "S", [])
+        arguments = self.captured()["args"]
+        self.assertEqual(arguments[arguments.index("--lr") + 1], "1e-06")
+        self.assertEqual(arguments[arguments.index("--s-jerk-lambda") + 1], "0.001")
+        self.assertIn("--resume", arguments)
+
+    def test_step_override_also_changes_generated_output_name(self):
+        experiments.train(self.ctx, "E", ["--max-steps", "1000"])
+        arguments = self.captured()["args"]
+        self.assertEqual(Path(arguments[arguments.index("--output-dir") + 1]).name, "v1711_model_e_step1000")
+
+    def test_local_evaluation_does_not_query_hf_login(self):
+        self.config.HF_ACCOUNT = None
+        (self.ctx.tools / "evaluate_robolab.py").write_text((self.ctx.tools / "train.py").read_text())
+        experiments.evaluate(self.ctx, ["--no-hf-upload"])
+        arguments = self.captured()["args"]
+        self.assertNotIn("--hf-repo-id", arguments)
+        self.assertIn("--no-hf-upload", arguments)
+
+    def test_nonempty_output_is_preserved_without_launch_or_process(self):
+        self.args.name = "existing"
+        output = self.ctx.checkpoints / "existing"
+        output.mkdir(parents=True)
+        (output / "model.txt").write_text("preserve")
+        with self.assertRaisesRegex(ValueError, "nonempty"):
+            experiments.train(self.ctx, "S", [])
+        self.assertEqual((output / "model.txt").read_text(), "preserve")
+        self.assertFalse((self.root / "captured.json").exists())
+
+    def test_failed_client_never_processes_or_uploads_metrics(self):
+        (self.ctx.stack / "RoboLab").mkdir(parents=True)
+        (self.ctx.tools / "setup_robolab_595.sh").write_text("#!/bin/bash\nexit 17\n")
+        with self.assertRaises(subprocess.CalledProcessError) as caught:
+            experiments.client(self.ctx, [])
+        self.assertEqual(caught.exception.returncode, 17)
+        self.assertFalse((self.root / "captured.json").exists())
+
+    def test_client_uses_one_name_for_output_and_metric_input(self):
+        calls = []
+        self.ctx.run = lambda command, **kwargs: calls.append(list(map(str, command))) or ""
+        experiments.client(self.ctx, [])
+        self.assertEqual(len(calls), 2)
+        name = calls[0][calls[0].index("--output-folder-name") + 1]
+        results = calls[1][calls[1].index("--results-dir") + 1]
+        self.assertEqual(results, str(self.ctx.stack / "RoboLab/output" / name))
+        self.assertEqual(calls[1][calls[1].index("--hf-repo-id") + 1], "test-owner/" + self.config.MODEL_NAME)
+
+    def test_legacy_resume_recovers_original_weights_and_lr(self):
+        self.args.name = "old_s"
+        output = self.ctx.model()
+        output.mkdir(parents=True)
+        (output / "style_run.json").write_text(json.dumps(dict(batch_size=2, lr=2e-6,
+            max_steps=1200, gradient_accumulation=16, seed=42)))
+        (output / "lora_settings.json").write_text(json.dumps(dict(variant="S", rank=32, alpha=64,
+            model_s=dict(fm_weight=25., jerk_lambda=.4, calibration_batches=10, dt=1/15,
+                         jerk_reference=None, jerk_reference_floor=1., gradient_diagnostics=False))))
+        experiments.resume(self.ctx, "S", [])
+        arguments = self.captured()["args"]
+        self.assertEqual(arguments[arguments.index("--s-fm-weight") + 1], "25.0")
+        self.assertEqual(arguments[arguments.index("--s-jerk-lambda") + 1], "0.4")
+        self.assertEqual(arguments[arguments.index("--lr") + 1], "2e-06")
+
+    def test_groot_setup_keeps_fixed_revision_and_submodule_http_options(self):
+        (self.ctx.groot / ".git").mkdir()
+        calls = []
+        def run(command, **kwargs):
+            calls.append((list(map(str, command)), kwargs))
+            return setup.GROOT_REVISION if command == ["git", "rev-parse", "HEAD"] else ""
+        self.ctx.run = run
+        setup.setup_groot(self.ctx, [])
+        command, kwargs = next(item for item in calls if "submodule" in item[0])
+        self.assertIn("http.version=HTTP/1.1", command)
+        self.assertIn("protocol.version=0", command)
+        self.assertEqual(kwargs["env"]["GIT_CONFIG_GLOBAL"], "/dev/null")
+        self.assertTrue(any("nvidia/Cosmos-Reason2-2B" in cmd for cmd, _ in calls))
+
+    def test_all_dry_runs_have_no_subprocess_or_file_mutations(self):
+        self.args.dry_run = True
+        self.config.HF_ACCOUNT = None
+        # update-project only checks whether a checkout marker exists.
+        (self.root / ".git").mkdir()
+        before = {p.relative_to(self.root) for p in self.root.rglob("*")}
+        with patch("src.recipe_runtime.subprocess.run", side_effect=AssertionError("executed during dry-run")):
+            for command in COMMANDS.values():
+                command(self.ctx, [])
+        self.assertEqual(before, {p.relative_to(self.root) for p in self.root.rglob("*")})
+        self.assertFalse(self.ctx.checkpoints.exists())
+
+
+if __name__ == "__main__":
+    unittest.main()
