@@ -10,6 +10,17 @@ import importlib
 CONTACT_FILTER_SETTING = "/physics/tensors/recursiveLeafPatternMatch"
 
 
+def wxyz_to_xyzw(quaternion):
+    """Convert RoboLab-authored configuration values at the Lab 3 API boundary."""
+    w, x, y, z = quaternion
+    return (x, y, z, w)
+
+
+def xyzw_to_wxyz(quaternion):
+    x, y, z, w = quaternion
+    return (w, x, y, z)
+
+
 def get_backend_contact_sensors(scene):
     """Factories create backend subclasses of BaseContactSensor, not themselves."""
     from isaaclab.sensors.contact_sensor.base_contact_sensor import BaseContactSensor

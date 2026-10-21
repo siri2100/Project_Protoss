@@ -15,7 +15,7 @@ Linux 드라이버 595.91.07에서 기존 Isaac Sim 5.1 대신 Isaac Sim 6.0을 
 
 이 문서의 디버깅 코드는 RunPod의 `/workspace/Project_Protoss2`에서 실행한다. 로컬에 별도 Project_Protoss2 폴더를 만들지 않는다. 업데이트한 프로젝트 파일을 원격 경로에 반영한 뒤 아래 진입점을 사용한다. 기존 simulator stack `/workspace/robolab-595`를 이어 사용하며, `PROTOSS_DEBUG_ROOT`로 디버깅 checkout 위치를 바꿀 수 있다.
 
-이 파일과 `Protoss/debug_robolab_595.sh`, `Protoss/setup_robolab_595.sh`, `Protoss/src/robolab_595_*.py`, `Protoss/src/robolab_isaac60_compat.py`, `Protoss/src/robolab_gr00t_client.py`, `Protoss/patches/robolab_isaac60.patch`, `Protoss/patches/robolab_isaac60_api.patch`, `Protoss/patches/robolab_isaac60_contact_filters.patch`, `Protoss/patches/robolab_isaac60_sensor_data.patch`, `Protoss/patches/robolab_isaac60_recorders.patch`, `Protoss/patches/robolab_isaac60_droid_quaternions.patch`, `Protoss/patches/isaaclab_60_dependencies.patch`, `Protoss/src/isaaclab_optional_newton.py`가 서버의 프로젝트에 있어야 한다. 기존 `/workspace/RoboLab/.venv-51`과 GR00T 학습·추론 환경은 유지한다. Isaac Sim EULA에 동의한 뒤 실행한다.
+이 파일과 `Protoss/debug_robolab_595.sh`, `Protoss/setup_robolab_595.sh`, `Protoss/src/robolab_595_*.py`, `Protoss/src/robolab_isaac60_compat.py`, `Protoss/src/robolab_gr00t_client.py`, `Protoss/patches/robolab_isaac60.patch`, `Protoss/patches/robolab_isaac60_api.patch`, `Protoss/patches/robolab_isaac60_contact_filters.patch`, `Protoss/patches/robolab_isaac60_sensor_data.patch`, `Protoss/patches/robolab_isaac60_recorders.patch`, `Protoss/patches/robolab_isaac60_droid_quaternions.patch`, `Protoss/patches/robolab_isaac60_initial_poses.patch`, `Protoss/patches/robolab_isaac60_physics_checks.patch`, `Protoss/src/robolab_physics_checks.py`, `Protoss/patches/isaaclab_60_dependencies.patch`, `Protoss/src/isaaclab_optional_newton.py`가 서버의 프로젝트에 있어야 한다. 기존 `/workspace/RoboLab/.venv-51`과 GR00T 학습·추론 환경은 유지한다. Isaac Sim EULA에 동의한 뒤 실행한다.
 
 ```bash
 bash /workspace/Project_Protoss2/Protoss/debug_robolab_595.sh check
@@ -29,9 +29,21 @@ bash /workspace/Project_Protoss2/Protoss/debug_robolab_595.sh check
 
 ## 2. 모델 서버 없이 물리·카메라 검사
 
+153 step에서 `Simulator observation 'joint_position' contains NaN/Inf`가 나온 로그는 모델 요청 전에 시뮬레이터 관절 상태가 이미 비정상임을 보여준다. 앞선 16 step smoke는 이 구간을 검사하지 않았다. 새 기본 smoke는 2개 환경·600 step으로 늘렸으며 그리퍼 구동도 포함한다.
+
+설정 이식에서 관측 quaternion만 수정했던 누락을 보완했다. Lab 3.0의 [AssetBaseCfg.InitialStateCfg](https://github.com/isaac-sim/IsaacLab/blob/ffff603eafc6b74264a5261cc0183d6a65390d78/source/isaaclab/isaaclab/assets/asset_base_cfg.py)는 xyzw를 받으므로 기존 DROID의 `(1,0,0,0)`은 identity가 아니라 X축 180도 회전으로 해석된다. `robolab_isaac60_initial_poses.patch`는 RoboLab이 직접 지정한 로봇 초기 자세, wrist/외부 카메라 offset, EEF frame offset, table fixture, USD 물체 초기 회전과 light 회전을 API 경계에서 변환한다. SDK 기본값과 USD 내부 데이터는 그대로 사용한다. 테이블의 robot-relative 합성은 RoboLab의 wxyz 연산을 유지한 뒤 최종 결과를 xyzw로 변환한다. 이 설정 오류는 확인됐지만, NaN 발생 원인이 이것 하나인지는 GPU 재검증이 필요하다.
+
+`robolab_isaac60_physics_checks.patch`는 smoke와 client 평가 모두에서 물리 step 전후를 검사한다. 정책 action은 그대로 적용한다. 비정상이면 다음 서버 요청 전에 첫 발생 step·env/joint 위치를 출력하고 `physics_failure-...-stepN.npz`를 저장한다. 파일에는 직전 최대 1024개 action·관절 위치·속도·root pose·torque, 첫 비정상 상태와 joint 이름, limits, seed, physics dt가 담긴다. 실제 저장 경로는 오류의 `Trace:`에 표시된다. 정상 rollout까지 확인되기 전에는 이 변경을 NaN 해결 완료로 판단하지 않는다.
+
+서버 재시작 없이 시뮬레이터 수정부터 확인하려면 RunPod의 Project_Protoss2를 업데이트하고 아래 한 명령을 실행한다. 통과 후 Client의 결과 `NAME`을 새로 지정해 평가한다.
+
+```bash
+bash /workspace/Project_Protoss2/Protoss/debug_robolab_595.sh check --steps 600 --num-envs 2
+```
+
 `SMOKE contacts: 22 sensors; force matrices valid` 이후 `basic_recorders.py`의 `subtract_frame_transforms`에서 `quat_inv() ... Tensor ... ProxyArray`가 나오면 EE recorder가 아직 변환되지 않은 것이다. `robolab_isaac60_recorders.patch`는 EE 위치·자세·속도, robot root pose와 두 카메라 extrinsics recorder를 Tensor로 변환한 뒤 연산·기록하도록 수정한다. Recorder를 끄지 않으므로 평가 metric에 필요한 채널도 계속 기록한다.
 
-고정한 Lab 3.0의 [수학 함수](https://github.com/isaac-sim/IsaacLab/blob/ffff603eafc6b74264a5261cc0183d6a65390d78/source/isaaclab/isaaclab/utils/math.py)는 xyzw quaternion을 받는다. 해당 형식으로 상대 EE 자세를 계산한 뒤, EE/root 기록 채널은 RoboLab의 기존 wxyz 순서로 저장한다. 카메라 ROS quaternion은 기존 xyzw를 유지한다. setup, compat 모듈과 새 recorder 패치를 함께 업데이트하고 1절의 `check`를 다시 실행한다. smoke/eval은 recorder 패치가 빠져 있어도 GPU 초기화 전에 중단한다. 실제 GPU의 16 step과 카메라 검사는 RunPod에서 재실행해야 한다.
+고정한 Lab 3.0의 [수학 함수](https://github.com/isaac-sim/IsaacLab/blob/ffff603eafc6b74264a5261cc0183d6a65390d78/source/isaaclab/isaaclab/utils/math.py)는 xyzw quaternion을 받는다. 해당 형식으로 상대 EE 자세를 계산한 뒤, EE/root 기록 채널은 RoboLab의 기존 wxyz 순서로 저장한다. 카메라 ROS quaternion은 기존 xyzw를 유지한다. setup, compat 모듈과 새 recorder 패치를 함께 업데이트하고 1절의 `check`를 다시 실행한다. smoke/eval은 recorder 패치가 빠져 있어도 GPU 초기화 전에 중단한다. 실제 GPU의 600 step과 카메라 검사는 RunPod에서 재실행해야 한다.
 
 환경 생성과 reset 이후 `Contact sensor banana__plate_large ... not found. available sensors: dict_keys([])`로 실패하면, 생성된 센서를 예전 타입 검사에서 제외하고 있는 것이다. Isaac Lab 3.0의 [ContactSensor factory](https://github.com/isaac-sim/IsaacLab/blob/ffff603eafc6b74264a5261cc0183d6a65390d78/source/isaaclab/isaaclab/sensors/contact_sensor/contact_sensor.py)는 factory 자체의 인스턴스가 아닌 `BaseContactSensor`의 backend subclass를 반환한다. 새 sensor-data 패치는 이 공통 기반 클래스로 센서를 조회하고, WorldState의 접촉력·관절·자세 데이터는 ProxyArray의 `.torch`를 사용해 인덱싱과 합산 전에 변환한다. articulation 타입 검사도 같은 방식으로 기반 클래스를 사용한다.
 
@@ -53,7 +65,7 @@ bash /workspace/Project_Protoss2/Protoss/debug_robolab_595.sh check
 bash /workspace/Project_Protoss2/Protoss/debug_robolab_595.sh smoke
 ```
 
-BananaOnPlateTask를 환경 1개로 생성하고 초기 팔 자세를 유지하며 16 step 실행한다. PhysX 설정과 RGB 카메라 출력까지 확인한 뒤 `SMOKE PASS`를 출력한다. 이 검사는 작업 성공률이나 학습 모델 품질을 평가하지 않는다.
+BananaOnPlateTask를 기본 환경 2개로 생성하고 초기 팔 자세를 유지하며 600 step 실행한다. 그리퍼는 60 step마다 열고 닫으며, 매 step 관절 위치·속도·root pose·적용 torque의 유한성을 확인한다. 60 step마다 진행 상황을 출력한다. PhysX 설정과 RGB 카메라 출력까지 확인한 뒤 `SMOKE PASS`를 출력한다. `--steps`, `--num-envs`, `--gripper-period`로 조절하며 period=0이면 그리퍼를 연 상태로 유지한다. 이 검사는 해당 고정 동작의 물리 안정성을 검사하며 학습 정책 rollout 완료를 대신하지 않는다.
 
 실패하면 `/workspace/robolab-595/logs/smoke-*.log`에서 처음 발생한 오류와 backtrace를 확인한다. 시작 즉시 native crash가 나면 아직 렌더러/컨테이너 호환 문제가 남은 것이며, `SMOKE PASS` 없이 평가가 가능하다고 판단하지 않는다. 컨테이너에는 NVIDIA graphics/Vulkan 라이브러리도 노출되어 있어야 한다.
 

@@ -51,10 +51,13 @@ setup)
   apply_compatibility_patch "$STACK/RoboLab" "$PROTOSS_TOOLS/patches/robolab_isaac60_sensor_data.patch"
   apply_compatibility_patch "$STACK/RoboLab" "$PROTOSS_TOOLS/patches/robolab_isaac60_recorders.patch"
   apply_compatibility_patch "$STACK/RoboLab" "$PROTOSS_TOOLS/patches/robolab_isaac60_droid_quaternions.patch"
+  apply_compatibility_patch "$STACK/RoboLab" "$PROTOSS_TOOLS/patches/robolab_isaac60_initial_poses.patch"
+  apply_compatibility_patch "$STACK/RoboLab" "$PROTOSS_TOOLS/patches/robolab_isaac60_physics_checks.patch"
   apply_compatibility_patch "$STACK/IsaacLab" "$PROTOSS_TOOLS/patches/isaaclab_60_dependencies.patch"
   python3 "$PROTOSS_TOOLS/src/isaaclab_optional_newton.py" "$STACK/IsaacLab"
   cp "$PROTOSS_TOOLS/src/robolab_gr00t_client.py" "$STACK/RoboLab/policies/gr00t/client.py"
   cp "$PROTOSS_TOOLS/src/robolab_isaac60_compat.py" "$STACK/RoboLab/robolab/protoss_isaac60.py"
+  cp "$PROTOSS_TOOLS/src/robolab_physics_checks.py" "$STACK/RoboLab/robolab/protoss_physics_checks.py"
   if [ ! -e "$STACK/.venv" ]; then uv venv --python 3.12 "$STACK/.venv"; fi
   "$STACK/.venv/bin/python" "$PROTOSS_TOOLS/src/robolab_595_environment.py" "$STACK"
   uv sync --project "$STACK" --python 3.12
@@ -68,12 +71,16 @@ smoke|eval)
   # Fail before GPU initialization if setup's optional-backend fix did not land.
   python3 "$PROTOSS_TOOLS/src/isaaclab_optional_newton.py" "$STACK/IsaacLab" --check
   for FIX in robolab_isaac60_contact_filters.patch robolab_isaac60_sensor_data.patch \
-    robolab_isaac60_recorders.patch robolab_isaac60_droid_quaternions.patch; do
+    robolab_isaac60_recorders.patch robolab_isaac60_droid_quaternions.patch \
+    robolab_isaac60_initial_poses.patch robolab_isaac60_physics_checks.patch; do
     if ! git -C "$STACK/RoboLab" apply --reverse --check "$PROTOSS_TOOLS/patches/$FIX" 2>/dev/null; then
       echo "Compatibility fix is not applied: $FIX. Run setup successfully before smoke/eval." >&2
       exit 1
     fi
   done
+  test -f "$STACK/RoboLab/robolab/protoss_physics_checks.py" || {
+    echo 'Physics checks module is missing. Run setup first.' >&2; exit 1;
+  }
   cd "$STACK/RoboLab"
   mkdir -p "$STACK/logs"
   LOG="$STACK/logs/${MODE}-$(date -u +%Y%m%dT%H%M%SZ).log"

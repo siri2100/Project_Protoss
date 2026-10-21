@@ -1,0 +1,19 @@
+--- a/robolab/core/environments/env.py
++++ b/robolab/core/environments/env.py
+@@ -17,6 +17,7 @@
+
+ from robolab.core.logging.recorder_manager import RobolabRecorderManager
+ from robolab.core.world.world_state import get_world
++from robolab.protoss_physics_checks import checked_step
+
+ logger = logging.getLogger(__name__)
+
+@@ -70,7 +71,7 @@
+         if self._frozen_envs.any():
+             action = action.clone()
+             action[self._frozen_envs] = 0.0
+-        return super().step(action)
++        return checked_step(self, action, super().step)
+
+     def _reset_idx(self, env_ids):
+         """Override to freeze terminated envs instead of resetting them.

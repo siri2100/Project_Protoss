@@ -1,0 +1,209 @@
+--- a/robolab/robots/droid.py
++++ b/robolab/robots/droid.py
+@@ -27,6 +27,7 @@
+ from isaaclab.utils.math import subtract_frame_transforms
+
+ from robolab.constants import ROBOTS_DIR
++from robolab.protoss_isaac60 import wxyz_to_xyzw
+ from robolab.core.environments.scene_fixture import FRANKA_TABLE_FIXTURE
+
+ # Offset of the end-effector control frame relative to base_link. Used by:
+@@ -55,7 +56,7 @@
+         vertical_aperture=3.024,
+     ),
+     offset=TiledCameraCfg.OffsetCfg(
+-        pos=(0.011, -0.031, -0.074), rot=(-0.420, 0.570, 0.576, -0.409), convention="opengl"
++        pos=(0.011, -0.031, -0.074), rot=wxyz_to_xyzw((-0.420, 0.570, 0.576, -0.409)), convention="opengl"
+     ),
+ )
+
+@@ -81,7 +82,7 @@
+         ),
+         init_state=ArticulationCfg.InitialStateCfg(
+             pos=(0, 0, 0),
+-            rot=(1, 0, 0, 0),
++            rot=wxyz_to_xyzw((1, 0, 0, 0)),
+             joint_pos={
+                 "panda_joint1": 0.0,
+                 "panda_joint2": -1 / 5 * np.pi,
+@@ -151,7 +152,7 @@
+             FrameTransformerCfg.FrameCfg(
+                 prim_path="{ENV_REGEX_NS}/robot/Gripper/Robotiq_2F_85/base_link",
+                 name="eef_frame",
+-                offset=OffsetCfg(pos=EEF_OFFSET_POS, rot=EEF_OFFSET_ROT),
++                offset=OffsetCfg(pos=EEF_OFFSET_POS, rot=wxyz_to_xyzw(EEF_OFFSET_ROT)),
+             ),
+         ],
+     )
+--- a/robolab/core/scenes/utils.py
++++ b/robolab/core/scenes/utils.py
+@@ -17,6 +17,7 @@
+
+ import robolab.constants
+ from robolab.constants import SCENE_DIR
++from robolab.protoss_isaac60 import wxyz_to_xyzw
+ from robolab.core.utils.debug_utils import get_caller_info
+
+ ACCEPTED_SCENE_EXTENSIONS = (".usda", ".usdc", ".usdz", ".usd")
+@@ -130,7 +131,7 @@
+             spawn=None,
+             init_state=RigidObjectCfg.InitialStateCfg(
+                 pos=obj_info['position'],
+-                rot=obj_info['rotation'],
++                rot=wxyz_to_xyzw(obj_info['rotation']),
+                 lin_vel=(0.0, 0.0, 0.0),
+                 ang_vel=(0.0, 0.0, 0.0),
+             ),
+--- a/robolab/core/environments/scene_fixture.py
++++ b/robolab/core/environments/scene_fixture.py
+@@ -35,6 +35,7 @@
+ from pxr import Usd, UsdGeom
+
+ from robolab.constants import ASSET_DIR
++from robolab.protoss_isaac60 import wxyz_to_xyzw, xyzw_to_wxyz
+
+ TABLE_FIXTURE_PRIM = "franka_table"
+
+@@ -89,12 +90,13 @@
+     pos, rot = fixture.pos, fixture.rot
+     if fixture.frame == "robot":
+         robot_state = robot_cfg().robot.init_state
+-        pos = tuple(p + d for p, d in zip(robot_state.pos, _quat_rotate(robot_state.rot, fixture.pos)))
+-        rot = _quat_mul(robot_state.rot, fixture.rot)
++        robot_rot = xyzw_to_wxyz(robot_state.rot)
++        pos = tuple(p + d for p, d in zip(robot_state.pos, _quat_rotate(robot_rot, fixture.pos)))
++        rot = _quat_mul(robot_rot, fixture.rot)
+     return AssetBaseCfg(
+         prim_path="{ENV_REGEX_NS}/table_fixture",
+         spawn=sim_utils.UsdFileCfg(usd_path=fixture.usd_path),
+-        init_state=AssetBaseCfg.InitialStateCfg(pos=pos, rot=rot),
++        init_state=AssetBaseCfg.InitialStateCfg(pos=pos, rot=wxyz_to_xyzw(rot)),
+     )
+
+
+--- a/robolab/variations/camera.py
++++ b/robolab/variations/camera.py
+@@ -6,6 +6,7 @@
+ import isaaclab.sim as sim_utils
+ from isaaclab.sensors import CameraCfg, TiledCameraCfg
+ from isaaclab.utils import configclass
++from robolab.protoss_isaac60 import wxyz_to_xyzw
+
+
+ def with_depth(camera_cfg_cls):
+@@ -51,7 +52,7 @@
+             vertical_aperture=3.024,
+         ),
+         offset=TiledCameraCfg.OffsetCfg(
+-            pos=(0.05, 0.57, 0.66), rot=(-0.393, -0.195, 0.399, 0.805), convention="opengl"
++            pos=(0.05, 0.57, 0.66), rot=wxyz_to_xyzw((-0.393, -0.195, 0.399, 0.805)), convention="opengl"
+         ),
+     )
+
+@@ -81,7 +82,7 @@
+             vertical_aperture=3.024,
+         ),
+         offset=TiledCameraCfg.OffsetCfg(
+-            pos=(0.05, -0.57, 0.66), rot=(0.805, 0.399, -0.195, -0.393), convention="opengl"
++            pos=(0.05, -0.57, 0.66), rot=wxyz_to_xyzw((0.805, 0.399, -0.195, -0.393)), convention="opengl"
+         ),
+     )
+
+@@ -107,7 +108,7 @@
+             vertical_aperture=3.024,
+         ),
+         offset=TiledCameraCfg.OffsetCfg(
+-            pos=(1.5, 0.0, 1.0), rot=(0.0, 0.474, 0.0, 0.881), convention="opengl"
++            pos=(1.5, 0.0, 1.0), rot=wxyz_to_xyzw((0.0, 0.474, 0.0, 0.881)), convention="opengl"
+         ),
+     )
+
+@@ -130,7 +131,7 @@
+             vertical_aperture=3.024,
+         ),
+         offset=TiledCameraCfg.OffsetCfg(
+-            pos=(0.15, 0.0, 0.5), rot=(0.653, 0.271, -0.271, -0.653), convention="opengl"
++            pos=(0.15, 0.0, 0.5), rot=wxyz_to_xyzw((0.653, 0.271, -0.271, -0.653)), convention="opengl"
+         ),
+     )
+
+@@ -153,7 +154,7 @@
+             vertical_aperture=3.024,
+         ),
+         offset=TiledCameraCfg.OffsetCfg(
+-            pos=(0.9, 0, 1), rot=(0.653, 0.271, 0.271, 0.653), convention="opengl"
++            pos=(0.9, 0, 1), rot=wxyz_to_xyzw((0.653, 0.271, 0.271, 0.653)), convention="opengl"
+         ),
+     )
+
+@@ -171,7 +172,7 @@
+             vertical_aperture=3.024,
+         ),
+         offset=TiledCameraCfg.OffsetCfg(
+-            pos=(0.9, 0, 0.5), rot=(0.653, 0.271, 0.271, 0.653), convention="opengl"
++            pos=(0.9, 0, 0.5), rot=wxyz_to_xyzw((0.653, 0.271, 0.271, 0.653)), convention="opengl"
+         ),
+     )
+
+@@ -192,7 +193,7 @@
+     ),
+     offset=TiledCameraCfg.OffsetCfg(
+         pos=(1.5, 0.0, 1.0),
+-        rot=(0.653, 0.271, 0.271, 0.653),
++        rot=wxyz_to_xyzw((0.653, 0.271, 0.271, 0.653)),
+         convention="opengl"
+     ),
+ )
+--- a/robolab/variations/lighting.py
++++ b/robolab/variations/lighting.py
+@@ -4,6 +4,7 @@
+ import isaaclab.sim as sim_utils
+ from isaaclab.assets import AssetBaseCfg
+ from isaaclab.utils import configclass
++from robolab.protoss_isaac60 import wxyz_to_xyzw
+
+
+ @configclass
+@@ -57,7 +58,7 @@
+     front_directional_light = AssetBaseCfg(
+         prim_path="/World/front_directional_light",
+         spawn=sim_utils.DistantLightCfg(intensity=3000, angle=0.53, exposure=3),
+-        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.0, 0.0, 5.0), rot=(0.7071, 0.0, 0.7071, 0.0)),
++        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.0, 0.0, 5.0), rot=wxyz_to_xyzw((0.7071, 0.0, 0.7071, 0.0))),
+     )
+
+ @configclass
+@@ -66,7 +67,7 @@
+     behind_directional_light = AssetBaseCfg(
+         prim_path="/World/behind_directional_light",
+         spawn=sim_utils.DistantLightCfg(intensity=3000, angle=0.53, exposure=3),
+-        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.0, 0.0, 5.0), rot=(0.7071, 0.0, -0.7071, 0.0)),
++        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.0, 0.0, 5.0), rot=wxyz_to_xyzw((0.7071, 0.0, -0.7071, 0.0))),
+     )
+
+ @configclass
+@@ -75,7 +76,7 @@
+     top_down_directional_light = AssetBaseCfg(
+         prim_path="/World/top_down_directional_light",
+         spawn=sim_utils.DistantLightCfg(intensity=3000, angle=0.53, exposure=0.0),
+-        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.0, 0.0, 5.0), rot=(1.0, 0.0, 0.0, 0.0)),
++        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.0, 0.0, 5.0), rot=wxyz_to_xyzw((1.0, 0.0, 0.0, 0.0))),
+     )
+
+ @configclass
+@@ -84,7 +85,7 @@
+     left_directional_light = AssetBaseCfg(
+         prim_path="/World/left_directional_light",
+         spawn=sim_utils.DistantLightCfg(intensity=3000, angle=0.53, exposure=3),
+-        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.0, 0.0, 5.0), rot=(0.7071, -0.7071, 0.0, 0.0)),
++        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.0, 0.0, 5.0), rot=wxyz_to_xyzw((0.7071, -0.7071, 0.0, 0.0))),
+     )
+
+ @configclass
+@@ -93,5 +94,5 @@
+     right_directional_light = AssetBaseCfg(
+         prim_path="/World/right_directional_light",
+         spawn=sim_utils.DistantLightCfg(intensity=3000, angle=0.53, exposure=3),
+-        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.0, 0.0, 5.0), rot=(0.7071, 0.7071, 0.0, 0.0)),
++        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.0, 0.0, 5.0), rot=wxyz_to_xyzw((0.7071, 0.7071, 0.0, 0.0))),
+     )

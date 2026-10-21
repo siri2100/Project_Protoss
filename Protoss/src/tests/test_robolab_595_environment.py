@@ -8,10 +8,17 @@ from unittest.mock import patch
 from src.robolab_595_environment import environment, write_project
 from src.robolab_isaac60_compat import (
     CONTACT_FILTER_SETTING, configure_contact_filters, get_backend_contact_sensors, load_cfg_from_registry,
+    wxyz_to_xyzw, xyzw_to_wxyz,
 )
 
 
 class EnvironmentTests(unittest.TestCase):
+    def test_legacy_identity_and_fixture_rotation_cross_api_boundary_once(self):
+        self.assertEqual(wxyz_to_xyzw((1., 0., 0., 0.)), (0., 0., 0., 1.))
+        self.assertEqual(wxyz_to_xyzw((0., 0., 0., 1.)), (0., 0., 1., 0.))
+        fixture = (.5, -.5, .5, -.5)
+        self.assertEqual(xyzw_to_wxyz(wxyz_to_xyzw(fixture)), fixture)
+
     def test_discovers_backend_contacts_without_inheriting_factory(self):
         class BaseContactSensor:
             pass
