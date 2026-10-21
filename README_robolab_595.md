@@ -1,6 +1,6 @@
 # RoboLab: 드라이버 595를 유지하는 실험용 환경
 
-RTX 3090 / Linux 드라이버 595.91.07에서 기존 Isaac Sim 5.1 대신 Isaac Sim 6.0을 사용하는 경로다. 공식 RoboLab 지원 조합이 아니며 **실제 GPU 실행은 아직 검증하지 않았다.** 아래 smoke test 통과 후 평가한다. 드라이버 버전 검사 우회나 호스트 드라이버 변경은 하지 않는다.
+Linux 드라이버 595.91.07에서 기존 Isaac Sim 5.1 대신 Isaac Sim 6.0을 사용하는 경로다. 공식 RoboLab 지원 조합이 아니며 **실제 GPU 실행은 아직 검증하지 않았다.** 아래 smoke test 통과 후 평가한다. 드라이버 버전 검사 우회나 호스트 드라이버 변경은 하지 않는다.
 
 고정 구성:
 
@@ -11,13 +11,17 @@ RTX 3090 / Linux 드라이버 595.91.07에서 기존 Isaac Sim 5.1 대신 Isaac 
 
 [Isaac Lab 호환 버전](https://github.com/isaac-sim/IsaacLab/releases/tag/v3.0.0-beta2.patch1), [Isaac Sim 6.0 요구사항](https://docs.isaacsim.omniverse.nvidia.com/6.0.0/installation/requirements.html), [Isaac Lab 이식 가이드](https://github.com/isaac-sim/IsaacLab/blob/v3.0.0-beta2.patch1/docs/source/migration/migrating_to_isaaclab_3-0.rst)를 기준으로 구성했다. 최신 `main`을 설치하면 다른 Sim/API로 변경될 수 있어 커밋을 고정한다.
 
-## 1. 별도 환경 설치
+## 1. RunPod의 Project_Protoss2에서 디버깅
 
-이 파일과 `Protoss/setup_robolab_595.sh`, `Protoss/src/robolab_595_*.py`, `Protoss/src/robolab_isaac60_compat.py`, `Protoss/src/robolab_gr00t_client.py`, `Protoss/patches/robolab_isaac60.patch`, `Protoss/patches/robolab_isaac60_api.patch`, `Protoss/patches/isaaclab_60_dependencies.patch`, `Protoss/patches/isaaclab_60_optional_newton.patch`가 서버의 프로젝트에 있어야 한다. 기존 `/workspace/RoboLab/.venv-51`과 GR00T 학습·추론 환경은 유지한다. Isaac Sim EULA에 동의한 뒤 실행한다.
+이 문서의 디버깅 코드는 RunPod의 `/workspace/Project_Protoss2`에서 실행한다. 로컬에 별도 Project_Protoss2 폴더를 만들지 않는다. 업데이트한 프로젝트 파일을 원격 경로에 반영한 뒤 아래 진입점을 사용한다. 기존 simulator stack `/workspace/robolab-595`를 이어 사용하며, `PROTOSS_DEBUG_ROOT`로 디버깅 checkout 위치를 바꿀 수 있다.
+
+이 파일과 `Protoss/debug_robolab_595.sh`, `Protoss/setup_robolab_595.sh`, `Protoss/src/robolab_595_*.py`, `Protoss/src/robolab_isaac60_compat.py`, `Protoss/src/robolab_gr00t_client.py`, `Protoss/patches/robolab_isaac60.patch`, `Protoss/patches/robolab_isaac60_api.patch`, `Protoss/patches/isaaclab_60_dependencies.patch`, `Protoss/src/isaaclab_optional_newton.py`가 서버의 프로젝트에 있어야 한다. 기존 `/workspace/RoboLab/.venv-51`과 GR00T 학습·추론 환경은 유지한다. Isaac Sim EULA에 동의한 뒤 실행한다.
 
 ```bash
-bash /workspace/Project_Protoss/Protoss/setup_robolab_595.sh setup
+bash /workspace/Project_Protoss2/Protoss/debug_robolab_595.sh check
 ```
+
+`check`는 setup 성공 후에만 smoke를 실행한다. setup이 실패하면 즉시 중단하므로, 적용되지 않은 패치로 GPU smoke를 반복하지 않는다. `setup`, `smoke`, `eval`도 별도로 지정할 수 있다. 이 진입점은 Project_Protoss2 폴더를 생성하거나 학습을 실행하지 않는다.
 
 기본 설치 경로는 `/workspace/robolab-595`이며, 하위 `RoboLab/`, `IsaacLab/`, `.venv/`, `pyproject.toml`, `uv.lock`을 만든다. 설치 중 실패하면 같은 명령으로 다시 진행한다. 기존 checkout의 revision이 다르면 중단한다. 다른 경로를 쓰려면 모든 명령에 동일하게 `ROBOLAB_595_ROOT=/workspace/원하는경로`를 지정한다.
 
@@ -25,14 +29,16 @@ bash /workspace/Project_Protoss/Protoss/setup_robolab_595.sh setup
 
 ## 2. 모델 서버 없이 물리·카메라 검사
 
-`Original error: No module named 'isaaclab_newton'`가 PhysX `Articulation` 생성 중 발생하면 `Protoss/patches/isaaclab_60_optional_newton.patch`도 서버에 반영하고 `setup`을 다시 실행한다. 고정한 Isaac Lab 버전은 선택 기능인 Newton actuator를 검사할 때 상위 패키지가 없는 경우를 처리하지 못한다. 추가 패치는 상위 패키지부터 확인해, Newton이 없으면 선택 기능을 끄고 기존 PhysX actuator 경로를 사용하게 한다. 설치된 Newton 패키지 내부의 다른 오류는 숨기지 않는다.
+이전에 `isaaclab_60_optional_newton.patch does not apply`로 중단된 문제는 `isaaclab_optional_newton.py`로 수정한다. 주변 import·공백에 의존하지 않고 `_HAS_NEWTON_ACTUATORS` 대입문을 AST로 확인해 상위 패키지부터 검사하도록 바꾼다. 원본은 `articulation.py.before_protoss_optional_newton`에 보관하며, 이미 수정된 대입문은 그대로 둔다. 예상과 다른 대입문은 덮어쓰지 않고 중단한다. smoke/eval도 GPU 초기화 전에 이 수정의 적용 여부를 확인한다.
+
+`Original error: No module named 'isaaclab_newton'`는 선택 기능 검사에서 발생한다. Newton이 없으면 해당 기능을 끄고 기존 PhysX actuator 경로를 사용하게 한다. 설치된 Newton 패키지 내부의 다른 오류는 숨기지 않는다.
 
 `ModuleNotFoundError: No module named 'isaacsim.core.prims'`는 RoboLab이 옛 `XFormPrim` API를 import해서 발생한다. 수정된 setup은 평가 경로에서 `BaseFrameView` 타입 검사와 `isaaclab.sim.utils.stage`를 사용하도록 추가 API 패치를 적용한다. 기존 설치도 `setup`을 다시 실행하면 업데이트된다. 단독 USD 미리보기 도구(`render_utils.py`)의 옛 World/Camera API는 이 평가 경로의 이식 범위에 포함하지 않는다.
 
 `ModuleNotFoundError: No module named 'isaaclab_contrib'`가 발생한 기존 설치는 수정된 프로젝트 파일을 반영한 뒤 `setup`을 다시 실행한다. DROID가 촉각 센서를 사용하지 않더라도 Isaac Lab의 `InteractiveScene`이 해당 config를 import하므로 `isaaclab-contrib`가 필요하다. 새 setup은 같은 Isaac Lab checkout에서 이 패키지도 설치한다.
 
 ```bash
-bash /workspace/Project_Protoss/Protoss/setup_robolab_595.sh smoke
+bash /workspace/Project_Protoss2/Protoss/debug_robolab_595.sh smoke
 ```
 
 BananaOnPlateTask를 환경 1개로 생성하고 초기 팔 자세를 유지하며 16 step 실행한다. PhysX 설정과 RGB 카메라 출력까지 확인한 뒤 `SMOKE PASS`를 출력한다. 이 검사는 작업 성공률이나 학습 모델 품질을 평가하지 않는다.
@@ -48,7 +54,7 @@ Kit 종료 처리 때문에 프로세스가 0으로 끝나더라도 `SMOKE PASS`
 [README_test.md](README_test.md)의 모델 서버 명령으로 포트 5557에서 서버를 먼저 실행한다. 이어서:
 
 ```bash
-bash /workspace/Project_Protoss/Protoss/setup_robolab_595.sh eval \
+bash /workspace/Project_Protoss2/Protoss/debug_robolab_595.sh eval \
   --headless --device cuda:0 \
   --remote-host 127.0.0.1 --remote-port 5557 \
   --task BananaOnPlateTask \

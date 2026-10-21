@@ -48,7 +48,7 @@ setup)
     apply_compatibility_patch "$STACK/RoboLab" "$API_PATCH"
   fi
   apply_compatibility_patch "$STACK/IsaacLab" "$PROTOSS_TOOLS/patches/isaaclab_60_dependencies.patch"
-  apply_compatibility_patch "$STACK/IsaacLab" "$PROTOSS_TOOLS/patches/isaaclab_60_optional_newton.patch"
+  python3 "$PROTOSS_TOOLS/src/isaaclab_optional_newton.py" "$STACK/IsaacLab"
   cp "$PROTOSS_TOOLS/src/robolab_gr00t_client.py" "$STACK/RoboLab/policies/gr00t/client.py"
   cp "$PROTOSS_TOOLS/src/robolab_isaac60_compat.py" "$STACK/RoboLab/robolab/protoss_isaac60.py"
   if [ ! -e "$STACK/.venv" ]; then uv venv --python 3.12 "$STACK/.venv"; fi
@@ -61,6 +61,8 @@ setup)
   ;;
 smoke|eval)
   test -x "$STACK/.venv/bin/python" || { echo 'Run setup first.' >&2; exit 1; }
+  # Fail before GPU initialization if setup's optional-backend fix did not land.
+  python3 "$PROTOSS_TOOLS/src/isaaclab_optional_newton.py" "$STACK/IsaacLab" --check
   cd "$STACK/RoboLab"
   mkdir -p "$STACK/logs"
   LOG="$STACK/logs/${MODE}-$(date -u +%Y%m%dT%H%M%SZ).log"
