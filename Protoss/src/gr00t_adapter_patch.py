@@ -13,7 +13,9 @@ def ensure_adapter_inference(groot_root):
     latest = subprocess.run(command + ["--reverse", "--check", str(patches[-1])],
                             cwd=root, capture_output=True, text=True)
     if latest.returncode == 0:
-        return
+        patches = []
+    # This independent patch must also land on already adapter-enabled checkouts.
+    patches.append(directory / "gr00t_inference_validation.patch")
     for patch in patches:
         applied = subprocess.run(command + ["--reverse", "--check", str(patch)],
                                  cwd=root, capture_output=True, text=True)

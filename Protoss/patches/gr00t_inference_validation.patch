@@ -1,0 +1,45 @@
+--- a/gr00t/policy/gr00t_policy.py
++++ b/gr00t/policy/gr00t_policy.py
+@@ -416,8 +416,9 @@
+         batched_states = {}
+         for k in self.modality_configs["state"].modality_keys:
+             batched_states[k] = np.stack([s[k] for s in states], axis=0)  # (B, T, D)
+-        unnormalized_action = self.processor.decode_action(
+-            normalized_action.cpu().numpy(), self.embodiment_tag, batched_states
++        from src.inference_validation import decode_action_checked
++        unnormalized_action = decode_action_checked(
++            self.processor, normalized_action.cpu().numpy(), self.embodiment_tag, batched_states
+         )
+
+         # Cast all actions to float32 for consistency
+--- a/gr00t/data/state_action/pose.py
++++ b/gr00t/data/state_action/pose.py
+@@ -433,26 +433,8 @@
+         Returns:
+             Rotation matrix (3, 3)
+         """
+-        rot6d = rot6d.reshape(2, 3)
+-
+-        # First two rows
+-        row1 = rot6d[0]
+-        row2 = rot6d[1]
+-
+-        # Normalize first row
+-        row1 = row1 / np.linalg.norm(row1)
+-
+-        # Gram-Schmidt orthogonalization for second row
+-        row2 = row2 - np.dot(row1, row2) * row1
+-        row2 = row2 / np.linalg.norm(row2)
+-
+-        # Third row is cross product
+-        row3 = np.cross(row1, row2)
+-
+-        # Construct rotation matrix
+-        rotation_matrix = np.vstack([row1, row2, row3])
+-
+-        return rotation_matrix
++        from src.inference_validation import rotation6d_to_matrix
++        return rotation6d_to_matrix(rot6d)
+
+     @staticmethod
+     def _matrix_to_rot6d(rotation_matrix: np.ndarray) -> np.ndarray:

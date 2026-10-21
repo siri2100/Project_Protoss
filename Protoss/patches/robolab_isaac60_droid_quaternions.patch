@@ -1,0 +1,22 @@
+--- a/robolab/robots/droid.py
++++ b/robolab/robots/droid.py
+@@ -271,7 +271,8 @@
+         _to_torch(robot.data.root_quat_w),
+         q02=_to_torch(robot.data.body_quat_w)[:, body_idx, :],
+     )
+-    return quat
++    # Lab 3 math returns xyzw; keep RoboLab's declared wxyz observation schema.
++    return quat.roll(1, dims=-1)
+
+
+ def eef_pos(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("frames")):
+@@ -297,7 +298,8 @@
+         _to_torch(robot.data.root_quat_w),
+         q02=_to_torch(frames.data.target_quat_w)[:, idx, :],
+     )
+-    return quat
++    # Lab 3 math returns xyzw; keep RoboLab's declared wxyz observation schema.
++    return quat.roll(1, dims=-1)
+
+ ########################################################
+ # Actions

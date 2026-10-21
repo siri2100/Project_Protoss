@@ -12,7 +12,7 @@ class AdapterPatchTests(unittest.TestCase):
     def test_patch_applies_and_second_application_is_noop(self):
         upstream = Path(__file__).resolve().parents[3] / "Issac-GR00T-N17"
         files = ("gr00t/eval/open_loop_eval.py", "gr00t/eval/run_gr00t_server.py",
-                 "gr00t/policy/gr00t_policy.py")
+                 "gr00t/policy/gr00t_policy.py", "gr00t/data/state_action/pose.py")
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             for name in files:
@@ -26,7 +26,9 @@ class AdapterPatchTests(unittest.TestCase):
             for name in files:
                 self.assertEqual(first[name], (root / name).read_text())
                 ast.parse(first[name])
-            self.assertIn("load_model_for_inference", first[files[-1]])
+            self.assertIn("load_model_for_inference", first[files[2]])
+            self.assertIn("decode_action_checked", first[files[2]])
+            self.assertIn("rotation6d_to_matrix", first[files[3]])
             self.assertIn("base_model_path", first[files[0]])
 
 

@@ -42,6 +42,8 @@ DROID_EEF_ROTATION_CORRECT = np.array(
 def quat_wxyz_to_matrix(quat: np.ndarray) -> np.ndarray:
     """Convert quaternion (w, x, y, z) to a 3x3 rotation matrix."""
     w, x, y, z = np.asarray(quat, dtype=np.float64).reshape(4)
+    if not np.isfinite([w, x, y, z]).all():
+        raise ValueError("EEF quaternion contains NaN/Inf; check simulator observations")
     norm = np.sqrt(w * w + x * x + y * y + z * z)
     if norm == 0:
         raise ValueError("EEF quaternion norm must be non-zero")
@@ -59,6 +61,9 @@ def quat_wxyz_to_matrix(quat: np.ndarray) -> np.ndarray:
 
 def compute_eef_9d(position: np.ndarray, quat_wxyz: np.ndarray) -> np.ndarray:
     """Convert RoboLab base-link EEF pose to the GR00T DROID 9D state."""
+    position = np.asarray(position, dtype=np.float64).reshape(3)
+    if not np.isfinite(position).all():
+        raise ValueError("EEF position contains NaN/Inf; check simulator observations")
     rot_robot = quat_wxyz_to_matrix(quat_wxyz)
     rot_mat = rot_robot @ DROID_EEF_ROTATION_CORRECT
     rot6d = rot_mat[:2, :].reshape(6)
@@ -217,6 +222,8 @@ def _get_action_value(action_dict: dict[str, Any], name: str) -> Any:
 
 def _as_action_chunk(value: Any, *, name: str) -> np.ndarray:
     arr = np.asarray(value, dtype=np.float32)
+    if not np.isfinite(arr).all():
+        raise ValueError(f"Server action '{name}' contains NaN/Inf")
     if arr.ndim == 3:
         return arr[0]
     if arr.ndim == 2:
@@ -289,6 +296,11 @@ class GR00TDroidJointposClient(InferenceClient):
 
         eef_position = robot_state["ee_pos"][env_id].clone().detach().cpu().numpy()
         eef_quat = robot_state["ee_quat"][env_id].clone().detach().cpu().numpy()
+
+        for name, value in (("joint_position", joint_position), ("gripper_position", gripper_position),
+                            ("ee_pos", eef_position), ("ee_quat", eef_quat)):
+            if not np.isfinite(value).all():
+                raise ValueError(f"Simulator observation '{name}' contains NaN/Inf; env_id={env_id}")
 
         return {
             "external_image": external_image,

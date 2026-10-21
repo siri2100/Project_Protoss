@@ -41,6 +41,17 @@ def load_client_module():
 
 
 class VideoHistoryTests(unittest.TestCase):
+    def test_nonfinite_observations_and_actions_are_not_sent_to_the_robot(self):
+        module = load_client_module()
+        with self.assertRaisesRegex(ValueError, "quaternion contains NaN/Inf"):
+            module.compute_eef_9d(np.zeros(3), [1, np.nan, 0, 0])
+        with self.assertRaisesRegex(ValueError, "position contains NaN/Inf"):
+            module.compute_eef_9d([np.inf, 0, 0], [1, 0, 0, 0])
+        with self.assertRaisesRegex(ValueError, "joint_position.*NaN/Inf"):
+            module._as_action_chunk([[0, np.nan]], name="joint_position")
+        with self.assertRaisesRegex(ValueError, "gripper_position.*NaN/Inf"):
+            module._as_action_chunk([np.nan], name="gripper_position")
+
     def test_instruction_mapping_is_sent_as_text_and_only_default_is_read(self):
         module = load_client_module()
         image = np.zeros((180, 320, 3), np.uint8)

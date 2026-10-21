@@ -1,6 +1,6 @@
 # RoboLab: 드라이버 595를 유지하는 실험용 환경
 
-Linux 드라이버 595.91.07에서 기존 Isaac Sim 5.1 대신 Isaac Sim 6.0을 사용하는 경로다. 공식 RoboLab 지원 조합이 아니며 **실제 GPU 실행은 아직 검증하지 않았다.** 아래 smoke test 통과 후 평가한다. 드라이버 버전 검사 우회나 호스트 드라이버 변경은 하지 않는다.
+Linux 드라이버 595.91.07에서 기존 Isaac Sim 5.1 대신 Isaac Sim 6.0을 사용하는 경로다. 공식 RoboLab 지원 조합이 아니다. RunPod 로그에서 GPU 환경 생성과 추론 step 실행까지 확인했으며 **전체 평가 완료는 아직 검증하지 않았다.** 아래 smoke test 통과 후 평가한다. 드라이버 버전 검사 우회나 호스트 드라이버 변경은 하지 않는다.
 
 고정 구성:
 
@@ -15,7 +15,7 @@ Linux 드라이버 595.91.07에서 기존 Isaac Sim 5.1 대신 Isaac Sim 6.0을 
 
 이 문서의 디버깅 코드는 RunPod의 `/workspace/Project_Protoss2`에서 실행한다. 로컬에 별도 Project_Protoss2 폴더를 만들지 않는다. 업데이트한 프로젝트 파일을 원격 경로에 반영한 뒤 아래 진입점을 사용한다. 기존 simulator stack `/workspace/robolab-595`를 이어 사용하며, `PROTOSS_DEBUG_ROOT`로 디버깅 checkout 위치를 바꿀 수 있다.
 
-이 파일과 `Protoss/debug_robolab_595.sh`, `Protoss/setup_robolab_595.sh`, `Protoss/src/robolab_595_*.py`, `Protoss/src/robolab_isaac60_compat.py`, `Protoss/src/robolab_gr00t_client.py`, `Protoss/patches/robolab_isaac60.patch`, `Protoss/patches/robolab_isaac60_api.patch`, `Protoss/patches/robolab_isaac60_contact_filters.patch`, `Protoss/patches/robolab_isaac60_sensor_data.patch`, `Protoss/patches/robolab_isaac60_recorders.patch`, `Protoss/patches/isaaclab_60_dependencies.patch`, `Protoss/src/isaaclab_optional_newton.py`가 서버의 프로젝트에 있어야 한다. 기존 `/workspace/RoboLab/.venv-51`과 GR00T 학습·추론 환경은 유지한다. Isaac Sim EULA에 동의한 뒤 실행한다.
+이 파일과 `Protoss/debug_robolab_595.sh`, `Protoss/setup_robolab_595.sh`, `Protoss/src/robolab_595_*.py`, `Protoss/src/robolab_isaac60_compat.py`, `Protoss/src/robolab_gr00t_client.py`, `Protoss/patches/robolab_isaac60.patch`, `Protoss/patches/robolab_isaac60_api.patch`, `Protoss/patches/robolab_isaac60_contact_filters.patch`, `Protoss/patches/robolab_isaac60_sensor_data.patch`, `Protoss/patches/robolab_isaac60_recorders.patch`, `Protoss/patches/robolab_isaac60_droid_quaternions.patch`, `Protoss/patches/isaaclab_60_dependencies.patch`, `Protoss/src/isaaclab_optional_newton.py`가 서버의 프로젝트에 있어야 한다. 기존 `/workspace/RoboLab/.venv-51`과 GR00T 학습·추론 환경은 유지한다. Isaac Sim EULA에 동의한 뒤 실행한다.
 
 ```bash
 bash /workspace/Project_Protoss2/Protoss/debug_robolab_595.sh check
@@ -62,6 +62,16 @@ Kit 종료 처리 때문에 프로세스가 0으로 끝나더라도 `SMOKE PASS`
 `SimulationContext cleared` 다음에 traceback 없이 `Smoke did not complete`만 보이면 smoke 스크립트도 최신 파일로 반영한다. 실패 시 `app.close()`보다 먼저 `SMOKE FAILED at stage: ...`와 원래 traceback을 출력하도록 수정되어 있다. 로그의 `environment_creation`, `reset`, `contact_validation`, `stepping`, `camera_validation` 단계와 traceback으로 실제 실패 원인을 확인한다.
 
 ## 3. GR00T 평가
+
+평가 도중 `Server error: SVD did not converge`가 나오면 서버 traceback도 확인한다. `decode_action → EndEffectorPose → Rotation.from_matrix`에서 실패한 경우, 모델 예측 EEF의 6D 회전을 복원하는 중 유효하지 않은 행렬이 만들어진 것이다. 클라이언트의 `episode_results.jsonl` 누락은 이 중단으로 첫 episode 결과가 저장되지 않은 후속 현상이다.
+
+고정 Lab 3.0의 DROID `ee_quat`/`eef_quat`는 math 함수에서 xyzw를 받지만 기존 GR00T 클라이언트는 wxyz를 기대한다. `robolab_isaac60_droid_quaternions.patch`는 관측을 반환할 때만 wxyz로 바꿔 이 불일치를 수정한다. 이는 확인된 입력 호환 오류이며, SVD 실패의 원인이 이것 하나뿐이라고 확정하지는 않는다.
+
+이 수정은 클라이언트용 `/workspace/Project_Protoss2`에 반영하고 `check`를 다시 실행한다. 모델 서버를 실행하는 `/workspace/Project_Protoss`에도 최신 `Protoss/src/gr00t_adapter_patch.py`, `Protoss/src/inference_validation.py`, `Protoss/patches/gr00t_inference_validation.patch`를 반영한 뒤 서버를 재시작한다. `serve.py`가 기존 adapter 패치가 있는 GR00T 소스에도 추가 검사를 적용한다. 이미 실행 중인 서버는 코드 업데이트만으로 바뀌지 않는다.
+
+새 검사는 `Simulator observation ... NaN/Inf`(시뮬레이터 상태), `Model action_pred ... NaN/Inf`(정규화된 모델 예측), `EEF rot6d ... NaN/Inf` 또는 `Degenerate EEF rot6d ...`(회전 복원 입력)를 구분한다. 정상 회전은 float64에서 크기를 조정해 Gram–Schmidt norm의 overflow/underflow를 줄인다. 0 또는 평행한 벡터를 임의의 정상 회전으로 대체하지 않는다. 비정상 모델 출력이 남으면 동일 관측에서 pretrained/adapter 결과와 checkpoint를 확인해야 하며, 이 수정을 학습 모델의 안정성 보장으로 해석하지 않는다.
+
+재평가에서는 기존 부분 HDF5와 섞이지 않도록 Client 블록의 결과 `NAME`을 새로 지정한다(예: `v179_model_s_step500_quatfix_run01`). `MODEL_NAME`은 원래 HF 저장소 이름을 유지한다. 실패한 평가에는 metric 계산·업로드를 실행하지 않는다.
 
 [README_test.md](README_test.md)의 모델 서버 명령으로 포트 5557에서 서버를 먼저 실행한다. 이어서:
 
