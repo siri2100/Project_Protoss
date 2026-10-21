@@ -39,6 +39,8 @@ BananaOnPlateTask를 환경 1개로 생성하고 초기 팔 자세를 유지하�
 
 Kit 종료 처리 때문에 프로세스가 0으로 끝나더라도 `SMOKE PASS`가 출력되지 않으면 실행 스크립트는 실패로 종료한다.
 
+`SimulationContext cleared` 다음에 traceback 없이 `Smoke did not complete`만 보이면 smoke 스크립트도 최신 파일로 반영한다. 실패 시 `app.close()`보다 먼저 `SMOKE FAILED at stage: ...`와 원래 traceback을 출력하도록 수정되어 있다. 로그의 `environment_creation`, `reset`, `stepping`, `camera_validation` 단계와 traceback으로 실제 실패 원인을 확인한다.
+
 ## 3. GR00T 평가
 
 [README_test.md](README_test.md)의 모델 서버 명령으로 포트 5557에서 서버를 먼저 실행한다. 이어서:
