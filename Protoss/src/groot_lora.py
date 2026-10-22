@@ -82,7 +82,7 @@ def restore_adapter(model, adapter_path):
 
 
 @contextmanager
-def training_pipeline(config, rank, alpha):
+def training_pipeline(config, rank, alpha, preserve_joint_reference=False):
     """Install adapters after base loading; preserve upstream processor/trainer."""
     from gr00t.model import MODEL_REGISTRY
     original = MODEL_REGISTRY.get(type(config.model))
@@ -91,7 +91,7 @@ def training_pipeline(config, rank, alpha):
     class LoRAPipeline(original):
         def _create_dataset(self, save_cfg_dir):
             from .training_processor_settings import create_training_dataset
-            return create_training_dataset(self, save_cfg_dir)
+            return create_training_dataset(self, save_cfg_dir, preserve_joint_reference=preserve_joint_reference)
 
         def _create_model(self):
             model = super()._create_model()

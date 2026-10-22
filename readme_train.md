@@ -5,8 +5,8 @@ Model-FM/S/E는 같은 원본 DROID 전체 데이터와 pretrained 모델에서 
 | 모델 | Loss |
 |---|---|
 | Model-FM | 정답 action의 FM |
-| Model-S | weighted FMD + normalized joint jerk |
-| Model-E | weighted FMD + joint path length |
+| Model-S | weighted FMD + joint SPARC loss |
+| Model-E | weighted FMD + FK EE path length |
 
 모든 실행 블록은 **한 줄**이다. 프로젝트 루트에서 `python3 Protoss/run.py 명령`을 실행한다. launcher는 Python 표준 라이브러리만 사용하고, 학습·추론은 자동으로 GR00T `.venv/bin/python`을 사용한다. 환경 export, uv 활성화, cd를 매번 입력할 필요가 없다. Python 파일은 `bash`가 아닌 `python3`로 실행한다.
 
@@ -26,7 +26,7 @@ Model-FM/S/E는 같은 원본 DROID 전체 데이터와 pretrained 모델에서 
 매번 config를 수정하지 않고 `--name`, `--steps`, `--save-steps`, `--lr`, 각 loss 옵션을 직접 지정할 수 있다. 명령만 확인하려면 `--dry-run`을 붙인다. 로그인·다운로드·설치·파일 쓰기를 실행하지 않는다.
 
 ```bash
-python3 Protoss/run.py train-s --name v1711_model_s_step_100 --steps 100 --s-fmd-weight 1 --s-jerk-lambda 0.001 --dry-run
+python3 Protoss/run.py train-s --name v1712_model_s_step500 --steps 500 --s-fmd-weight 1 --s-sparc-weight 0.001 --dry-run
 ```
 
 ## 1. 환경과 프로젝트 설치
@@ -135,48 +135,44 @@ python3 Protoss/run.py train-fm --name v1614_model_fm_step500 --steps 500 --save
 
 ### 6.2 Model-S 학습
 
-실험 구현은 `Protoss/src/model_s_loss.py`와 `model_s_forward.py`에 모았다. `ModelSConfig`는 설정, `joint_affine()`는 관절 역정규화, `masked_jerk_loss()`는 3차 차분 제곱 평균, `ModelSLoss`는 최종 조합을 담당한다.
+구현은 `Protoss/src/model_s_loss.py`, `sparc_loss.py`, `model_s_forward.py`에 있다. 가중치는 `ModelSConfig`, SPARC 계산은 `spectral_arc_length()`와 `masked_joint_sparc()`에서 수정한다.
 
-- 목적 함수는 `L = fm_weight × FMD + jerk_lambda × normalized_jerk_loss`다. `FMD = masked_mean((v_LoRA - stopgrad(v_pretrained))²)`이며 기존 pretrained flow velocity 보존 항을 유지한다. Model-FM의 정답 action FM 학습은 그대로이며 Model-E도 같은 FMD teacher/student 경로를 사용한다.
-- Teacher/student는 관측, state 특징, noisy action, 연속 timestep과 discrete timestep을 공유한다. Teacher는 같은 PEFT DiT의 adapter를 끈 상태에서 `no_grad`로 실행하고 student에는 adapter를 적용한다. 두 pass의 DiT dropout은 끄고 이후 training 상태를 복원한다. Backbone은 한 번, DiT는 두 번 실행하며 pretrained weight를 별도로 복제하지 않는다.
-- DROID `[EEF(9), gripper(1), joints(7)]` 중 joint 7개를 pretrained 통계로 역정규화한다. Student의 `a_clean = x_t + (1-t)v_LoRA`를 사용한다. Chunk 공통 기준 위치는 3차 차분에서 상쇄된다. Gripper·EEF·padding은 jerk 계산에서 제외한다.
-- `jerk = (q[k+3]-3q[k+2]+3q[k+1]-q[k])/dt³`로 `raw_jerk_loss = mean(jerk²)`를 계산한다. 네 점이 모두 유효한 window만 사용한다. `normalized_jerk_loss = raw_jerk_loss / jerk_ref²`이며 raw 단위는 `rad²/s⁶`다. 기본 `dt=1/15`초다.
-- 학습 중 action 역정규화는 gradient 유지를 위해 clipping 없는 affine 변환을 사용한다. Clean endpoint는 실제 multi-step 추론 action의 추정값이므로 jerk 감소와 성공률 보존은 RoboLab rollout으로 확인한다.
-- 기본 첫 10개 target batch에서 정답 관절 jerk RMS를 구해 기준값으로 고정한다. 유효 window 수로 가중 평균하고, 정지 시연에서 기준값은 최소 `1 rad/s³`로 둔다. 이 준비 단계는 모델 forward/backward와 optimizer·scheduler 업데이트를 하지 않는다.
-- `--s-fmd-weight` 또는 기존 이름 `--s-fm-weight`로 FMD 가중치를 조정한다(기본값 `1.0`). `run_config.py`의 `s_fmd_weight`, `s_jerk_lambda`로 두 항을 독립 조정한다.
-- `--s-jerk-lambda 0.01`이 jerk 항의 가중치이며 0이면 FMD만 사용한다. `--s-jerk-reference 300`으로 기준 RMS(rad/s³)를 직접 지정하면 측정을 생략한다. `--s-calibration-batches 10`은 기준값 측정에 사용하는 batch 수다. 기존 velocity 옵션은 사용하지 않는다.
-- `--s-gradient-diagnostics`를 추가하면 첫 microbatch의 FMD·정규화 jerk LoRA gradient norm을 기록한다. 추가 autograd 비용이 있다.
-- CSV와 checkpoint에 `fmd_loss`, `weighted_fmd_loss`, raw/정규화/가중 jerk, 각 가중치와 기준 RMS를 기록한다. 그래프는 `fmd_loss`, `normalized_jerk_loss`, `total_loss` 세 패널이다. 콘솔은 step마다 FMD·가중 FMD·jerk·total을 한 줄에 출력한다. 기준값과 누적 통계는 재개 시 복원한다.
+- `L = fm_weight × FMD + sparc_weight × sparc_loss`, `sparc_loss = -mean(joint SPARC)`다. FMD는 같은 관측·noise·timestep에서 `masked_mean((v_LoRA - stopgrad(v_pretrained))²)`로 계산한다. Teacher는 adapter를 끄고 `no_grad`로 실행한다. Backbone 특징은 공유하며 DiT dropout은 두 pass에서 끈 뒤 원래 상태로 복원한다.
+- Student의 `a_clean = x_t + (1-t)v_LoRA`에서 joint 7개를 원본 pretrained 통계로 역정규화하고, 각 관절의 `abs(q[t+1]-q[t])/dt` 속도 프로파일을 사용한다. Chunk 공통 기준 관절각은 차분에서 상쇄된다. EEF 출력·gripper·padding은 제외한다.
+- 각 속도 프로파일의 FFT 크기를 최댓값으로 정규화한 뒤 주파수 스펙트럼의 음의 호 길이(SPARC)를 계산한다. SPARC가 클수록, 즉 덜 음수일수록 부드럽다. 최소화하는 loss에는 부호를 반전한다. [저자 기준 구현](https://github.com/siva82kb/SPARC/blob/master/scripts/smoothness.py)을 따른다. 속도 크기를 일정 배율로 줄여도 SPARC는 같으므로 속도 자체를 낮추는 목적 함수는 아니다.
+- 기본값은 `dt=1/15`, FFT padding level 4, cutoff 10 Hz, amplitude threshold 0.05다. 실제 cutoff는 Nyquist(기본 7.5 Hz) 이하로 제한한다. `--s-dt`, `--s-sparc-padlevel`, `--s-sparc-cutoff-hz`, `--s-sparc-amplitude-threshold`로 조정한다. 임계값으로 고른 주파수 범위를 고정한 안에서는 미분 가능하며 FFT와 호 길이를 통해 LoRA에 gradient가 전달된다.
+- 연속된 유효 관절 위치가 최소 4개인 구간을 사용하고 결측 구간을 연결하지 않는다. 구간별 평균 후 각 batch·joint 프로파일을 같은 비중으로 평균한다. 완전히 정지한 프로파일은 학습 시 SPARC=0, gradient=0으로 정의한다. 평가 metric은 정지 경로를 NaN으로 처리할 수 있다.
+- `--s-fmd-weight`(별칭 `--s-fm-weight`)와 `--s-sparc-weight`로 두 항을 독립 조정한다. 실행 기본값은 `run_config.py`의 `s_fmd_weight=1`, `s_sparc_weight=0.001`이다. Jerk 기준값 측정과 관련 옵션은 제거했다. `--s-gradient-diagnostics`는 첫 microbatch의 두 항 LoRA gradient norm을 추가로 기록한다.
+- 콘솔에는 FMD·가중 FMD·`sparc_loss`·total을, CSV/checkpoint에는 SPARC 점수와 가중 SPARC loss도 기록한다. 그래프는 FMD/SPARC loss/total 세 패널이다. 학습 chunk의 clean endpoint는 실제 denoising rollout의 근사이므로 전체 경로의 부드러움과 성공률은 RoboLab에서 확인한다.
 
-아래 예시는 `v1711_model_s_step_100`, 100 step, save=100, LR=1e-6, FMD weight=1, jerk weight=0.001을 명시한다. 생략한 값은 `TRAIN["S"]`에서 가져온다. 새 실험은 `--name`을 바꾸고 이름의 step과 `--steps`를 함께 맞춘다.
-
-이전 FMD+velocity, jerk-only, FM+jerk checkpoint는 새 FMD+정규화 jerk 학습으로 재개하지 않는다. Pretrained부터 새 run으로 시작한다. 동일 목적 함수 재개 시 원래 설정을 유지한다.
+아래 예시는 이름, 500 step, save=500, LR=5e-5, 두 loss weight를 명시한다. 새 목적 함수의 기본 버전은 `v1712`다. 기존 jerk·velocity checkpoint는 SPARC 학습으로 resume할 수 없으며 pretrained부터 새 이름으로 시작한다.
 
 ```bash
-python3 Protoss/run.py train-s --name v1711_model_s_step_100 --steps 100 --save-steps 100 --lr 1e-6 --s-fmd-weight 1 --s-jerk-lambda 0.001
+python3 Protoss/run.py train-s --name v1712_model_s_step500 --steps 500 --save-steps 500 --lr 5e-5 --s-fmd-weight 1 --s-sparc-weight 0.001
 ```
 
 ### 6.3 Model-E 학습
 
-구현은 `Protoss/src/model_e_loss.py`에 있다. `ModelEConfig`에서 두 가중치를, `masked_path_length_loss()`에서 경로 길이 계산을 수정할 수 있다.
+구현은 `Protoss/src/model_e_loss.py`, `joint_actions.py`, `droid_kinematics.py`에 있다. 가중치는 `ModelEConfig`, 경로 계산은 `masked_path_length_loss()`, FK geometry는 `Protoss/assets/droid_kinematics.json`에서 확인한다.
 
-- `L = fm_weight × FMD + path_length_weight × path_length_loss`다. FMD는 Model-S와 동일한 pretrained/student flow velocity의 masked MSE다. 정답 action에 대한 기존 FM loss는 Model-E에서 사용하지 않는다.
-- Student의 `a_clean = x_t + (1-t)v_LoRA`에서 joint 7개를 원본 pretrained 통계로 역정규화한다. 각 chunk의 `sum_t ||q[t+1]-q[t]||₂`를 구한 뒤 batch 평균한다. Gripper와 EEF는 경로 길이에 포함하지 않는다. Chunk 공통 기준 관절 위치는 차분에서 상쇄된다.
-- 두 시점의 7개 관절이 모두 유효한 segment만 사용하고 padding·결측 구간을 연결하지 않는다. 유효 segment가 없는 chunk는 평균에서 제외하며, batch 전체에 segment가 없으면 오류로 중단한다. 현재 관측 state에서 첫 예측 action까지의 거리는 포함하지 않는다.
-- Path length는 제곱·dt 나누기·기준값 정규화가 없는 rad 단위의 관절 공간 거리다. FMD와 단위가 다르므로 각 가중치로 상대적인 크기를 조정한다. `--e-fmd-weight`(또는 `--e-fm-weight`) 기본값은 1, `--e-path-length-weight` 기본값은 0.01이다. Path weight가 0이면 FMD만 사용한다.
-- 콘솔·CSV·checkpoint 로그에 `fmd_loss`, `weighted_fmd_loss`, `path_length_loss`, `weighted_path_length_loss`, 두 가중치와 total을 기록한다. 그래프는 FMD/path length/total 세 패널이다. Loss 설정은 `model_e_loss.json`으로 checkpoint와 최종 run에 저장한다.
-- 기존 FM-only Model-E checkpoint에서는 새 loss로 resume하지 않는다. 새 output에서 pretrained부터 시작하고, 같은 목적 함수 재개 시 원래 가중치를 유지한다. 역정규화는 Model-S처럼 clipping 없는 affine이며, 실제 경로 단축·성공률은 rollout에서 확인한다.
+- `L = fm_weight × FMD + path_length_weight × ee_path_length_loss`다. FMD는 Model-S와 같은 pretrained/student flow velocity의 masked MSE다.
+- Student clean endpoint의 joint 7개를 원본 pretrained 통계로 역정규화한다. Relative action이면 해당 sample의 **정규화 전 마지막 joint state**를 더해 절대 관절각 `q`로 복원한 뒤 `p = FK(q)`를 계산한다. 정규화된 state는 clipping될 수 있으므로 FK 기준값으로 역산하지 않는다. 원본 processor의 모델 입력·정규화 설정은 유지한다.
+- FK는 pinned RoboLab DROID의 7개 관절 프레임과 Robotiq mount 변환을 사용한다. EE는 실제 RoboLab의 gripper `base_link` 좌표이며, 로봇 기준 좌표계에서 계산한다. 학습에는 torch와 JSON geometry만 필요하다. 별도 Isaac Sim·USD 설치는 필요 없다. FK 행렬 계산은 bf16 autocast 안에서도 float32를 유지한다.
+- 각 chunk에서 `sum_t ||p[t+1]-p[t]||₂`를 구한 뒤 유효 chunk를 batch 평균한다. 단위는 **미터(m)**다. 독립 EEF 예측 출력을 사용하지 않으며, gripper·padding·결측 구간도 제외한다. 두 시점의 joint 7개가 모두 유효해야 segment로 사용한다. 현재 state에서 첫 action까지의 이동은 포함하지 않는다.
+- 거리 제곱·dt 나누기·기준값 정규화는 없다. `--e-fmd-weight`(별칭 `--e-fm-weight`) 기본값은 1, `--e-path-length-weight`(별칭 `--e-ee-path-length-weight`) 기본값은 0.01이다. FMD와 단위가 다르므로 두 가중치로 조정한다. 역정규화는 gradient를 유지하는 clipping 없는 affine이다.
+- 콘솔·CSV·checkpoint에는 `fmd_loss`, `weighted_fmd_loss`, `path_length_loss`(이제 EE 미터), `weighted_path_length_loss`, 두 가중치와 total을 기록한다. 그래프는 FMD/EE path length/total 세 패널이다. Loss 설정과 FK geometry hash는 `model_e_loss.json`에 보관한다.
+- 기존 관절 경로 길이 checkpoint는 새 EE 목적 함수로 resume할 수 없다. 새 run으로 시작한다. 같은 목적 함수 재개 시 loss 설정과 FK geometry가 일치해야 한다. 실제 EE 경로 단축과 성공률은 rollout에서 확인한다.
 
 ```bash
-python3 Protoss/run.py train-e --name v1711_model_e_step500 --steps 500 --save-steps 500 --lr 1e-5 --e-fmd-weight 1 --e-path-length-weight 0.01
+python3 Protoss/run.py train-e --name v1712_model_e_step500 --steps 500 --save-steps 500 --lr 5e-5 --e-fmd-weight 1 --e-path-length-weight 0.01
 ```
 
-이 예시는 500 step, LR=1e-5, FMD weight=1, path length weight=0.01이다. `--name`을 생략하면 실제 `--steps` 값에서 이름을 생성한다.
+이 예시는 500 step, LR=5e-5, FMD weight=1, EE path length weight=0.01이다. `--name`을 생략하면 실제 `--steps` 값에서 이름을 생성한다.
 
 ### 6.4 중단된 PEFT 학습 재개
 
 ```bash
-python3 Protoss/run.py resume-s --name v1711_model_s_step_100 --steps 100 --s-fmd-weight 1 --s-jerk-lambda 0.001
+python3 Protoss/run.py resume-s --name v1712_model_s_step500 --steps 500 --s-fmd-weight 1 --s-sparc-weight 0.001
 ```
 
 FM/E는 `resume-fm`, `resume-e`를 사용한다. `--name`은 재개할 실제 run 이름이며 loss weight는 원래 학습과 같아야 한다. 인자를 생략하면 저장된 실행 인자를 사용하므로 현재 config의 변경값이 원래 loss/LR을 바꾸지 않는다. 이름도 생략하면 최근 run을 선택한다. 기존 README로 만든 run은 `style_run.json`, `lora_settings.json`에서 설정을 복원한다. Optimizer·scheduler·RNG·trainer 상태가 포함된 checkpoint가 필요하며, 설정 JSON만 남은 output은 resume할 수 없다.
@@ -188,7 +184,7 @@ FM/E는 `resume-fm`, `resume-e`를 사용한다. `--name`은 재개할 실제 ru
 학습 종료 시 loss와 `distribution_plot.png`를 모델 폴더에 저장한다. 원본 trajectory 0의 최대 32개 프레임에서 같은 관측·seed로 pretrained와 최종 adapter의 역정규화 action 분포를 비교한다. 추론은 unmerged, denoising 4 steps다. 그래프만 다시 만들려면 다음을 실행한다.
 
 ```bash
-python3 Protoss/run.py plot-distribution --name v1711_model_s_step_100
+python3 Protoss/run.py plot-distribution --name v1712_model_s_step500
 ```
 
 ### 6.6 학습 → RoboLab 테스트 → 평가점수 자동 계산
@@ -210,19 +206,19 @@ python3 Protoss/run.py smoke-robolab
 모델 이름·step·LR·loss weight는 명령 인자로 바로 지정할 수 있다. 명령 인자는 `run_config.py` 기본값보다 우선한다. `--steps`, `--step`, `--max-steps`는 같은 학습 step 옵션이며, `--model-name`은 `--name`과 같다. `--name`을 생략하면 변경한 step을 실험 이름에도 반영한다. 학습만 실행하려면 다음을 사용한다.
 
 ```bash
-python3 Protoss/run.py train-s --name v1711_model_s_step_100 --steps 100 --s-fmd-weight 1 --s-jerk-lambda 0.001 --no-eval
+python3 Protoss/run.py train-s --name v1712_model_s_step500 --steps 500 --s-fmd-weight 1 --s-sparc-weight 0.001 --no-eval
 ```
 
 HF 없이 로컬 학습·평가는 `--no-hf-upload`, 오프라인 학습만 하려면 두 옵션을 함께 넘긴다. 원래 train.py 옵션도 구분자 없이 바로 추가할 수 있다. 모델·기본 경로는 `--name`/`--project-root`/config에서 지정한다. 기존 `--` 구분자도 계속 지원한다. 단발성 loss 변경 예시는 다음과 같다.
 
 ```bash
-python3 Protoss/run.py train-s --name my_model_s_step2000 --steps 2000 --save-steps 500 --lr 1e-6 --s-fmd-weight 1000 --s-jerk-lambda 0.001
+python3 Protoss/run.py train-s --name my_model_s_step2000 --steps 2000 --save-steps 500 --lr 1e-6 --s-fmd-weight 1000 --s-sparc-weight 0.001
 ```
 
 저장된 모델의 서버 시작·평가·점수 업로드만 실행하려면 다음을 사용한다. `MODEL_NAME` 또는 `--name`으로 선택하며 재학습하지 않는다.
 
 ```bash
-python3 Protoss/run.py evaluate --name v1711_model_s_step_100
+python3 Protoss/run.py evaluate --name v1712_model_s_step500
 ```
 
 자동 평가 결과는 모델 폴더의 `evaluation_status.json`, `evaluation_logs/`, `evaluations/<평가이름>/`에 남는다. 원본 HDF5는 stack의 `RoboLab/output/`에 보관하고 HF에는 JSONL·점수 JSON/TXT·평가 설정만 업로드한다. RoboLab이 기록한 metric을 집계하며 HDF5에서 새 metric을 계산하지 않는다.
@@ -230,7 +226,7 @@ python3 Protoss/run.py evaluate --name v1711_model_s_step_100
 학습·그래프·모델 업로드가 실패하면 평가를 시작하지 않는다. 서버 준비와 평가 완료 표시·결과 파일을 확인한 뒤에만 metric을 업로드한다. 실패 시 모델을 보존하고 이 명령이 시작한 서버·Client를 정리한다. 점수 업로드만 실패했다면 평가를 반복하지 않고 재전송한다.
 
 ```bash
-python3 Protoss/run.py metrics --name v1711_model_s_step_100
+python3 Protoss/run.py metrics --name v1712_model_s_step500
 ```
 
 ## 7. 코드와 검증
@@ -248,9 +244,11 @@ python3 Protoss/run.py check
 | `Protoss/train.py`, `src/training_evaluation.py` | 학습과 자동 평가 흐름 |
 | `Protoss/src/model_s_loss.py`, `model_e_loss.py` | 모델별 loss |
 
+이번 loss 변경은 SPARC 수치·gradient, pinned USD의 FK 기준 자세, raw joint 기준값 보존, 가중치·로그·재개를 CPU에서 검증했다. 전체 검색에서 실행 가능한 테스트 143개가 통과했다. 기존 `test_pretrained_fm_loss.py`는 참조하는 `src.pretrained_fm_loss` 모듈이 없어 import 오류로 실행되지 않았다. GPU 학습·실제 RoboLab rollout은 RunPod에서 확인해야 한다.
+
 자동 학습·평가 통합은 CPU/프로세스 테스트 41개로 검증했다. 실제 자식 프로세스·로컬 ZeroMQ를 사용하며 모델/simulator와 HF 전송은 테스트용 실행 파일·mock으로 검사한다. 전체 GPU 학습부터 실제 rollout·HF 전송까지는 로컬에서 실행하지 않았다.
 
-한 줄 실행 도구와 관련 회귀 테스트 20개를 통과했다. 전용 Python·환경·경로, 실제 자식 프로세스 인자, 저장 설정으로 재개, 실패 시 업로드 중단, dry-run의 무실행을 확인했다. README의 실행 블록 40개는 모두 한 줄이며 FM/S/E 생성 인자가 실제 학습 parser에서 허용되는지도 검사했다.
+한 줄 실행 도구와 관련 회귀 테스트 20개를 통과했다. 전용 Python·환경·경로, 실제 자식 프로세스 인자, 저장 설정으로 재개, 실패 시 업로드 중단, dry-run의 무실행을 확인했다. README의 실행 블록 41개는 모두 한 줄이며 FM/S/E 생성 인자가 실제 학습 parser에서 허용되는지도 검사했다.
 
 ## 8. Hugging Face에 checkpoint 보관
 
@@ -263,7 +261,7 @@ python3 Protoss/run.py check
 자동 업로드 재시도 또는 별도 보관에 사용한다. `MODEL_NAME` 또는 `--name`으로 선택한다.
 
 ```bash
-python3 Protoss/run.py upload-model --name v1711_model_s_step_100
+python3 Protoss/run.py upload-model --name v1712_model_s_step500
 ```
 
 전체 run을 private 모델 저장소에 업로드한다. `inference/`만 따로 올리지 않는다. Adapter·processor·통계·설정·loss·checkpoint의 재개 상태를 함께 보관한다. 전송 중 output을 수정하지 않는다. 완료 후 원격 파일 목록을 확인하고 누락 파일은 직접 재전송한다. 같은 명령으로 재시도하며 캐시·원격 파일을 삭제할 필요가 없다.
@@ -271,7 +269,7 @@ python3 Protoss/run.py upload-model --name v1711_model_s_step_100
 실제 전송 없이 파일을 검증하려면 아래처럼 downstream dry-run을 사용한다. 계정 조회까지 네트워크 없이 실행하려면 `--repo-id ACCOUNT/MODEL`도 지정한다. launcher의 `--dry-run`은 파일 검증도 실행하지 않고 명령만 출력한다.
 
 ```bash
-python3 Protoss/run.py upload-model --name v1711_model_s_step_100 --repo-id ACCOUNT/MODEL -- --dry-run
+python3 Protoss/run.py upload-model --name v1712_model_s_step500 --repo-id ACCOUNT/MODEL -- --dry-run
 ```
 
 ## 9. 공통 데이터를 Hugging Face에 보관

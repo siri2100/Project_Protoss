@@ -143,7 +143,7 @@ def setup_training(config, args, lora_settings):
     config.validate()
     cfg_dir = args.output_dir / "experiment_cfg"
     save_run_config_artifacts(cfg_dir, args.output_dir, config, args.output_dir.name)
-    with training_pipeline(config, args.lora_rank, args.lora_alpha) as holder:
+    with training_pipeline(config, args.lora_rank, args.lora_alpha, preserve_joint_reference=args.variant == "E") as holder:
         pipeline = MODEL_REGISTRY[type(config.model)](config, cfg_dir)
         try:
             pipeline.setup()
@@ -162,7 +162,8 @@ def setup_training(config, args, lora_settings):
             if args.variant == "S":
                 import json
                 from .groot_common import TAG
-                from .model_s_loss import ModelSLoss, config_from_args, joint_affine
+                from .model_s_loss import ModelSLoss, config_from_args
+                from .joint_actions import joint_affine
                 from gr00t.data.embodiment_tags import EmbodimentTag
                 scale, offset = joint_affine(pipeline.processor, EmbodimentTag.resolve(TAG).value)
                 session.smoothness = ModelSLoss(config_from_args(args), scale, offset)
@@ -174,11 +175,11 @@ def setup_training(config, args, lora_settings):
             elif args.variant == "E":
                 import json
                 from .groot_common import TAG
-                from .model_s_loss import joint_affine
+                from .joint_actions import JointActionDecoder
                 from .model_e_loss import ModelELoss, config_from_args
                 from gr00t.data.embodiment_tags import EmbodimentTag
-                scale, offset = joint_affine(pipeline.processor, EmbodimentTag.resolve(TAG).value)
-                session.efficiency = ModelELoss(config_from_args(args), scale, offset)
+                decoder = JointActionDecoder.from_processor(pipeline.processor, EmbodimentTag.resolve(TAG).value)
+                session.efficiency = ModelELoss(config_from_args(args), decoder.scale, decoder.offset, decoder=decoder)
                 if checkpoint is not None:
                     state_path = Path(checkpoint) / "model_e_loss.json"
                     if not state_path.is_file():
@@ -204,16 +205,6 @@ def preprocess(batch, training):
     This stage only transfers that collated batch to the model's device.
     """
     return training.trainer._prepare_inputs(batch)
-
-
-def calibrate_s_reference(training):
-    """Use target batches only; no optimizer, scheduler or model forward calls."""
-    objective = training.smoothness
-    if objective is None or objective.reference is not None:
-        return
-    remaining = objective.config.calibration_batches - objective.calibration_count
-    for batch in training.batches(remaining):
-        objective.calibrate(preprocess(batch, training))
 
 
 def update_weights(training):
@@ -271,7 +262,7 @@ def save_training_loss_plot(training):
     steps = sorted(losses)
     model_e = getattr(training, "efficiency", None) is not None or any(
         "path_length_loss" in row for row in training.trainer.state.log_history)
-    motion_key = "path_length_loss" if model_e else "normalized_jerk_loss"
+    motion_key = "path_length_loss" if model_e else "sparc_loss"
     components = {row["step"]: row for row in training.trainer.state.log_history
                   if "step" in row and motion_key in row and row["step"] <= training.step}
     compound = training.smoothness is not None or model_e or bool(components)
@@ -282,10 +273,9 @@ def save_training_loss_plot(training):
             keys = ["fmd_loss", "path_length_loss", "total_loss", "fm_weight", "weighted_fmd_loss",
                     "weighted_path_length_loss", "path_length_weight"]
         elif compound:
-            keys = ["fmd_loss", "raw_jerk_loss", "normalized_jerk_loss", "total_loss",
+            keys = ["fmd_loss", "sparc", "sparc_loss", "total_loss",
                     "fm_weight", "weighted_fmd_loss",
-                    "weighted_jerk_loss", "jerk_lambda", "jerk_reference",
-                    "fmd_grad_norm", "jerk_grad_norm"]
+                    "weighted_sparc_loss", "sparc_weight", "fmd_grad_norm", "sparc_grad_norm"]
         else:
             keys = []
         writer.writerow(["step", "loss", *keys])
@@ -297,13 +287,13 @@ def save_training_loss_plot(training):
     if model_e:
         axes = figure.subplots(3, 1, sharex=True)
         series = [("fmd_loss", "Pretrained flow preservation MSE"),
-                  ("path_length_loss", "Mean joint path length (rad)"),
+                  ("path_length_loss", "Mean FK end-effector path length (m)"),
                   ("total_loss", "Weighted flow preservation + weighted path length")]
     elif compound:
         axes = figure.subplots(3, 1, sharex=True)
         series = [("fmd_loss", "Pretrained flow preservation MSE"),
-                  ("normalized_jerk_loss", "Normalized mean squared joint jerk"),
-                  ("total_loss", "Weighted flow preservation + lambda * normalized jerk")]
+                  ("sparc_loss", "Negative mean joint-speed SPARC"),
+                  ("total_loss", "Weighted flow preservation + weighted SPARC loss")]
     else:
         axes = [figure.subplots()]
         series = [("loss", "Mean training objective")]

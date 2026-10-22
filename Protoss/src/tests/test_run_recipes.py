@@ -60,36 +60,36 @@ path.write_text(json.dumps({"args": sys.argv[1:], "root": os.environ["PROTOSS_RO
         self.assertIsNone(record["venv"])
         self.assertIsNone(record["uv_env"])
         for flag, value in (("--model", "S"), ("--max-steps", "2000"), ("--save-steps", "500"),
-                            ("--workers", "1"), ("--s-fmd-weight", "1"), ("--s-jerk-lambda", "0.001")):
+                            ("--workers", "1"), ("--s-fmd-weight", "1"), ("--s-sparc-weight", "0.001")):
             self.assertEqual(arguments[arguments.index(flag) + 1], value)
-        output = self.ctx.checkpoints / "v1711_model_s_step2000"
+        output = self.ctx.checkpoints / "v1712_model_s_step2000"
         self.assertEqual(arguments[arguments.index("--output-dir") + 1], str(output))
         self.assertFalse(output.exists())  # launch metadata must not make train.py reject a new run
-        self.assertTrue((self.ctx.checkpoints / "launches/v1711_model_s_step2000.json").is_file())
+        self.assertTrue((self.ctx.checkpoints / "launches/v1712_model_s_step2000.json").is_file())
 
     def test_resume_uses_saved_loss_and_lr_after_config_changes(self):
         experiments.train(self.ctx, "S", ["--no-eval"])
-        self.config.TRAIN["S"].update(lr=1., s_jerk_lambda=999, max_steps=7)
+        self.config.TRAIN["S"].update(lr=1., s_sparc_weight=999, max_steps=7)
         experiments.resume(self.ctx, "S", [])
         arguments = self.captured()["args"]
         self.assertEqual(arguments[arguments.index("--lr") + 1], "1e-06")
-        self.assertEqual(arguments[arguments.index("--s-jerk-lambda") + 1], "0.001")
+        self.assertEqual(arguments[arguments.index("--s-sparc-weight") + 1], "0.001")
         self.assertIn("--resume", arguments)
 
     def test_step_override_also_changes_generated_output_name(self):
         experiments.train(self.ctx, "E", ["--max-steps", "1000"])
         arguments = self.captured()["args"]
-        self.assertEqual(Path(arguments[arguments.index("--output-dir") + 1]).name, "v1711_model_e_step1000")
+        self.assertEqual(Path(arguments[arguments.index("--output-dir") + 1]).name, "v1712_model_e_step1000")
 
     def test_cli_accepts_name_steps_lr_and_loss_without_separator(self):
         result = main(["train-s", "--project-root", str(self.root), "--model-name", "from_cli",
                        "--steps", "750", "--save-steps", "100", "--lr", "3e-6",
-                       "--s-fmd-weight", "1000", "--s-jerk-lambda", "0.02", "--no-eval"])
+                       "--s-fmd-weight", "1000", "--s-sparc-weight", "0.02", "--no-eval"])
         self.assertEqual(result, 0)
         arguments = self.captured()["args"]
         for flag, expected in (("--output-dir", str(self.ctx.checkpoints / "from_cli")),
                                ("--max-steps", "750"), ("--save-steps", "100"), ("--lr", "3e-6"),
-                               ("--s-fmd-weight", "1000"), ("--s-jerk-lambda", "0.02")):
+                               ("--s-fmd-weight", "1000"), ("--s-sparc-weight", "0.02")):
             values = [arguments[i + 1] for i, token in enumerate(arguments) if token == flag]
             self.assertEqual(values[-1], expected)
         self.assertIn("--no-eval", arguments)
@@ -98,7 +98,7 @@ path.write_text(json.dumps({"args": sys.argv[1:], "root": os.environ["PROTOSS_RO
         self.assertEqual(main(["train-e", "--project-root", str(self.root), "--step", "800"]), 0)
         arguments = self.captured()["args"]
         self.assertEqual(Path(arguments[arguments.index("--output-dir") + 1]).name,
-                         "v1711_model_e_step800")
+                         "v1712_model_e_step800")
         self.assertEqual(main(["resume-e", "--project-root", str(self.root), "--max-steps", "1200"]), 0)
         arguments = self.captured()["args"]
         self.assertEqual([arguments[i + 1] for i, token in enumerate(arguments) if token == "--max-steps"][-1], "1200")
@@ -158,12 +158,12 @@ path.write_text(json.dumps({"args": sys.argv[1:], "root": os.environ["PROTOSS_RO
         (output / "style_run.json").write_text(json.dumps(dict(batch_size=2, lr=2e-6,
             max_steps=1200, gradient_accumulation=16, seed=42)))
         (output / "lora_settings.json").write_text(json.dumps(dict(variant="S", rank=32, alpha=64,
-            model_s=dict(fm_weight=25., jerk_lambda=.4, calibration_batches=10, dt=1/15,
-                         jerk_reference=None, jerk_reference_floor=1., gradient_diagnostics=False))))
+            model_s=dict(fm_weight=25., sparc_weight=.4, dt=1/15, sparc_padlevel=4, sparc_cutoff_hz=10.,
+                         sparc_amplitude_threshold=.05, gradient_diagnostics=False))))
         experiments.resume(self.ctx, "S", [])
         arguments = self.captured()["args"]
         self.assertEqual(arguments[arguments.index("--s-fm-weight") + 1], "25.0")
-        self.assertEqual(arguments[arguments.index("--s-jerk-lambda") + 1], "0.4")
+        self.assertEqual(arguments[arguments.index("--s-sparc-weight") + 1], "0.4")
         self.assertEqual(arguments[arguments.index("--lr") + 1], "2e-06")
 
     def test_groot_setup_keeps_fixed_revision_and_submodule_http_options(self):

@@ -62,17 +62,18 @@ def parse_args():
     smooth = parser.add_argument_group("Model-S smoothness experiment")
     smooth.add_argument("--s-fm-weight", "--s-fmd-weight", dest="s_fm_weight", type=float, default=1.0,
                         help="Weight for the pretrained flow preservation MSE")
-    smooth.add_argument("--s-jerk-lambda", type=float, default=0.01)
-    smooth.add_argument("--s-jerk-reference", type=float, default=None,
-                        help="Fixed reference jerk in rad/s^3; default: RMS from initial target batches")
-    smooth.add_argument("--s-calibration-batches", type=int, default=10)
+    smooth.add_argument("--s-sparc-weight", type=float, default=0.01,
+                        help="Weight for negative mean joint-speed SPARC")
+    smooth.add_argument("--s-sparc-padlevel", type=int, default=4)
+    smooth.add_argument("--s-sparc-cutoff-hz", type=float, default=10.)
+    smooth.add_argument("--s-sparc-amplitude-threshold", type=float, default=.05)
     smooth.add_argument("--s-dt", type=float, default=1 / 15, help="Action interval in seconds")
     smooth.add_argument("--s-gradient-diagnostics", action="store_true")
-    efficiency = parser.add_argument_group("Model-E joint path length experiment")
+    efficiency = parser.add_argument_group("Model-E FK end-effector path length experiment")
     efficiency.add_argument("--e-fmd-weight", "--e-fm-weight", dest="e_fm_weight", type=float, default=1.0,
                             help="Weight for the pretrained flow preservation MSE")
-    efficiency.add_argument("--e-path-length-weight", type=float, default=0.01,
-                            help="Weight for mean joint-space path length in radians")
+    efficiency.add_argument("--e-path-length-weight", "--e-ee-path-length-weight", type=float, default=0.01,
+                            help="Weight for mean FK end-effector path length in meters")
     args = parser.parse_args()
     if min(args.lora_rank, args.max_steps, args.save_steps, args.batch_size, args.gradient_accumulation) < 1 or args.lr <= 0 or args.lora_alpha <= 0 or args.workers < 0:
         parser.error("Invalid positive training/LoRA parameters")
@@ -148,7 +149,7 @@ def prepare_training(args):
             from .src.model_s_loss import config_from_args
         else:
             from src.model_s_loss import config_from_args
-        lora_settings["loss"] = "pretrained_flow_preservation+normalized_joint_jerk-v1"
+        lora_settings["loss"] = "pretrained_flow_preservation+joint_sparc-v1"
         lora_settings["model_s"] = asdict(config_from_args(args))
     elif args.variant == "E":
         from dataclasses import asdict
@@ -156,7 +157,7 @@ def prepare_training(args):
             from .src.model_e_loss import config_from_args
         else:
             from src.model_e_loss import config_from_args
-        lora_settings["loss"] = "pretrained_flow_preservation+joint_path_length-v1"
+        lora_settings["loss"] = "pretrained_flow_preservation+fk_ee_path_length-v1"
         lora_settings["model_e"] = asdict(config_from_args(args))
     settings_path = args.output_dir / "lora_settings.json"
     if args.resume:
@@ -183,12 +184,12 @@ def main(args):
     if __package__:
         from .src.training_runtime import (
             setup_training, preprocess, update_weights, save_checkpoint, export_model,
-            record_training_loss, save_training_loss_plot, save_training_distribution_plot, calibrate_s_reference,
+            record_training_loss, save_training_loss_plot, save_training_distribution_plot,
         )
     else:
         from src.training_runtime import (
             setup_training, preprocess, update_weights, save_checkpoint, export_model,
-            record_training_loss, save_training_loss_plot, save_training_distribution_plot, calibrate_s_reference,
+            record_training_loss, save_training_loss_plot, save_training_distribution_plot,
         )
 
     if __package__:
@@ -201,14 +202,12 @@ def main(args):
     with setup_training(config, args, lora_settings) as training:
         model = training.model
         objective = training.smoothness if training.smoothness is not None else getattr(training, "efficiency", None)
-        calibrate_s_reference(training)
         if training.smoothness is not None:
-            print(f"Model-S objective=fm_weight*pretrained_flow_MSE+lambda*normalized_jerk; "
+            print(f"Model-S objective=fm_weight*pretrained_flow_MSE+sparc_weight*(-joint_SPARC); "
                   f"fm_weight={training.smoothness.config.fm_weight:.8g}; "
-                  f"lambda={training.smoothness.config.jerk_lambda:.8g}; "
-                  f"reference={training.smoothness.reference:.8g} rad/s^3", flush=True)
+                  f"sparc_weight={training.smoothness.config.sparc_weight:.8g}", flush=True)
         elif getattr(training, "efficiency", None) is not None:
-            print(f"Model-E objective=fm_weight*pretrained_flow_MSE+path_length_weight*joint_path_length; "
+            print(f"Model-E objective=fm_weight*pretrained_flow_MSE+path_length_weight*FK_ee_path_length; "
                   f"fm_weight={training.efficiency.config.fm_weight:.8g}; "
                   f"path_length_weight={training.efficiency.config.path_length_weight:.8g}", flush=True)
         for step in range(training.step + 1, args.max_steps + 1):
@@ -235,7 +234,7 @@ def main(args):
             training.step = step
             record_training_loss(training, step_loss, **step_metrics)
             if objective is not None:
-                motion = (f"jerk_loss={step_metrics['normalized_jerk_loss']:.6f} "
+                motion = (f"sparc_loss={step_metrics['sparc_loss']:.6f} "
                           if training.smoothness is not None else
                           f"path_length_loss={step_metrics['path_length_loss']:.6f} ")
                 print(f"step={step}/{args.max_steps} "

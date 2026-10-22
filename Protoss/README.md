@@ -6,10 +6,10 @@
 |---|---|---|
 | baseline | 없음, pretrained 평가 | 없음 |
 | Model-FM | LoRA | FM |
-| Model-S | LoRA | FMD + normalized joint jerk |
-| Model-E | LoRA | FMD + joint path length |
+| Model-S | LoRA | FMD + joint SPARC loss |
+| Model-E | LoRA | FMD + FK EE path length |
 
-설치·데이터 준비·학습·업로드는 [readme_train.md](../readme_train.md), 모델 다운로드·추론·평가는 [readme_test.md](../readme_test.md)를 따른다. Model-FM(v1.6.14)은 FM 기준 모델이며 Model-S(v1.7)는 FMD + 정규화 jerk, Model-E는 FMD + 관절 경로 길이로 독립 학습한다.
+설치·데이터 준비·학습·업로드는 [readme_train.md](../readme_train.md), 모델 다운로드·추론·평가는 [readme_test.md](../readme_test.md)를 따른다. Model-FM(v1.6.14)은 FM 기준 모델이며 Model-S(v1.7)는 FMD + 관절 SPARC loss, Model-E는 FMD + FK EE 경로 길이로 독립 학습한다.
 
 - 공통 데이터 준비: `prepare_groot_dataset.py`
 - Model-FM/S/E LoRA 학습: `train.py --model FM|S|E`
@@ -19,7 +19,7 @@
 
 `train.py`의 `main()`에 실제 학습 반복문이 있다. 각 optimizer step에서 batch 전처리 결과를 GPU로 옮기고, 모델 forward로 loss를 계산하고, gradient accumulation 후 가중치를 갱신한다. 이미지·state·action 전처리는 기존 GR00T dataset/collator가 수행하므로 루프에서 중복 적용하지 않는다.
 
-`src/groot_lora.py`는 PEFT의 `LoraConfig`와 `get_peft_model()`로 DiT의 모든 block의 `to_q`, `to_k`, `to_v`에만 LoRA를 적용한다. 원본 모델은 동결하고 LoRA A/B만 학습한다. 학습 종료 시에는 adapter와 processor만 저장하고, 추론 시 원본 pretrained 모델과 adapter를 로드한다. 기본 `unmerged`는 병합 없이 LoRA를 적용하고, `merged`는 PEFT `merge_and_unload()`로 병합한다. PEFT adapter는 `adapter/`에 저장하며, 이전 자체 구현 checkpoint에서 PEFT 학습으로 resume하는 것은 지원하지 않는다.
+`src/groot_lora.py`는 PEFT의 `LoraConfig`와 `get_peft_model()`로 DiT의 모든 block의 `attn1.to_q`, `attn1.to_k`, `attn1.to_v`와 `ff.*` Linear에 LoRA를 적용한다. 원본 모델은 동결하고 LoRA A/B만 학습한다. 학습 종료 시에는 adapter와 processor만 저장하고, 추론 시 원본 pretrained 모델과 adapter를 로드한다. 기본 `unmerged`는 병합 없이 LoRA를 적용하고, `merged`는 PEFT `merge_and_unload()`로 병합한다. PEFT adapter는 `adapter/`에 저장하며, 이전 자체 구현 checkpoint에서 PEFT 학습으로 resume하는 것은 지원하지 않는다.
 
 `src/training_runtime.py`는 모델·데이터 준비, optimizer/scheduler, checkpoint/resume, adapter 저장을 담당한다. 현재 학습 루프는 CUDA GPU 한 개를 사용한다. Checkpoint는 adapter와 Trainer 형식의 optimizer·scheduler·RNG 상태를 저장하며, resume 시 데이터는 기존 GR00T 방식대로 global step에 따라 reseed한다. 중단 전과 동일한 데이터 순서로 재개하는 방식은 아니다.
 
@@ -43,12 +43,12 @@ RoboLab이 instruction을 필드 mapping으로 전달하면 `src/robolab_gr00t_c
 
 모델 저장 위치는 프로젝트 바로 상위의 `checkpoint/`다. 예: `/workspace/Project_Protoss`의 모델은 `/workspace/checkpoint`에 저장한다. 학습 문서의 `CHECKPOINT_ROOT` 설정으로 원본 pretrained와 학습 run을 저장하고, 완료된 run 전체를 Hugging Face private 모델 저장소에 업로드한다. 추론 서버에서는 추론 문서에 따라 원본 pretrained와 업로드한 run을 Hugging Face에서 같은 `checkpoint/` 아래로 내려받고, `--model-path`에 다운로드한 run을, `--base-model-path`에 원본 pretrained 경로를 지정한다.
 
-Model-S는 `loss = fm_weight × FMD + jerk_lambda × normalized_jerk_loss`를 사용한다. FMD는 같은 관측·noise·timestep에서 pretrained와 pretrained+LoRA의 flow velocity 차이에 대한 masked MSE다. Teacher는 PEFT adapter를 끄고 gradient 없이 실행하며 student에만 LoRA를 적용한다. Model-E도 같은 teacher/student 경로를 사용하며 Model-FM은 정답 action FM을 사용한다.
+Model-S는 `loss = fm_weight × FMD + sparc_weight × (-mean joint SPARC)`를 사용한다. FMD는 같은 관측·noise·timestep에서 pretrained와 pretrained+LoRA의 flow velocity 차이에 대한 masked MSE다. Teacher는 PEFT adapter를 끄고 gradient 없이 실행한다. Model-E도 같은 teacher/student 경로를 사용하며 Model-FM은 정답 action FM을 사용한다.
 
-Student clean endpoint의 관절 7개를 pretrained 통계로 역정규화한 뒤 `jerk = Δ³q/dt³`를 계산한다. 네 점이 모두 유효한 window만 평균하며 gripper·EEF·padding을 제외한다. `normalized_jerk_loss = mean(jerk²)/jerk_ref²`이고 기준 RMS는 정답 10개 batch에서 구해 고정한다. 최소 기준은 `1 rad/s³`이며 준비 단계는 optimizer step을 사용하지 않는다. 설정은 `ModelSConfig`, 계산은 `masked_jerk_loss()`에서 수정한다.
+Student clean endpoint의 관절 7개를 pretrained 통계로 역정규화하고 각 관절의 절대 속도 프로파일에서 SPARC를 계산한다. SPARC가 덜 음수일수록 부드러우므로 loss는 부호를 반전한다. 속도 크기에 불변이며, 정지 프로파일은 학습에서 score=0으로 정의한다. 결측 구간을 연결하지 않고 최소 4개 연속 위치가 있는 관절별 구간만 사용한다. 계산은 `src/sparc_loss.py`, 설정·조합은 `src/model_s_loss.py`에 있다. [저자 기준 구현](https://github.com/siva82kb/SPARC/blob/master/scripts/smoothness.py)을 참고했다.
 
-`--s-fmd-weight`(기존 `--s-fm-weight`도 지원), `--s-jerk-lambda`, `--s-jerk-reference`, `--s-calibration-batches`, `--s-dt`로 실험을 조정한다. 기본 FMD 가중치는 1, jerk lambda는 0.01이다. 기준 RMS를 직접 지정하면 측정을 생략한다. 기존 velocity 옵션은 사용하지 않는다.
+`--s-fmd-weight`, `--s-sparc-weight`, `--s-dt`, `--s-sparc-padlevel`, `--s-sparc-cutoff-hz`, `--s-sparc-amplitude-threshold`로 실험을 조정한다. Jerk 기준값 측정은 제거했다. 콘솔·CSV·그래프에 FMD/SPARC loss/total을 기록하고 CSV에는 SPARC 점수와 가중 항도 보관한다. 기존 jerk 목적 함수 checkpoint는 새 SPARC run으로 재개하지 않는다.
 
-콘솔과 CSV에 FMD·가중 FMD·jerk·total을 기록하고 그래프는 FMD/정규화 jerk/total 세 패널이다. Raw jerk와 기준 RMS도 저장한다. 이전 FMD+velocity checkpoint를 새 목적 함수로 재개하지 않고 새 output에서 학습한다. 실제 rollout의 jerk와 성공률 개선은 별도 검증한다.
+Model-E는 `loss = fm_weight × FMD + path_length_weight × mean(sum_t ||FK(q[t+1])-FK(q[t])||₂)`다. Relative joint 출력을 역정규화한 뒤 정규화 전 마지막 관절 state를 더해 절대 관절각으로 복원한다. `src/droid_kinematics.py`는 pinned RoboLab USD에서 추출한 `assets/droid_kinematics.json`으로 미분 가능한 FK를 수행한다. EE는 Robotiq gripper `base_link`이며 단위는 미터다. 모델의 별도 EEF 출력은 사용하지 않는다. 학습 환경에 Isaac Sim이나 USD를 설치할 필요는 없다.
 
-Model-E는 `src/model_e_loss.py`에서 `loss = fm_weight × FMD + path_length_weight × path_length_loss`로 계산한다. `path_length_loss`는 student clean endpoint를 pretrained 통계로 역정규화한 관절 7개의 `sum_t ||q[t+1]-q[t]||₂`에 대한 batch 평균이다. Gripper·EEF·padding·결측 구간을 제외하며 정규화나 dt 계수를 적용하지 않는다. `--e-fmd-weight`(기본 1), `--e-path-length-weight`(기본 0.01)로 두 항을 조절한다. 콘솔·CSV·그래프에 FMD/path length/total을 기록하고 loss 설정도 checkpoint에 저장한다. 기존 FM-only Model-E는 새 output에서 다시 학습한다.
+`--e-fmd-weight`와 `--e-path-length-weight`(별칭 `--e-ee-path-length-weight`)로 두 항을 조절한다. Gripper·padding·결측 구간을 제외하며 정규화나 dt 계수를 적용하지 않는다. 콘솔·CSV·그래프에 FMD/EE path length/total을 기록하고 loss 설정과 FK geometry hash를 checkpoint에 저장한다. 기존 관절 경로 목적 함수 checkpoint는 새 run으로 재개하지 않는다. 두 모델의 새 기본 버전은 `v1712`이며 실제 개선은 RoboLab rollout으로 검증한다.

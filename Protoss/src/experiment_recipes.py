@@ -78,10 +78,13 @@ def _legacy_resume(ctx, output, variant):
         if key.startswith(("s_", "e_")):
             del settings[key]
     if variant == "S":
+        if "sparc_weight" not in lora["model_s"]:
+            raise ValueError("Old Model-S jerk runs cannot resume as SPARC; start a new run")
         for key, value in lora["model_s"].items():
-            if key != "jerk_reference_floor":
-                settings["s_" + ("fm_weight" if key == "fm_weight" else key)] = value
+            settings["s_" + key] = value
     if variant == "E":
+        if lora.get("loss") != "pretrained_flow_preservation+fk_ee_path_length-v1":
+            raise ValueError("Old Model-E joint-path runs cannot resume as FK EE paths; start a new run")
         settings.update(e_fmd_weight=lora["model_e"]["fm_weight"],
                         e_path_length_weight=lora["model_e"]["path_length_weight"])
     return ["--model", variant, "--groot-root", str(ctx.groot), "--dataset-root", str(ctx.data),
