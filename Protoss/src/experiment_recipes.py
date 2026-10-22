@@ -126,13 +126,14 @@ def client(ctx, extra):
     else:
         root = Path(ctx.config.ROBOLAB_51_ROOT)
         command = [root / ".venv-51/bin/python", "-u", root / "policies/gr00t/run.py"]
+        ctx.run(["git", "apply", "--reverse", "--check", ctx.tools / "patches/robolab_fresh_results.patch"], cwd=root)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     name = ctx.args.result_name or ctx.config.RESULT_NAME or f"{ctx.name()}-{stamp}"
     if Path(name).name != name or name in (".", ".."):
         raise ValueError("Result name must be a single folder name")
     results = root / "output" / name
     if results.exists():
-        raise FileExistsError(f"Use a fresh result name; existing directory: {results}")
+        print(f"Previous results will be archived before a new evaluation: {results}", flush=True)
     repo = ctx.repo(ctx.name())
     arguments = ["--headless", "--device", cfg["device"], "--remote-host", ctx.config.SERVER_HOST,
                  "--remote-port", str(ctx.args.port or ctx.config.SERVER_PORT), "--task", *cfg["tasks"],

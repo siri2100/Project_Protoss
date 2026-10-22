@@ -100,7 +100,15 @@ python3 Protoss/run.py client
 python3 Protoss/run.py client --num-runs 1
 ```
 
-`--stack 51`은 기존 5.1 checkout을 사용한다. `--result-name 새이름`으로 결과 폴더를 직접 지정할 수 있지만 기존 폴더는 재사용하지 않는다. Baseline 점수를 보관할 때도 `--repo-id OWNER/EXISTING_MODEL`로 기존 업로드 저장소를 명시한다. 추론 서버와 simulator는 동시에 VRAM을 사용하므로 필요하면 환경 수를 1로 줄인다.
+`--stack 51`은 기존 5.1 checkout을 사용한다. `--result-name 이름`으로 결과 폴더를 직접 지정할 수 있다. 같은 이름의 폴더가 있으면 기존 JSONL·HDF5·metric 전체를 `output/_previous/<이름>/<실행ID>/`에 보관하고 원래 경로를 비운 뒤 **처음부터 새로 평가**한다. 이전 완료 episode를 건너뛰거나 기존 HDF5를 이어 쓰지 않는다. 같은 이름의 평가가 실행 중이면 중단하고 다른 이름을 요구한다. Baseline 점수를 보관할 때도 `--repo-id OWNER/EXISTING_MODEL`로 기존 업로드 저장소를 명시한다. 추론 서버와 simulator는 동시에 VRAM을 사용하므로 필요하면 환경 수를 1로 줄인다.
+
+이 수정은 RoboLab 실행 진입점에도 적용된다. 업데이트 후 `python3 Protoss/run.py setup-robolab`을 한 번 실행한다. 기존 5.1 stack은 `python3 Protoss/run.py patch-client51`을 실행한다. 이후 같은 명령을 반복해도 매번 새 평가를 수행한다.
+
+```bash
+python3 Protoss/run.py client --result-name repeated_test --num-runs 1
+```
+
+로그의 `Archived previous evaluation:`은 이전 결과 보관 위치, `Fresh evaluation output:`은 이번 평가 위치다. 각 폴더의 `evaluation_run.json`에 실행 ID와 이전 경로를 기록한다. `metrics` 명령은 지정한 결과의 점수 재계산·재업로드 전용이며 simulator를 다시 실행하지 않는다.
 
 평가가 정상 완료됐다는 표시와 결과 파일을 확인한 뒤에만 점수를 업로드한다. 성공·실패를 포함한 전체 episode의 유한한 metric 평균, metric별 표본 수, task별·전체 성공률과 평균 score를 기록한다. `experiment/README_exp.md`의 분리·평균 계산과 같은 작업이며 HDF5에서 새 metric을 계산하지 않는다.
 

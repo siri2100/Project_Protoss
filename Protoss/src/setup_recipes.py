@@ -170,3 +170,12 @@ def patch_client51(ctx, extra):
         if not backup.exists():
             shutil.copyfile(target, backup)
         shutil.copyfile(ctx.tools / "src/robolab_gr00t_client.py", target)
+    root = Path(ctx.config.ROBOLAB_51_ROOT)
+    patch = ctx.tools / "patches/robolab_fresh_results.patch"
+    try:
+        ctx.run(["git", "apply", "--reverse", "--check", patch], cwd=root)
+    except subprocess.CalledProcessError:
+        ctx.run(["git", "apply", "--check", patch], cwd=root)
+        ctx.run(["git", "apply", patch], cwd=root)
+    if not ctx.args.dry_run:
+        shutil.copyfile(ctx.tools / "src/robolab_fresh_results.py", root / "robolab/protoss_fresh_results.py")

@@ -1,0 +1,10 @@
+--- a/policies/gr00t/run.py
++++ b/policies/gr00t/run.py
+@@ -34,4 +34,7 @@
+ from robolab.eval.runner import add_common_eval_args, run_evaluation  # noqa: E402
++from robolab.protoss_fresh_results import fresh_evaluation  # noqa: E402
++
++run_evaluation = fresh_evaluation(run_evaluation)
+
+ add_common_eval_args(parser)
+ AppLauncher.add_app_launcher_args(parser)
