@@ -66,7 +66,7 @@ Client는 서버의 영상 `[0]` 또는 `[-15, 0]` 설정에 맞춰 환경별 �
 HF 모델 다운로드부터 서버 시작·점수 계산·HF 업로드까지 한 번에 실행한다. 재학습하지 않으며 **최종 adapter**를 평가한다. 현재 `MODEL_NAME` 또는 `--name`으로 선택한다.
 
 ```bash
-python3 run.py evaluate --name v1713_model_s_step500
+python3 run.py evaluate --name v1712_model_s_step1000
 ```
 
 모델 다운로드도 포함된다. `로그인계정/모델이름`의 학습 run(adapter·processor·설정)과 `nvidia/GR00T-N1.7-DROID`를 자동 다운로드한 뒤 추론 서버를 시작한다. 이미 받은 파일은 캐시를 재사용한다. `--no-hf-upload`를 지정하면 로컬 모델만 사용하므로 두 모델이 미리 준비되어 있어야 한다.
