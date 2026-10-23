@@ -126,7 +126,7 @@ Model-E는 `resume-e`를 사용한다. 같은 run 이름과 loss 설정을 유�
 
 ### 6.5 학습 → RoboLab 테스트 → 평가점수 자동 계산
 
-기본 학습 명령은 **학습 → 그래프 저장 → HF 모델 업로드 → HF 다운로드·추론 서버 → RoboLab 평가 → 점수 계산·HF 업로드**까지 실행한다. 평가 testset은 [robolab_testset.py](Protoss/src/robolab_testset.py)의 지정된 5개 task이며, **각 task를 환경 1개 × 10회 = 총 50 episode** 실행한다. Task별·전체 metric과 성공률을 같은 모델 저장소에 업로드한다. HF 모델 저장소는 기본 `로그인계정/모델이름`이다. 3절의 RoboLab 설치를 먼저 완료해야 하며, 학습 전 사전 검사에서 실패하면 학습을 시작하지 않는다.
+기본 학습 명령은 **학습 → 그래프 저장 → HF 모델 업로드 → HF 다운로드·추론 서버 → RoboLab 평가 → 점수 계산·HF 업로드**까지 실행한다. 평가 testset은 [robolab_testset.py](Protoss/src/robolab_testset.py)의 지정된 5개 task이며, **각 task를 환경 2개를 동시에 실행 × 10회 = 총 100 episode** 실행한다. Task별·전체 metric과 성공률을 같은 모델 저장소에 업로드한다. HF 모델 저장소는 기본 `로그인계정/모델이름`이다. 3절의 RoboLab 설치를 먼저 완료해야 하며, 학습 전 사전 검사에서 실패하면 학습을 시작하지 않는다.
 
 | 추가 옵션 | 동작 |
 |---|---|

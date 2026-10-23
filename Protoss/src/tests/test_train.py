@@ -32,7 +32,7 @@ class ModelTrainingTests(unittest.TestCase):
                     self.assertEqual(args.e_path_length_weight, .01)
                     self.assertFalse(args.no_eval)
                     self.assertEqual(args.eval_tasks, list(TEST_TASKS))
-                    self.assertEqual((args.eval_num_envs, args.eval_num_runs, args.eval_horizon), (1, 10, 8))
+                    self.assertEqual((args.eval_num_envs, args.eval_num_runs, args.eval_horizon), (2, 10, 8))
                     settings.append((args.styles_dir, args.base_model, args.lora_rank,
                         args.lora_alpha, args.seed, args.lr, args.max_steps,
                         args.batch_size, args.gradient_accumulation))

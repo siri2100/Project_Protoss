@@ -61,7 +61,7 @@ def add_evaluation_args(parser):
     group.add_argument("--eval-tasks", nargs="+", default=list(TEST_TASKS))
     group.add_argument("--eval-num-envs", type=_positive, default=TEST_NUM_ENVS)
     group.add_argument("--eval-num-runs", type=_positive, default=TEST_NUM_RUNS,
-                       help="Sequential runs per task; total episodes per task = runs * envs (default: 10 * 1)")
+                       help=f"Sequential runs per task; total episodes per task = runs * envs (default: {TEST_NUM_RUNS} * {TEST_NUM_ENVS})")
     group.add_argument("--eval-horizon", type=_positive, default=8)
     group.add_argument("--eval-seed", type=_seed, default=0)
     group.add_argument("--eval-port", type=_port, default=0, help="Server port; 0 selects a free port")

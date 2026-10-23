@@ -86,14 +86,16 @@ path.write_text(json.dumps({"args": sys.argv[1:], "root": os.environ["PROTOSS_RO
         import argparse
         from src.training_evaluation import add_evaluation_args
         self.config.EVALUATION['tasks'] = [*TEST_TASKS, 'AnimalsInBinTask']
+        self.config.EVALUATION['num_envs'] = 1
         experiments.train(self.ctx, 'S', [])
         self.config.EVALUATION['tasks'] = list(TEST_TASKS)
+        self.config.EVALUATION['num_envs'] = 2
         experiments.resume(self.ctx, 'S', [])
         parser = argparse.ArgumentParser()
         add_evaluation_args(parser)
         args, _ = parser.parse_known_args(self.captured()['args'])
         self.assertEqual(args.eval_tasks, list(TEST_TASKS))
-        self.assertEqual((args.eval_num_envs, args.eval_num_runs), (1, 10))
+        self.assertEqual((args.eval_num_envs, args.eval_num_runs), (2, 10))
 
     def test_step_override_also_changes_generated_output_name(self):
         experiments.train(self.ctx, "E", ["--max-steps", "1000"])
@@ -149,12 +151,13 @@ path.write_text(json.dumps({"args": sys.argv[1:], "root": os.environ["PROTOSS_RO
             start = arguments.index('--eval-tasks') + 1
             end = arguments.index('--eval-num-envs')
             self.assertEqual(arguments[start:end], list(TEST_TASKS))
-            self.assertEqual(arguments[end + 1], '1')
+            self.assertEqual(arguments[end + 1], '2')
             self.assertEqual(arguments[arguments.index('--eval-num-runs') + 1], '10')
         (self.ctx.tools / 'evaluate_robolab.py').write_text((self.ctx.tools / 'train.py').read_text())
         experiments.evaluate(self.ctx, ['--no-hf-upload'])
         arguments = self.captured()['args']
         self.assertEqual(arguments[arguments.index('--eval-tasks') + 1:arguments.index('--eval-num-envs')], list(TEST_TASKS))
+        self.assertEqual(arguments[arguments.index('--eval-num-envs') + 1], '2')
         self.assertEqual(arguments[arguments.index('--eval-num-runs') + 1], '10')
 
     def test_nonempty_output_is_preserved_without_launch_or_process(self):
@@ -185,7 +188,7 @@ path.write_text(json.dumps({"args": sys.argv[1:], "root": os.environ["PROTOSS_RO
         self.assertEqual(results, str(self.ctx.stack / "RoboLab/output" / name))
         self.assertEqual(calls[1][calls[1].index("--hf-repo-id") + 1], "test-owner/" + self.config.MODEL_NAME)
         self.assertEqual(calls[0][calls[0].index('--task') + 1:calls[0].index('--num-envs')], list(TEST_TASKS))
-        self.assertEqual(calls[0][calls[0].index('--num-envs') + 1], '1')
+        self.assertEqual(calls[0][calls[0].index('--num-envs') + 1], '2')
         self.assertEqual(calls[0][calls[0].index('--num-runs') + 1], '10')
 
     def test_legacy_resume_recovers_original_weights_and_lr(self):
