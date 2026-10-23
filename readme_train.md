@@ -96,7 +96,7 @@ python3 run.py prepare-data
 ### 6.1 Model-FMD
 
 ```bash
-python3 run.py train-fmd --name v1713_model_fmd_step500 --steps 500 --save-steps 500 --lr 1e-6
+python3 run.py train-fmd --name v1713_model_fmd_step500 --steps 500 --save-steps 500 --lr 1e-5
 ```
 
 `loss = masked_mean((v_LoRA - stopgrad(v_pretrained))²)`인 **FMD(flow matching distillation)**만 가중치 1로 사용한다. S/E와 같은 관측·noise·timestep을 공유하며, teacher는 adapter를 끄고 gradient 없이 실행한다. 별도 loss weight 옵션은 없다. 구현은 [model_fmd_loss.py](Protoss/src/model_fmd_loss.py)에 있다.
@@ -106,7 +106,7 @@ python3 run.py train-fmd --name v1713_model_fmd_step500 --steps 500 --save-steps
 ### 6.2 Model-S
 
 ```bash
-python3 run.py train-s --name v1713_model_s_step1000 --steps 1000 --save-steps 1000 --lr 1e-5 --s-fmd-weight 1 --s-sparc-weight 0.001
+python3 run.py train-s --name v1713_model_s_step500 --steps 500 --save-steps 500 --lr 1e-5 --s-fmd-weight 1 --s-sparc-weight 0.001
 ```
 
 `loss = fm_weight × FMD + sparc_weight × (-mean joint SPARC)`다. FMD는 같은 관측·noise·timestep에서 pretrained와 LoRA 모델의 flow velocity 차이를 보존한다. 관절 7개의 속도 프로파일에서 SPARC를 계산하며, 부드러울수록 SPARC가 덜 음수이므로 loss에는 부호를 반전한다.
@@ -116,7 +116,7 @@ python3 run.py train-s --name v1713_model_s_step1000 --steps 1000 --save-steps 1
 ### 6.3 Model-E
 
 ```bash
-python3 run.py train-e --name v1713_model_e_step1000 --steps 1000 --save-steps 1000 --lr 1e-5 --e-fmd-weight 1 --e-path-length-weight 0.01
+python3 run.py train-e --name v1713_model_e_step500 --steps 500 --save-steps 500 --lr 1e-5 --e-fmd-weight 1 --e-path-length-weight 0.01
 ```
 
 `loss = fm_weight × FMD + path_length_weight × mean(sum_t ||FK(q[t+1])-FK(q[t])||₂)`다. Joint 출력을 절대 관절각으로 복원한 뒤 RoboLab DROID의 FK로 EE 위치를 계산한다. EE는 Robotiq gripper `base_link`이며 경로 길이 단위는 **미터(m)**다.
@@ -126,7 +126,7 @@ python3 run.py train-e --name v1713_model_e_step1000 --steps 1000 --save-steps 1
 ### 6.4 학습 재개
 
 ```bash
-python3 run.py resume-s --name v1713_model_s_step1000 --steps 1000 --s-fmd-weight 1 --s-sparc-weight 0.001
+python3 run.py resume-s --name v1713_model_s_step500 --steps 500 --s-fmd-weight 1 --s-sparc-weight 0.001
 ```
 
 FMD/E는 `resume-fmd`, `resume-e`를 사용한다. 같은 run 이름과 loss 설정을 유지한다. 생략한 옵션은 저장된 실행 인자를 복원한다. 새 실험에는 새 `--name`을 사용한다. 기존 jerk·관절 path length 목적 함수의 checkpoint는 새 SPARC·EE loss로 재개할 수 없다.
@@ -137,7 +137,7 @@ FMD/E는 `resume-fmd`, `resume-e`를 사용한다. 같은 run 이름과 loss 설
 
 ### 6.6 학습 → RoboLab 테스트 → 평가점수 자동 계산
 
-기본 학습 명령은 **학습 → 그래프 저장 → HF 모델 업로드 → HF 다운로드·추론 서버 → RoboLab 평가 → 점수 계산·HF 업로드**까지 실행한다. HF 모델 저장소는 기본 `로그인계정/모델이름`이다. 3절의 RoboLab 설치를 먼저 완료해야 하며, 학습 전 사전 검사에서 실패하면 학습을 시작하지 않는다.
+기본 학습 명령은 **학습 → 그래프 저장 → HF 모델 업로드 → HF 다운로드·추론 서버 → RoboLab 평가 → 점수 계산·HF 업로드**까지 실행한다. 평가 testset은 [robolab_testset.py](Protoss/src/robolab_testset.py)의 지정된 10개 task이며, **각 task를 환경 1개 × 10회 = 총 100 episode** 실행한다. Task별·전체 metric과 성공률을 같은 모델 저장소에 업로드한다. HF 모델 저장소는 기본 `로그인계정/모델이름`이다. 3절의 RoboLab 설치를 먼저 완료해야 하며, 학습 전 사전 검사에서 실패하면 학습을 시작하지 않는다.
 
 | 추가 옵션 | 동작 |
 |---|---|

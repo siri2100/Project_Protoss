@@ -61,7 +61,24 @@ Client는 서버의 영상 `[0]` 또는 `[-15, 0]` 설정에 맞춰 환경별 �
 python3 Protoss/run.py evaluate
 ```
 
-`EVALUATION` 기본값은 BananaOnPlateTask, 환경 2개 × 5회 = 10 episodes, horizon 8, seed 0이다. 평가마다 새 이름과 빈 포트를 선택하고 종료·실패 시 자신이 띄운 서버를 정리한다. HF 없이 로컬 모델로 평가하려면 `--no-hf-upload`를 추가한다.
+`EVALUATION` 기본값은 아래 10개 task를 **각각 환경 1개 × 10회, 총 100 episode** 평가하며 horizon 8, seed 0이다. 학습 완료 후 자동 평가와 별도 `evaluate`·`client`에 동일하게 적용된다. 목록은 [robolab_testset.py](Protoss/src/robolab_testset.py)에 모았다. 평가마다 새 이름과 빈 포트를 선택하고 종료·실패 시 자신이 띄운 서버를 정리한다. HF 없이 로컬 모델로 평가하려면 `--no-hf-upload`를 추가한다.
+
+평가 task는 다음과 같다.
+
+```text
+AnimalsInBinTask
+AppleAndYogurtInBowlTask
+BagelsOnPlateTask
+BananaInBowlTask
+BananaOnPlateTask
+BananasInBinOneMoreTask
+BananasInBinThreeTotalTask
+BananasInCrateTask
+BananasOutOfBinTask
+BananaThenRubiksCubeTask
+```
+
+반복 수는 `run_config.py`의 `EVALUATION`에서 바꾸거나, 학습·`evaluate`에는 `--eval-num-runs`, 수동 `client`에는 `--num-runs`를 지정한다. RoboLab의 task별 episode 수는 `num_runs × num_envs`다.
 
 ### Server
 
@@ -94,13 +111,13 @@ python3 Protoss/run.py server-baseline
 python3 Protoss/run.py client
 ```
 
-원래 CLI의 반복 수만 바꾸는 예시다.
+디버깅할 때 한 task만 1회 실행하는 예시다.
 
 ```bash
-python3 Protoss/run.py client --num-runs 1
+python3 Protoss/run.py client --task BananaOnPlateTask --num-envs 1 --num-runs 1
 ```
 
-`--stack 51`은 기존 5.1 checkout을 사용한다. `--result-name 이름`으로 결과 폴더를 직접 지정할 수 있다. 같은 이름의 폴더가 있으면 기존 JSONL·HDF5·metric 전체를 `output/_previous/<이름>/<실행ID>/`에 보관하고 원래 경로를 비운 뒤 **처음부터 새로 평가**한다. 이전 완료 episode를 건너뛰거나 기존 HDF5를 이어 쓰지 않는다. 같은 이름의 평가가 실행 중이면 중단하고 다른 이름을 요구한다. Baseline 점수를 보관할 때도 `--repo-id OWNER/EXISTING_MODEL`로 기존 업로드 저장소를 명시한다. 추론 서버와 simulator는 동시에 VRAM을 사용하므로 필요하면 환경 수를 1로 줄인다.
+`--stack 51`은 기존 5.1 checkout을 사용한다. `--result-name 이름`으로 결과 폴더를 직접 지정할 수 있다. 같은 이름의 폴더가 있으면 기존 JSONL·HDF5·metric 전체를 `output/_previous/<이름>/<실행ID>/`에 보관하고 원래 경로를 비운 뒤 **처음부터 새로 평가**한다. 이전 완료 episode를 건너뛰거나 기존 HDF5를 이어 쓰지 않는다. 같은 이름의 평가가 실행 중이면 중단하고 다른 이름을 요구한다. Baseline 점수를 보관할 때도 `--repo-id OWNER/EXISTING_MODEL`로 기존 업로드 저장소를 명시한다. 추론 서버와 simulator는 동시에 VRAM을 사용하며 기본 환경 수는 1개다.
 
 이 수정은 RoboLab 실행 진입점에도 적용된다. 업데이트 후 `python3 Protoss/run.py setup-robolab`을 한 번 실행한다. 기존 5.1 stack은 `python3 Protoss/run.py patch-client51`을 실행한다. 이후 같은 명령을 반복해도 매번 새 평가를 수행한다.
 

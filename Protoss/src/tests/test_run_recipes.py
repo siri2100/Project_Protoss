@@ -16,6 +16,7 @@ from src import experiment_recipes as experiments
 from src import setup_recipes as setup
 from src.recipe_runtime import Recipe
 from src.run_recipes import COMMANDS, main
+from src.robolab_testset import TEST_TASKS
 
 
 class RecipeTests(unittest.TestCase):
@@ -150,6 +151,21 @@ path.write_text(json.dumps({"args": sys.argv[1:], "root": os.environ["PROTOSS_RO
         self.assertNotIn("--hf-repo-id", arguments)
         self.assertIn("--no-hf-upload", arguments)
 
+    def test_all_training_variants_and_standalone_evaluation_pass_the_same_ten_tasks(self):
+        for variant in ('FMD', 'S', 'E'):
+            experiments.train(self.ctx, variant, [])
+            arguments = self.captured()['args']
+            start = arguments.index('--eval-tasks') + 1
+            end = arguments.index('--eval-num-envs')
+            self.assertEqual(arguments[start:end], list(TEST_TASKS))
+            self.assertEqual(arguments[end + 1], '1')
+            self.assertEqual(arguments[arguments.index('--eval-num-runs') + 1], '10')
+        (self.ctx.tools / 'evaluate_robolab.py').write_text((self.ctx.tools / 'train.py').read_text())
+        experiments.evaluate(self.ctx, ['--no-hf-upload'])
+        arguments = self.captured()['args']
+        self.assertEqual(arguments[arguments.index('--eval-tasks') + 1:arguments.index('--eval-num-envs')], list(TEST_TASKS))
+        self.assertEqual(arguments[arguments.index('--eval-num-runs') + 1], '10')
+
     def test_nonempty_output_is_preserved_without_launch_or_process(self):
         self.args.name = "existing"
         output = self.ctx.checkpoints / "existing"
@@ -177,6 +193,9 @@ path.write_text(json.dumps({"args": sys.argv[1:], "root": os.environ["PROTOSS_RO
         results = calls[1][calls[1].index("--results-dir") + 1]
         self.assertEqual(results, str(self.ctx.stack / "RoboLab/output" / name))
         self.assertEqual(calls[1][calls[1].index("--hf-repo-id") + 1], "test-owner/" + self.config.MODEL_NAME)
+        self.assertEqual(calls[0][calls[0].index('--task') + 1:calls[0].index('--num-envs')], list(TEST_TASKS))
+        self.assertEqual(calls[0][calls[0].index('--num-envs') + 1], '1')
+        self.assertEqual(calls[0][calls[0].index('--num-runs') + 1], '10')
 
     def test_legacy_resume_recovers_original_weights_and_lr(self):
         self.args.name = "old_s"

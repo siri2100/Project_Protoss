@@ -4,6 +4,11 @@ Paths are resolved from this checkout, including Project_Protoss2 on RunPod.
 Tokens belong in the Hugging Face login cache, never in this file.
 """
 
+if __package__:
+    from .src.robolab_testset import TEST_TASKS, TEST_NUM_ENVS, TEST_NUM_RUNS
+else:
+    from src.robolab_testset import TEST_TASKS, TEST_NUM_ENVS, TEST_NUM_RUNS
+
 GROOT_DIRECTORY = "Issac-GR00T-N17"
 HF_HOME = "/workspace/.cache/huggingface"
 CUDA_VISIBLE_DEVICES = "0"
@@ -32,7 +37,7 @@ TRAIN = {
 
 # Used by automatic evaluation after training and by the manual client.
 EVALUATION = dict(
-    tasks=["BananaOnPlateTask"], num_envs=2, num_runs=5,
+    tasks=list(TEST_TASKS), num_envs=TEST_NUM_ENVS, num_runs=TEST_NUM_RUNS,
     horizon=8, seed=0, device="cuda:0", server_timeout=600,
 )
 

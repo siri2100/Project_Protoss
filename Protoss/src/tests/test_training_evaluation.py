@@ -12,6 +12,7 @@ from unittest.mock import Mock, patch
 
 from src import training_evaluation as pipeline
 from src.robolab_results import process_results
+from src.robolab_testset import TEST_TASKS
 
 
 class TrainingEvaluationTests(unittest.TestCase):
@@ -85,9 +86,13 @@ if mode == "client_failure": sys.exit(10)
 name = sys.argv[sys.argv.index("--output-folder-name") + 1]
 root = pathlib.Path(os.environ["ROBOLAB_595_ROOT"]) / "RoboLab/output" / name
 root.mkdir(parents=True)
-row = {"task_name": "BananaOnPlateTask", "success": True, "score": 1,
-       "metrics": {"speed": 2, "path_length": 3}}
-(root / "episode_results.jsonl").write_text(json.dumps(row) + "\\n")
+tasks = sys.argv[sys.argv.index("--task") + 1:sys.argv.index("--num-envs")]
+num_envs = int(sys.argv[sys.argv.index("--num-envs") + 1])
+num_runs = int(sys.argv[sys.argv.index("--num-runs") + 1])
+rows = [{"task_name": task, "success": True, "score": 1,
+         "run_idx": run_idx, "env_id": env_id, "metrics": {"speed": 2, "path_length": 3}}
+        for task in tasks for run_idx in range(num_runs) for env_id in range(num_envs)]
+(root / "episode_results.jsonl").write_text("\\n".join(json.dumps(row) for row in rows) + "\\n")
 ''')
         (self.tools / "setup_robolab_595.sh").write_text(
             f'#!/bin/bash\nexec "{sys.executable}" "{self.tools / "client.py"}" "$@"\n')
@@ -114,6 +119,13 @@ row = {"task_name": "BananaOnPlateTask", "success": True, "score": 1,
         summary = json.loads((metrics / "metrics_summary.json").read_text())
         self.assertEqual(summary["overall"]["metric_averages"]["path_length"], 3)
         self.assertTrue((metrics / "evaluation_config.json").is_file())
+        self.assertEqual(status['tasks'], list(TEST_TASKS))
+        self.assertEqual((status['num_envs'], status['num_runs']), (1, 10))
+        self.assertEqual(len(summary['tasks']), 10)
+        self.assertEqual([task['task_name'] for task in summary['tasks']], list(TEST_TASKS))
+        self.assertTrue(all(task['records'] == 10 for task in summary['tasks']))
+        self.assertEqual(summary['overall']['records'], 100)
+        self.assertEqual(len((metrics / 'episode_results.jsonl').read_text().splitlines()), 100)
         self.assert_server_stopped()
 
     def test_hf_destination_download_and_metric_publication_are_same(self):

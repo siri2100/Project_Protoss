@@ -16,6 +16,8 @@ import subprocess
 import sys
 import time
 
+from .robolab_testset import TEST_TASKS, TEST_NUM_ENVS, TEST_NUM_RUNS
+
 TOOLS = Path(__file__).resolve().parents[1]
 
 
@@ -56,9 +58,10 @@ def add_evaluation_args(parser):
     group.add_argument("--no-eval", action="store_true", help="Train/upload only; skip RoboLab")
     group.add_argument("--eval-stack-root", type=Path,
                        default=Path(os.environ.get("ROBOLAB_595_ROOT", "/workspace/robolab-595")))
-    group.add_argument("--eval-tasks", nargs="+", default=["BananaOnPlateTask"])
-    group.add_argument("--eval-num-envs", type=_positive, default=2)
-    group.add_argument("--eval-num-runs", type=_positive, default=5)
+    group.add_argument("--eval-tasks", nargs="+", default=list(TEST_TASKS))
+    group.add_argument("--eval-num-envs", type=_positive, default=TEST_NUM_ENVS)
+    group.add_argument("--eval-num-runs", type=_positive, default=TEST_NUM_RUNS,
+                       help="Sequential runs per task; total episodes per task = runs * envs (default: 10 * 1)")
     group.add_argument("--eval-horizon", type=_positive, default=8)
     group.add_argument("--eval-seed", type=_seed, default=0)
     group.add_argument("--eval-port", type=_port, default=0, help="Server port; 0 selects a free port")
