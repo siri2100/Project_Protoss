@@ -8,6 +8,6 @@ TEST_TASKS = (
     "BananasInCrateTask",
 )
 
-# RoboLab runs num_envs episodes per sequential run: 5 tasks * 2 * 10 = 100.
+# RoboLab runs num_envs episodes per sequential run: 5 tasks * 2 * 5 = 50.
 TEST_NUM_ENVS = 2
-TEST_NUM_RUNS = 10
+TEST_NUM_RUNS = 5

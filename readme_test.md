@@ -71,7 +71,7 @@ python3 run.py evaluate --name v1712_model_e_step1000
 
 모델 다운로드도 포함된다. `로그인계정/모델이름`의 학습 run(adapter·processor·설정)과 `nvidia/GR00T-N1.7-DROID`를 자동 다운로드한 뒤 추론 서버를 시작한다. 이미 받은 파일은 캐시를 재사용한다. `--no-hf-upload`를 지정하면 로컬 모델만 사용하므로 두 모델이 미리 준비되어 있어야 한다.
 
-`EVALUATION` 기본값은 아래 5개 task를 **각각 환경 2개를 동시에 실행 × 10회, 총 100 episode** 평가하며 horizon 8, seed 0이다. 학습 완료 후 자동 평가와 별도 `evaluate`·`client`에 동일하게 적용된다. 목록은 [robolab_testset.py](Protoss/src/robolab_testset.py)에 모았다. 평가마다 새 이름과 빈 포트를 선택하고 종료·실패 시 자신이 띄운 서버를 정리한다. HF 없이 로컬 모델로 평가하려면 `--no-hf-upload`를 추가한다.
+`EVALUATION` 기본값은 아래 5개 task를 **각각 2 env × 5회 = 10 episode씩, 전체 50 episode** 평가하며 horizon 8, seed 0이다. 학습 완료 후 자동 평가와 별도 `evaluate`·`client`에 동일하게 적용된다. 목록은 [robolab_testset.py](Protoss/src/robolab_testset.py)에 모았다. 평가마다 새 이름과 빈 포트를 선택하고 종료·실패 시 자신이 띄운 서버를 정리한다. HF 없이 로컬 모델로 평가하려면 `--no-hf-upload`를 추가한다.
 
 평가 task는 다음과 같다.
 
@@ -83,7 +83,9 @@ BananasInBinThreeTotalTask
 BananasInCrateTask
 ```
 
-반복 수는 `run_config.py`의 `EVALUATION`에서 바꾸거나, 학습·`evaluate`에는 `--eval-num-runs`, 수동 `client`에는 `--num-runs`를 지정한다. RoboLab의 task별 episode 수는 `num_runs × num_envs`다.
+기본 로그의 `Running ... (run 0~4, 2 envs)`는 5번의 동시 실행을 뜻한다. `Task_0 complete`부터 `Task_9 complete`까지는 두 env의 개별 episode 결과다. 성공·실패 모두 10개 평가에 포함한다.
+
+반복 수는 `run_config.py`의 `EVALUATION`에서 바꾸거나, 학습·`evaluate`에는 `--eval-num-runs 5`, 수동 `client`에는 `--num-runs 5`를 지정한다. RoboLab의 task별 episode 수는 `num_runs × num_envs`다. 이미 실행 중인 프로세스에는 설정 변경이 적용되지 않는다.
 
 ### Server
 
