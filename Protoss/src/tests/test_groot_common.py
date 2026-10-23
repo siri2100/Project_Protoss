@@ -116,9 +116,8 @@ class CommonTests(unittest.TestCase):
                 self.data.datasets = value["data"]["datasets"]
                 return self
         modules = {name: types.ModuleType(name) for name in
-                   ("torch", "gr00t", "gr00t.configs", "gr00t.configs.base_config",
+                   ("gr00t", "gr00t.configs", "gr00t.configs.base_config",
                     "gr00t.data", "gr00t.data.embodiment_tags")}
-        modules["torch"].cuda = types.SimpleNamespace(is_available=lambda: True)
         modules["gr00t.configs.base_config"].get_default_config = Config
         modules["gr00t.data.embodiment_tags"].EmbodimentTag = types.SimpleNamespace(
             resolve=lambda tag: types.SimpleNamespace(value=tag.lower()))
@@ -128,7 +127,8 @@ class CommonTests(unittest.TestCase):
         processor.load_training_modalities = lambda *args: {styles.TAG.lower(): {"video": {"delta_indices": [-15, 0]}}}
         processor.processor_contract = lambda *args: {"statistics.json": "original-hash"}
         modules["src.training_processor_settings"] = processor
-        with tempfile.TemporaryDirectory() as tmp, patch.dict(sys.modules, modules):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(sys.modules, modules), \
+                patch('torch.cuda.is_available', return_value=True):
             root = Path(tmp).resolve()
             styles.write_json(root / "styles.json", {"splits": {"train": [1, 2]}})
             (root / "trainset/meta").mkdir(parents=True)
@@ -139,9 +139,11 @@ class CommonTests(unittest.TestCase):
                 args = argparse.Namespace(styles_dir=root, style=style, base_model=root / "original",
                          output_dir=root / ("model_" + style), seed=42, batch_size=2,
                          gradient_accumulation=16, lr=1e-5, max_steps=2000, save_steps=500,
-                         workers=2, resume=False, variant=style, lora_rank=32,
+                         workers=2, resume=False, variant="FMD", lora_rank=32,
                          lora_alpha=64, state_dropout_prob=0.0)
-                config, _ = training.prepare_training(args)
+                config, settings = training.prepare_training(args)
+                self.assertEqual(settings['variant'], 'FMD')
+                self.assertEqual(settings['loss'], 'pretrained_flow_distillation-v1')
                 captured.append(config)
                 # Refuse accidental rerun/overwrite, before calling the trainer.
                 with self.assertRaises(ValueError):
@@ -149,6 +151,11 @@ class CommonTests(unittest.TestCase):
                 settings_path = args.output_dir / "lora_settings.json"
                 legacy_settings = json.loads(settings_path.read_text())
                 original_style = (args.output_dir / "style_run.json").read_bytes()
+                settings_path.write_text(json.dumps({**legacy_settings, 'variant': 'FM', 'loss': 'FM'}))
+                args.resume = True
+                with self.assertRaisesRegex(ValueError, 'Old FM runs'):
+                    training.prepare_training(args)
+                self.assertEqual((args.output_dir / "style_run.json").read_bytes(), original_style)
                 old_policy = dict(legacy_settings)
                 old_policy.pop("processor_policy")
                 settings_path.write_text(json.dumps(old_policy))

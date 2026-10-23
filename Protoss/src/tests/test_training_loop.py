@@ -20,6 +20,7 @@ from transformers import Trainer, TrainerCallback, TrainingArguments
 import train as entry
 from src import training_runtime as runtime
 from src.groot_lora import install_lora
+from src.model_fmd_loss import ModelFMDLoss
 
 from src import inference_loading as inference
 
@@ -88,6 +89,7 @@ class ExplicitLoopTests(unittest.TestCase):
             root = Path(tmp)
             session = self.make_session(root)
             session.args.variant = "E"
+            session.distillation = None
             objective = ModelELoss(ModelEConfig(fm_weight=2., path_length_weight=3.),
                                   torch.ones(7), torch.zeros(7))
             def forward(model, inputs, diagnostics=False):
@@ -151,6 +153,7 @@ class ExplicitLoopTests(unittest.TestCase):
             root = Path(tmp)
             session = self.make_session(root)
             session.smoothness = ModelSLoss(ModelSConfig(), torch.ones(7), torch.zeros(7))
+            session.distillation = None
             session.step = 1
             with self.checkpoint_callback():
                 runtime.save_checkpoint(session)
@@ -177,11 +180,18 @@ class ExplicitLoopTests(unittest.TestCase):
         trainer = Trainer(model=model, args=arguments)
         trainer.create_optimizer_and_scheduler(num_training_steps=4)
         args = SimpleNamespace(output_dir=root, resume=resume, max_steps=4,
-                               no_hf_upload=True, variant="FM",
+                               no_hf_upload=True, variant="FMD",
                                gradient_accumulation=accumulation, save_steps=2)
         config = SimpleNamespace(training=SimpleNamespace(bf16=False, max_grad_norm=1.0))
         checkpoint = runtime.restore_checkpoint(trainer, args)
         session = runtime.TrainingSession(trainer, MagicMock(), config, args, {"base_model": "/pretrained"}, [])
+        session.distillation = ModelFMDLoss()
+        # Keep this scalar fixture focused on optimizer/RNG/accumulation behavior.
+        # Actual teacher/student flow and PEFT gradients are tested separately.
+        def distill(model, inputs, diagnostics=False):
+            loss = model(**inputs)["loss"]
+            return loss, {"fmd_loss": loss.item()}
+        session.distillation.forward = distill
         def save_processor(directory):
             directory = Path(directory)
             directory.mkdir(parents=True, exist_ok=True)
@@ -245,6 +255,14 @@ class ExplicitLoopTests(unittest.TestCase):
             self.assertEqual(accumulated.model.calls, 8)
             self.assertEqual(combined.model.calls, 4)
             self.assertEqual(accumulated.step, 4)
+            self.assertTrue(all(row['fmd_loss'] == row['loss'] for row in accumulated.trainer.state.log_history))
+            runtime.export_model(accumulated)
+            for path in (root / 'accumulated/model_fmd_loss.json', root / 'accumulated/checkpoint-4/model_fmd_loss.json'):
+                ModelFMDLoss().load_state_dict(json.loads(path.read_text()))
+            with (root / 'accumulated/training_loss.csv').open() as stream:
+                rows = list(csv.DictReader(stream))
+            self.assertEqual(rows[0]['fmd_loss'], rows[0]['total_loss'])
+            self.assertNotIn('sparc_loss', rows[0])
 
     def test_resume_matches_uninterrupted_weights_scheduler_and_rng(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -280,7 +298,7 @@ class ExplicitLoopTests(unittest.TestCase):
             for name in ("optimizer.pt", "scheduler.pt", "rng_state.pth", "trainer_state.json"):
                 self.assertTrue((checkpoint / name).is_file())
 
-    def test_checkpoint_from_original_trainer_can_resume(self):
+    def test_native_trainer_optimizer_state_can_restore(self):
         class StopAfterTwo(TrainerCallback):
             def on_step_end(self, args, state, control, **kwargs):
                 if state.global_step == 2:

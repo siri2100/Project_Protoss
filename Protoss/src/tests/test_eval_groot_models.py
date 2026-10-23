@@ -15,7 +15,7 @@ class EvaluationTests(unittest.TestCase):
             (root / "styles.json").write_text(json.dumps({"style_method": "original", "synthetic": False,
                 "splits": {"train": [{"source_episode": 0}, {"source_episode": 1}]}}))
             commands = []
-            for model in ("baseline", "FM", "S", "E"):
+            for model in ("baseline", "FMD", "S", "E", "FM"):
                 argv = ["eval", "--model", model, "--groot-root", str(root), "--dataset-root", str(root),
                         "--model-path", str(root / ("model_" + model)), "--output-dir", str(root / ("eval_" + model))]
                 with patch.object(sys, "argv", argv), patch.object(evaluation.subprocess, "run") as run:

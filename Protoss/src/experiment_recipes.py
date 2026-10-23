@@ -67,8 +67,12 @@ def _legacy_resume(ctx, output, variant):
     """Recover existing README runs from their saved settings, not today's weights/LR."""
     lora = json.loads((output / "lora_settings.json").read_text())
     style = json.loads((output / "style_run.json").read_text())
-    if lora.get("variant") not in (variant, "1" if variant == "FM" else variant):
+    if variant == "FMD" and lora.get("variant") in ("FM", "1"):
+        raise ValueError("Old FM runs cannot resume as Model-FMD; start a new distillation run")
+    if lora.get("variant") != variant:
         raise ValueError("Saved run belongs to a different model")
+    if variant == "FMD" and lora.get("loss") != "pretrained_flow_distillation-v1":
+        raise ValueError("Model-FMD resume requires the same flow distillation objective")
     settings = {**ctx.config.TRAIN_COMMON, **ctx.config.TRAIN[variant]}
     settings.pop("version")
     for key in ("batch_size", "lr", "max_steps", "gradient_accumulation", "seed"):

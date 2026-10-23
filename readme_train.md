@@ -4,7 +4,7 @@ RunPod Linux x86_64, CUDA/RTX GPU 기준이다. 아래 순서로 설치한 뒤 �
 
 | 모델 | Loss |
 |---|---|
-| Model-FM | 정답 action의 FM |
+| Model-FMD | flow matching distillation (FMD) |
 | Model-S | weighted FMD + joint SPARC loss |
 | Model-E | weighted FMD + FK EE path length |
 
@@ -81,7 +81,7 @@ python3 run.py prepare-data
 
 데이터는 `<프로젝트>/Protoss/data`, pretrained와 학습 모델은 **프로젝트 바로 상위의 `checkpoint/`**에 저장한다. 예: `/workspace/Project_Protoss` → `/workspace/checkpoint`. `cd Protoss` 여부는 저장 경로에 영향을 주지 않는다.
 
-## 6. Model-FM/S/E LoRA 학습
+## 6. Model-FMD/S/E LoRA 학습
 
 세 모델 모두 같은 원본 데이터와 pretrained 모델에서 QKV + FFN LoRA를 독립 학습한다. 명령 인자는 [run_config.py](Protoss/run_config.py) 기본값보다 우선한다.
 
@@ -89,17 +89,19 @@ python3 run.py prepare-data
 |---|---|
 | 모델 이름·학습/save step·LR | `--name`, `--steps`, `--save-steps`, `--lr` |
 | rank·alpha·batch·gradient accumulation·workers | `TRAIN_COMMON` |
-| 모델별 기본값·loss weight | `TRAIN["FM"/"S"/"E"]` |
+| 모델별 기본값·loss weight | `TRAIN["FMD"/"S"/"E"]` |
 | 평가 task·환경 수·반복 수·horizon·seed | `EVALUATION` |
 | HF 업로드 계정 | `HF_ACCOUNT` (기본: 로그인 계정) |
 
-### 6.1 Model-FM
+### 6.1 Model-FMD
 
 ```bash
-python3 run.py train-fm --name v1614_model_fm_step500 --steps 500 --save-steps 500 --lr 1e-6
+python3 run.py train-fmd --name v1713_model_fmd_step500 --steps 500 --save-steps 500 --lr 1e-6
 ```
 
-정답 action의 FM loss를 가중치 1로 사용한다. 별도 loss weight 옵션은 없다.
+`loss = masked_mean((v_LoRA - stopgrad(v_pretrained))²)`인 **FMD(flow matching distillation)**만 가중치 1로 사용한다. S/E와 같은 관측·noise·timestep을 공유하며, teacher는 adapter를 끄고 gradient 없이 실행한다. 별도 loss weight 옵션은 없다. 구현은 [model_fmd_loss.py](Protoss/src/model_fmd_loss.py)에 있다.
+
+기본 LoRA 초기화는 pretrained와 출력이 같아 FMD와 gradient가 0이다. FMD 단독 학습에서는 출력이 그대로 유지되는 대조군이 되며, S/E는 보조 loss가 모델을 변화시킨다. 기존 FM checkpoint는 새 FMD로 재개할 수 없으므로 새 이름으로 학습한다.
 
 ### 6.2 Model-S
 
@@ -127,11 +129,11 @@ python3 run.py train-e --name v1713_model_e_step1000 --steps 1000 --save-steps 1
 python3 run.py resume-s --name v1713_model_s_step1000 --steps 1000 --s-fmd-weight 1 --s-sparc-weight 0.001
 ```
 
-FM/E는 `resume-fm`, `resume-e`를 사용한다. 같은 run 이름과 loss 설정을 유지한다. 생략한 옵션은 저장된 실행 인자를 복원한다. 새 실험에는 새 `--name`을 사용한다. 기존 jerk·관절 path length 목적 함수의 checkpoint는 새 SPARC·EE loss로 재개할 수 없다.
+FMD/E는 `resume-fmd`, `resume-e`를 사용한다. 같은 run 이름과 loss 설정을 유지한다. 생략한 옵션은 저장된 실행 인자를 복원한다. 새 실험에는 새 `--name`을 사용한다. 기존 jerk·관절 path length 목적 함수의 checkpoint는 새 SPARC·EE loss로 재개할 수 없다.
 
 ### 6.5 학습 로그와 저장 파일
 
-콘솔에 FMD·보조 loss·total을 출력하고 `training_loss.csv`, `training_loss.png`에 기록한다. 그래프는 각 loss와 total의 세 패널이다(Model-FM은 FM 하나). 모델 폴더에는 `checkpoint-*/`, `adapter/`, `processor/`, loss 설정과 학습 그래프를 저장한다.
+콘솔에 FMD·보조 loss·total을 출력하고 `training_loss.csv`, `training_loss.png`에 기록한다. 그래프는 각 loss와 total의 세 패널이다(Model-FMD는 FMD 하나). 모델 폴더에는 `checkpoint-*/`, `adapter/`, `processor/`, loss 설정과 학습 그래프를 저장한다.
 
 ### 6.6 학습 → RoboLab 테스트 → 평가점수 자동 계산
 

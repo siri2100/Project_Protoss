@@ -1,4 +1,4 @@
-"""Model-S/E forward: pretrained flow preservation plus clean endpoint inputs.
+"""Model-FMD/S/E forward: pretrained flow distillation and clean endpoint inputs.
 
 The noise/time/DiT prediction is shared by FMD and the motion objectives.
 """
@@ -63,15 +63,15 @@ def flow_action_head_forward(head, backbone_output, action_input):
         velocity = head.action_decoder(hidden, embodiment_id)[:, -actions.shape[1]:]
     mask = action_input.action_mask
     action_loss = (velocity.float() - teacher_velocity.float().detach()).square() * mask
-    fm_loss = action_loss.sum() / (mask.sum() + 1e-6)
+    fmd_loss = action_loss.sum() / (mask.sum() + 1e-6)
     return {"noisy": noisy, "t": t, "velocity": velocity,
             "teacher_velocity": teacher_velocity.detach(),
-            "action_mask": mask, "loss": fm_loss}
+            "action_mask": mask, "loss": fmd_loss}
 
 
 @contextmanager
 def flow_preservation_forward(head):
-    """Restore native forward even on failure; inference and Model-FM are unaffected."""
+    """Use teacher/student flow during training; restore native inference forward."""
     had_override = "forward" in head.__dict__
     original = head.forward
     head.forward = MethodType(flow_action_head_forward, head)

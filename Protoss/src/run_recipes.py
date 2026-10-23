@@ -33,7 +33,7 @@ COMMANDS = {
     "check": experiments.check,
     "plot-distribution": experiments.plot_distribution,
 }
-for variant in ("FM", "S", "E"):
+for variant in ("FMD", "S", "E"):
     COMMANDS["train-" + variant.lower()] = lambda ctx, extra, v=variant: experiments.train(ctx, v, extra)
     COMMANDS["resume-" + variant.lower()] = lambda ctx, extra, v=variant: experiments.resume(ctx, v, extra)
 
@@ -43,6 +43,7 @@ def main(argv=None):
         description=__doc__, allow_abbrev=False,
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""Examples:
+  python3 Protoss/run.py train-fmd --name my_model_fmd --steps 500 --lr 1e-6
   python3 Protoss/run.py train-s --name my_model_s --steps 2000 --lr 1e-6
   python3 Protoss/run.py train-e --steps 1000 --save-steps 250 --e-path-length-weight 0.02
   python3 Protoss/run.py server --model-name my_model_s --checkpoint-step 500

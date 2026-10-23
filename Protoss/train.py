@@ -1,4 +1,4 @@
-"""Train the controlled GR00T Model-FM/S/E LoRA experiments."""
+"""Train the controlled GR00T Model-FMD/S/E LoRA experiments."""
 import argparse
 import json
 import sys
@@ -37,7 +37,7 @@ def configure_training(config, args):
 def parse_args():
     """Parse and validate training command-line arguments."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model", dest="variant", choices=["FM", "S", "E"], required=True)
+    parser.add_argument("--model", dest="variant", choices=["FMD", "S", "E"], required=True)
     parser.add_argument("--groot-root", type=Path, required=True)
     parser.add_argument("--dataset-root", dest="styles_dir", type=Path, required=True)
     parser.add_argument("--base-model", type=Path, required=True)
@@ -140,7 +140,7 @@ def prepare_training(args):
     lora_settings = {"backend": "peft", "variant": args.variant, "rank": args.lora_rank, "alpha": args.lora_alpha,
                         "target_scope": LORA_TARGET_SCOPE,
                         "base_model": str(args.base_model.resolve()), "dataset": str(dataset),
-                        "seed": args.seed, "loss": "FM",
+                        "seed": args.seed, "loss": "pretrained_flow_distillation-v1",
                         "processor_policy": "pretrained-v1", "processor_sha256": processor_contract(args.base_model),
                         "video_delta_indices": video_indices, "override_pretraining_statistics": False}
     if args.variant == "S":
@@ -162,9 +162,8 @@ def prepare_training(args):
     settings_path = args.output_dir / "lora_settings.json"
     if args.resume:
         previous = json.loads(settings_path.read_text()) if settings_path.exists() else None
-        # Model 1 is the former name of the same FM experiment.
-        if previous is not None and previous.get("variant") == "1":
-            previous["variant"] = "FM"
+        if args.variant == "FMD" and previous is not None and previous.get("variant") in ("FM", "1"):
+            raise ValueError("Old FM runs cannot resume as Model-FMD; start a new distillation run")
         if previous is not None and previous.get("backend") != "peft":
             raise ValueError("PEFT training cannot resume legacy custom-LoRA checkpoints; use a new output directory")
         if args.variant == "S" and previous is not None and "model_s" in previous:
@@ -201,7 +200,9 @@ def main(args):
     config, lora_settings = prepare_training(args)
     with setup_training(config, args, lora_settings) as training:
         model = training.model
-        objective = training.smoothness if training.smoothness is not None else getattr(training, "efficiency", None)
+        objective = training.objective
+        if objective is None:
+            raise ValueError(f"Missing loss objective for Model-{args.variant}")
         if training.smoothness is not None:
             print(f"Model-S objective=fm_weight*pretrained_flow_MSE+sparc_weight*(-joint_SPARC); "
                   f"fm_weight={training.smoothness.config.fm_weight:.8g}; "
@@ -210,6 +211,9 @@ def main(args):
             print(f"Model-E objective=fm_weight*pretrained_flow_MSE+path_length_weight*FK_ee_path_length; "
                   f"fm_weight={training.efficiency.config.fm_weight:.8g}; "
                   f"path_length_weight={training.efficiency.config.path_length_weight:.8g}", flush=True)
+        else:
+            print("Model-FMD objective=masked_MSE(v_LoRA, stopgrad(v_pretrained)); weight=1", flush=True)
+            print("Default zero-output LoRA matches the teacher: pure FMD starts at zero loss/gradient.", flush=True)
         for step in range(training.step + 1, args.max_steps + 1):
             step_loss = 0.0
             step_metrics = {}
@@ -217,23 +221,19 @@ def main(args):
             for microstep, batch in enumerate(training.batches(args.gradient_accumulation)):
                 inputs = preprocess(batch, training)
                 with training.autocast():
-                    if objective is None:
-                        model_output = model(**inputs)
-                        loss = model_output["loss"] / args.gradient_accumulation
-                    else:
-                        total, metrics = objective.forward(model, inputs, diagnostics=microstep == 0)
-                        loss = total / args.gradient_accumulation
-                        for key, value in metrics.items():
-                            # Gradient diagnostics are sampled once per optimizer step.
-                            divisor = 1 if key.endswith("grad_norm") else args.gradient_accumulation
-                            step_metrics[key] = step_metrics.get(key, 0.0) + value / divisor
+                    total, metrics = objective.forward(model, inputs, diagnostics=microstep == 0)
+                    loss = total / args.gradient_accumulation
+                    for key, value in metrics.items():
+                        # Gradient diagnostics are sampled once per optimizer step.
+                        divisor = 1 if key.endswith("grad_norm") else args.gradient_accumulation
+                        step_metrics[key] = step_metrics.get(key, 0.0) + value / divisor
                 loss.backward()
                 step_loss += loss.detach().item()
 
             update_weights(training)
             training.step = step
             record_training_loss(training, step_loss, **step_metrics)
-            if objective is not None:
+            if training.smoothness is not None or training.efficiency is not None:
                 motion = (f"sparc_loss={step_metrics['sparc_loss']:.6f} "
                           if training.smoothness is not None else
                           f"path_length_loss={step_metrics['path_length_loss']:.6f} ")
@@ -243,7 +243,8 @@ def main(args):
                       f"{motion}"
                       f"total_loss={step_loss:.6f}", flush=True)
             else:
-                print(f"step={step}/{args.max_steps} loss={step_loss:.6f}", flush=True)
+                print(f"step={step}/{args.max_steps} fmd_loss={step_metrics['fmd_loss']:.6f} "
+                      f"total_loss={step_loss:.6f}", flush=True)
             if step % args.save_steps == 0 or step == args.max_steps:
                 save_checkpoint(training)
 
