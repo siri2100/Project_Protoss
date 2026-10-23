@@ -53,7 +53,7 @@ path.write_text(json.dumps({"args": sys.argv[1:], "root": os.environ["PROTOSS_RO
         self.assertEqual(main(['train-fmd', '--project-root', str(self.root), '--steps', '750', '--no-eval']), 0)
         arguments = self.captured()['args']
         self.assertEqual(arguments[arguments.index('--model') + 1], 'FMD')
-        self.assertEqual(Path(arguments[arguments.index('--output-dir') + 1]).name, 'v1713_model_fmd_step750')
+        self.assertEqual(Path(arguments[arguments.index('--output-dir') + 1]).name, 'v1.7.13_model_fmd_step750')
         self.assertIn('train-fmd', COMMANDS)
         self.assertIn('resume-fmd', COMMANDS)
         self.assertNotIn('train-fm', COMMANDS)
@@ -90,10 +90,10 @@ path.write_text(json.dumps({"args": sys.argv[1:], "root": os.environ["PROTOSS_RO
         for flag, value in (("--model", "S"), ("--max-steps", "2000"), ("--save-steps", "500"),
                             ("--workers", "1"), ("--s-fmd-weight", "1"), ("--s-sparc-weight", "0.001")):
             self.assertEqual(arguments[arguments.index(flag) + 1], value)
-        output = self.ctx.checkpoints / "v1712_model_s_step2000"
+        output = self.ctx.checkpoints / "v1.7.13_model_s_step2000"
         self.assertEqual(arguments[arguments.index("--output-dir") + 1], str(output))
         self.assertFalse(output.exists())  # launch metadata must not make train.py reject a new run
-        self.assertTrue((self.ctx.checkpoints / "launches/v1712_model_s_step2000.json").is_file())
+        self.assertTrue((self.ctx.checkpoints / "launches/v1.7.13_model_s_step2000.json").is_file())
 
     def test_resume_uses_saved_loss_and_lr_after_config_changes(self):
         experiments.train(self.ctx, "S", ["--no-eval"])
@@ -107,7 +107,7 @@ path.write_text(json.dumps({"args": sys.argv[1:], "root": os.environ["PROTOSS_RO
     def test_step_override_also_changes_generated_output_name(self):
         experiments.train(self.ctx, "E", ["--max-steps", "1000"])
         arguments = self.captured()["args"]
-        self.assertEqual(Path(arguments[arguments.index("--output-dir") + 1]).name, "v1712_model_e_step1000")
+        self.assertEqual(Path(arguments[arguments.index("--output-dir") + 1]).name, "v1.7.13_model_e_step1000")
 
     def test_cli_accepts_name_steps_lr_and_loss_without_separator(self):
         result = main(["train-s", "--project-root", str(self.root), "--model-name", "from_cli",
@@ -126,7 +126,7 @@ path.write_text(json.dumps({"args": sys.argv[1:], "root": os.environ["PROTOSS_RO
         self.assertEqual(main(["train-e", "--project-root", str(self.root), "--step", "800"]), 0)
         arguments = self.captured()["args"]
         self.assertEqual(Path(arguments[arguments.index("--output-dir") + 1]).name,
-                         "v1712_model_e_step800")
+                         "v1.7.13_model_e_step800")
         self.assertEqual(main(["resume-e", "--project-root", str(self.root), "--max-steps", "1200"]), 0)
         arguments = self.captured()["args"]
         self.assertEqual([arguments[i + 1] for i, token in enumerate(arguments) if token == "--max-steps"][-1], "1200")

@@ -1,4 +1,4 @@
-# Project Protoss v1.7 — 학습
+# Project Protoss v1.7.13 — 학습
 
 RunPod Linux x86_64, CUDA/RTX GPU 기준이다. 아래 순서로 설치한 뒤 모델별 학습 명령을 실행한다.
 
@@ -83,7 +83,7 @@ python3 run.py prepare-data
 
 ## 6. Model-FMD/S/E LoRA 학습
 
-세 모델 모두 같은 원본 데이터와 pretrained 모델에서 QKV + FFN LoRA를 독립 학습한다. 명령 인자는 [run_config.py](Protoss/run_config.py) 기본값보다 우선한다.
+v1.7.13은 세 모델 모두 같은 원본 데이터와 pretrained 모델에서 **DiT 짝수 인덱스 block(0, 2, 4, …)**의 QKV + FFN에만 LoRA를 학습한다. GR00T에서는 cross-attention block에 해당한다. 원본 weight와 홀수 인덱스 block은 동결한다. 명령 인자는 [run_config.py](Protoss/run_config.py) 기본값보다 우선한다.
 
 | 설정 | 위치 |
 |---|---|
@@ -96,7 +96,7 @@ python3 run.py prepare-data
 ### 6.1 Model-FMD
 
 ```bash
-python3 run.py train-fmd --name v1713_model_fmd_step500 --steps 500 --save-steps 500 --lr 1e-5
+python3 run.py train-fmd --name v1.7.13_model_fmd_step500 --steps 500 --save-steps 500 --lr 1e-5
 ```
 
 `loss = masked_mean((v_LoRA - stopgrad(v_pretrained))²)`인 **FMD(flow matching distillation)**만 가중치 1로 사용한다. S/E와 같은 관측·noise·timestep을 공유하며, teacher는 adapter를 끄고 gradient 없이 실행한다. 별도 loss weight 옵션은 없다. 구현은 [model_fmd_loss.py](Protoss/src/model_fmd_loss.py)에 있다.
@@ -106,7 +106,7 @@ python3 run.py train-fmd --name v1713_model_fmd_step500 --steps 500 --save-steps
 ### 6.2 Model-S
 
 ```bash
-python3 run.py train-s --name v1713_model_s_step500 --steps 500 --save-steps 500 --lr 1e-5 --s-fmd-weight 1 --s-sparc-weight 0.001
+python3 run.py train-s --name v1.7.13_model_s_step500 --steps 500 --save-steps 500 --lr 1e-5 --s-fmd-weight 1 --s-sparc-weight 0.001
 ```
 
 `loss = fm_weight × FMD + sparc_weight × (-mean joint SPARC)`다. FMD는 같은 관측·noise·timestep에서 pretrained와 LoRA 모델의 flow velocity 차이를 보존한다. 관절 7개의 속도 프로파일에서 SPARC를 계산하며, 부드러울수록 SPARC가 덜 음수이므로 loss에는 부호를 반전한다.
@@ -116,7 +116,7 @@ python3 run.py train-s --name v1713_model_s_step500 --steps 500 --save-steps 500
 ### 6.3 Model-E
 
 ```bash
-python3 run.py train-e --name v1713_model_e_step500 --steps 500 --save-steps 500 --lr 1e-5 --e-fmd-weight 1 --e-path-length-weight 0.01
+python3 run.py train-e --name v1.7.13_model_e_step500 --steps 500 --save-steps 500 --lr 1e-5 --e-fmd-weight 1 --e-path-length-weight 0.01
 ```
 
 `loss = fm_weight × FMD + path_length_weight × mean(sum_t ||FK(q[t+1])-FK(q[t])||₂)`다. Joint 출력을 절대 관절각으로 복원한 뒤 RoboLab DROID의 FK로 EE 위치를 계산한다. EE는 Robotiq gripper `base_link`이며 경로 길이 단위는 **미터(m)**다.
@@ -126,10 +126,10 @@ python3 run.py train-e --name v1713_model_e_step500 --steps 500 --save-steps 500
 ### 6.4 학습 재개
 
 ```bash
-python3 run.py resume-s --name v1713_model_s_step500 --steps 500 --s-fmd-weight 1 --s-sparc-weight 0.001
+python3 run.py resume-s --name v1.7.13_model_s_step500 --steps 500 --s-fmd-weight 1 --s-sparc-weight 0.001
 ```
 
-FMD/E는 `resume-fmd`, `resume-e`를 사용한다. 같은 run 이름과 loss 설정을 유지한다. 생략한 옵션은 저장된 실행 인자를 복원한다. 새 실험에는 새 `--name`을 사용한다. 기존 jerk·관절 path length 목적 함수의 checkpoint는 새 SPARC·EE loss로 재개할 수 없다.
+FMD/E는 `resume-fmd`, `resume-e`를 사용한다. 같은 run 이름과 loss 설정을 유지한다. 생략한 옵션은 저장된 실행 인자를 복원한다. 새 실험에는 새 `--name`을 사용한다. 이전 전체 layer LoRA checkpoint는 짝수 layer 학습으로 재개할 수 없다. 기존 jerk·관절 path length 목적 함수의 checkpoint는 새 SPARC·EE loss로 재개할 수 없다.
 
 ### 6.5 학습 로그와 저장 파일
 

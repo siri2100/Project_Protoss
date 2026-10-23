@@ -1,4 +1,4 @@
-"""PEFT LoRA on the action DiT; all pretrained parameters stay frozen."""
+"""PEFT QKV/FFN LoRA on even-indexed action DiT blocks (0, 2, 4, ...)."""
 import math
 import re
 from contextlib import contextmanager
@@ -7,9 +7,9 @@ from peft import LoraConfig, PeftModel, get_peft_model
 from torch import nn
 
 
-LORA_TARGET_SCOPE = "action-dit-qkv-ffn-v1"
+LORA_TARGET_SCOPE = "action-dit-even-index-qkv-ffn-v1"
 LORA_TARGET_PATTERN = re.compile(
-    r"transformer_blocks\.\d+\."
+    r"transformer_blocks\.(?P<layer>\d+)\."
     r"(?:attn1\.(?:to_q|to_k|to_v)|ff\..+)"
 )
 
@@ -24,13 +24,18 @@ def install_lora(model, rank=8, alpha=16):
     for name, module in dit.named_modules():
         if not name or not isinstance(module, nn.Linear):
             continue
-        # All attention Q/K/V projections and every Linear inside each FFN.
-        if LORA_TARGET_PATTERN.fullmatch(name):
+        # Zero-based block indices: 0, 2, 4, ... (cross-attention in GR00T).
+        # Within those blocks, keep Q/K/V and every Linear inside the FFN.
+        match = LORA_TARGET_PATTERN.fullmatch(name)
+        if match is not None and int(match["layer"]) % 2 == 0:
             names.append(name)
             print(name)
 
     if not names:
-        raise ValueError("No Q/K/V or FFN Linear modules found in GR00T DiT blocks")
+        raise ValueError("No Q/K/V or FFN Linear modules found in even-indexed GR00T DiT blocks")
+
+    layers = sorted({int(LORA_TARGET_PATTERN.fullmatch(name)["layer"]) for name in names})
+    print(f"LoRA DiT block indices (zero-based, even): {layers}", flush=True)
 
     model.requires_grad_(False)
     config = LoraConfig(

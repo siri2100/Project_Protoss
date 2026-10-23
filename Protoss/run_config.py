@@ -24,13 +24,13 @@ TRAIN_COMMON = dict(
     gradient_accumulation=16, workers=2, seed=42,
 )
 TRAIN = {
-    "FMD": dict(version="v1713", max_steps=500, save_steps=500, lr=1e-6),
+    "FMD": dict(version="v1.7.13", max_steps=500, save_steps=500, lr=1e-6),
     "S": dict(
-        version="v1712", max_steps=2000, save_steps=500, lr=1e-6, workers=1,
+        version="v1.7.13", max_steps=2000, save_steps=500, lr=1e-6, workers=1,
         s_fmd_weight=1, s_sparc_weight=1e-3,
     ),
     "E": dict(
-        version="v1712", max_steps=500, save_steps=500, lr=1e-5,
+        version="v1.7.13", max_steps=500, save_steps=500, lr=1e-5,
         e_fmd_weight=1, e_path_length_weight=0.01,
     ),
 }

@@ -19,7 +19,7 @@
 
 `train.py`의 `main()`에 실제 학습 반복문이 있다. 각 optimizer step에서 batch 전처리 결과를 GPU로 옮기고, 모델 forward로 loss를 계산하고, gradient accumulation 후 가중치를 갱신한다. 이미지·state·action 전처리는 기존 GR00T dataset/collator가 수행하므로 루프에서 중복 적용하지 않는다.
 
-`src/groot_lora.py`는 PEFT의 `LoraConfig`와 `get_peft_model()`로 DiT의 모든 block의 `attn1.to_q`, `attn1.to_k`, `attn1.to_v`와 `ff.*` Linear에 LoRA를 적용한다. 원본 모델은 동결하고 LoRA A/B만 학습한다. 학습 종료 시에는 adapter와 processor만 저장하고, 추론 시 원본 pretrained 모델과 adapter를 로드한다. 기본 `unmerged`는 병합 없이 LoRA를 적용하고, `merged`는 PEFT `merge_and_unload()`로 병합한다. PEFT adapter는 `adapter/`에 저장하며, 이전 자체 구현 checkpoint에서 PEFT 학습으로 resume하는 것은 지원하지 않는다.
+`src/groot_lora.py`는 PEFT의 `LoraConfig`와 `get_peft_model()`로 DiT의 **짝수 인덱스 block(0, 2, 4, …)**의 `attn1.to_q`, `attn1.to_k`, `attn1.to_v`와 `ff.*` Linear에 LoRA를 적용한다. GR00T에서는 cross-attention block에 해당하며 홀수 block은 동결한다. 적용 범위는 `action-dit-even-index-qkv-ffn-v1`로 기록하므로 이전 전체 layer LoRA checkpoint를 새 학습으로 resume하지 않는다. 원본 모델은 동결하고 LoRA A/B만 학습한다. 학습 종료 시에는 adapter와 processor만 저장하고, 추론 시 원본 pretrained 모델과 adapter를 로드한다. 기본 `unmerged`는 병합 없이 LoRA를 적용하고, `merged`는 PEFT `merge_and_unload()`로 병합한다. PEFT adapter는 `adapter/`에 저장하며, 이전 자체 구현 checkpoint에서 PEFT 학습으로 resume하는 것은 지원하지 않는다.
 
 `src/training_runtime.py`는 모델·데이터 준비, optimizer/scheduler, checkpoint/resume, adapter 저장을 담당한다. 현재 학습 루프는 CUDA GPU 한 개를 사용한다. Checkpoint는 adapter와 Trainer 형식의 optimizer·scheduler·RNG 상태를 저장하며, resume 시 데이터는 기존 GR00T 방식대로 global step에 따라 reseed한다. 중단 전과 동일한 데이터 순서로 재개하는 방식은 아니다.
 
@@ -51,6 +51,6 @@ Student clean endpoint의 관절 7개를 pretrained 통계로 역정규화하고
 
 Model-E는 `loss = fm_weight × FMD + path_length_weight × mean(sum_t ||FK(q[t+1])-FK(q[t])||₂)`다. Relative joint 출력을 역정규화한 뒤 정규화 전 마지막 관절 state를 더해 절대 관절각으로 복원한다. `src/droid_kinematics.py`는 pinned RoboLab USD에서 추출한 `assets/droid_kinematics.json`으로 미분 가능한 FK를 수행한다. EE는 Robotiq gripper `base_link`이며 단위는 미터다. 모델의 별도 EEF 출력은 사용하지 않는다. 학습 환경에 Isaac Sim이나 USD를 설치할 필요는 없다.
 
-`--e-fmd-weight`와 `--e-path-length-weight`(별칭 `--e-ee-path-length-weight`)로 두 항을 조절한다. Gripper·padding·결측 구간을 제외하며 정규화나 dt 계수를 적용하지 않는다. 콘솔·CSV·그래프에 FMD/EE path length/total을 기록하고 loss 설정과 FK geometry hash를 checkpoint에 저장한다. 기존 관절 경로 목적 함수 checkpoint는 새 run으로 재개하지 않는다. 두 모델의 새 기본 버전은 `v1712`이며 실제 개선은 RoboLab rollout으로 검증한다.
+`--e-fmd-weight`와 `--e-path-length-weight`(별칭 `--e-ee-path-length-weight`)로 두 항을 조절한다. Gripper·padding·결측 구간을 제외하며 정규화나 dt 계수를 적용하지 않는다. 콘솔·CSV·그래프에 FMD/EE path length/total을 기록하고 loss 설정과 FK geometry hash를 checkpoint에 저장한다. 기존 관절 경로 목적 함수 checkpoint는 새 run으로 재개하지 않는다. FMD/S/E의 새 기본 버전은 `v1.7.13`이며 실제 개선은 RoboLab rollout으로 검증한다.
 
 Model-FMD는 `src/model_fmd_loss.py`에서 `loss = masked_mean((v_LoRA-stopgrad(v_pretrained))²)`만 사용한다. Teacher/student는 S/E와 동일한 flow forward를 공유한다. 기본 LoRA의 출력은 pretrained와 같으므로 FMD와 gradient가 0이며, FMD 단독 학습은 모델 출력을 유지하는 대조군이 된다. `python3 run.py train-fmd` / `resume-fmd`로 실행한다(Protoss 폴더 기준). 새 run은 `model_fmd` 이름과 FMD loss 메타데이터를 사용하며, 기존 FM 학습 checkpoint는 FMD로 재개하지 않는다.

@@ -5,11 +5,11 @@ from pathlib import Path
 import tempfile
 import unittest
 from diffusers.models.attention import FeedForward
-from peft import PeftModel
+from peft import LoraConfig, PeftModel, get_peft_model
 import torch
 from torch import nn
 
-from src.groot_lora import install_lora, merge_lora
+from src.groot_lora import install_lora, merge_lora, restore_adapter
 
 
 def make_test_dit():
@@ -37,7 +37,7 @@ class LoRATests(unittest.TestCase):
         targets = install_lora(model, 2, 4)
         self.assertIsInstance(model.action_head.model, PeftModel)
         self.assertEqual(targets, [f"action_head.model.transformer_blocks.{i}.{projection}"
-                                   for i in range(4) for projection in
+                                   for i in (0, 2) for projection in
                                    ("attn1.to_q", "attn1.to_k", "attn1.to_v", "ff.net.0.proj", "ff.net.2")])
         torch.testing.assert_close(original, model.action_head.model(x))
         optimizer = torch.optim.SGD([p for p in model.parameters() if p.requires_grad], lr=.1)
@@ -47,11 +47,17 @@ class LoRATests(unittest.TestCase):
             optimizer.step()
         trainable = [name for name, p in model.named_parameters() if p.requires_grad]
         self.assertTrue(all((".lora_A." in name or ".lora_B." in name) for name in trainable))
-        for block in model.action_head.model.base_model.model.transformer_blocks:
+        for index, block in enumerate(model.action_head.model.base_model.model.transformer_blocks):
             self.assertIsNone(block.attn1.to_out.weight.grad)
-            for layer in (block.ff.net[0].proj, block.ff.net[2]):
-                self.assertIsNone(layer.base_layer.weight.grad)
-                self.assertGreater(layer.lora_B["default"].weight.grad.abs().sum().item(), 0)
+            for layer in (block.attn1.to_q, block.attn1.to_k, block.attn1.to_v,
+                          block.ff.net[0].proj, block.ff.net[2]):
+                if index % 2 == 0:
+                    self.assertIsNone(layer.base_layer.weight.grad)
+                    self.assertGreater(layer.lora_B["default"].weight.grad.abs().sum().item(), 0)
+                else:
+                    self.assertIsInstance(layer, nn.Linear)
+                    self.assertFalse(layer.weight.requires_grad)
+                    self.assertIsNone(layer.weight.grad)
         self.assertIsNone(model.backbone.weight.grad)
         adapted = model.action_head.model(x).detach()
         self.assertFalse(torch.equal(original, adapted))
@@ -89,7 +95,7 @@ class LoRATests(unittest.TestCase):
         expected = dit(**inputs).detach()
         targets = install_lora(model, 2, 4)
         self.assertEqual(targets, [f"action_head.model.transformer_blocks.{i}.{projection}"
-                                   for i in range(2) for projection in
+                                   for i in (0,) for projection in
                                    ("attn1.to_q", "attn1.to_k", "attn1.to_v", "ff.net.0.proj", "ff.net.2")])
         model.eval()
         torch.testing.assert_close(model.action_head.model(**inputs), expected)
@@ -106,6 +112,23 @@ class LoRATests(unittest.TestCase):
         merge_lora(model)
         torch.testing.assert_close(model.action_head.model(**inputs), adapted)
         self.assertIsInstance(model.action_head.model, module.AlternateVLDiT)
+
+    def test_all_layer_checkpoint_cannot_resume_as_even_layers(self):
+        legacy = make_test_dit()
+        targets = [name for name, module in legacy.named_modules()
+                   if isinstance(module, nn.Linear) and '.to_out' not in name]
+        legacy = get_peft_model(legacy, LoraConfig(r=2, lora_alpha=4, target_modules=targets, bias='none'))
+        model = nn.Module()
+        model.action_head = nn.Module()
+        model.action_head.model = make_test_dit()
+        install_lora(model, 2, 4)
+        original = copy.deepcopy(model.state_dict())
+        with tempfile.TemporaryDirectory() as tmp:
+            legacy.save_pretrained(tmp)
+            with self.assertRaisesRegex(ValueError, 'target_modules'):
+                restore_adapter(model, tmp)
+        for key, value in original.items():
+            torch.testing.assert_close(model.state_dict()[key], value)
 
 
 if __name__ == "__main__":
