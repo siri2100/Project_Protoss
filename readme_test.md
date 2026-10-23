@@ -113,7 +113,7 @@ python3 run.py server-baseline
 서버가 준비되면 다른 터미널에서 실행한다. Server와 같은 `--name`, 포트를 사용한다. 실제 추론 모델은 Server의 `--name`으로 선택하며, Client의 `--name`은 결과 이름과 HF 점수 업로드 대상을 지정한다. 평가 완료 후 task별·전체 점수를 계산하고 같은 모델 저장소에 업로드한다. 결과 이름은 자동 생성된다.
 
 ```bash
-python3 run.py client --name v1713_model_s_step500
+python3 run.py client --name baseline
 ```
 
 디버깅할 때 한 task만 1회 실행하는 예시다.
