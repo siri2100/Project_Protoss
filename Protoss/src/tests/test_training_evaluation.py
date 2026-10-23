@@ -57,15 +57,26 @@ root.mkdir()
 import json, os, pathlib, sys, time
 import msgpack, zmq
 root = pathlib.Path(sys.argv[sys.argv.index("--model-path") + 1])
-try:
-    os.kill(int((root / "training.pid").read_text()), 0)
-except ProcessLookupError:
-    pass
+mode = os.environ["PROTOSS_TEST_MODE"]
+if mode == "remote_only":
+    # Stand in for serve.py downloading an absent HF run before model loading.
+    assert "--hf-repo-id" in sys.argv
+    assert not (root / "adapter").exists()
+    (root / "adapter").mkdir()
+    (root / "adapter/adapter_config.json").write_text("{}")
+    (root / "adapter/adapter_model.safetensors").write_text("downloaded")
+    (root / "processor").mkdir()
+    (root / "processor/processor_config.json").write_text("{}")
+    (root / "lora_settings.json").write_text(json.dumps({"backend": "peft"}))
 else:
-    raise RuntimeError("Training process still owns resources")
+    try:
+        os.kill(int((root / "training.pid").read_text()), 0)
+    except ProcessLookupError:
+        pass
+    else:
+        raise RuntimeError("Training process still owns resources")
 (root / "server.pid").write_text(str(os.getpid()))
 (root / "server_args.json").write_text(json.dumps(sys.argv))
-mode = os.environ["PROTOSS_TEST_MODE"]
 if mode == "server_failure": sys.exit(8)
 if mode == "server_timeout": time.sleep(60)
 port = int(sys.argv[sys.argv.index("--port") + 1])
@@ -136,6 +147,27 @@ rows = [{"task_name": task, "success": True, "score": 1,
         self.assertEqual(api.upload_folder.call_args.kwargs["repo_id"], "account/experiment")
         self.assertTrue(api.upload_folder.call_args.kwargs["path_in_repo"].startswith("evaluations/eval-model-"))
         self.assert_server_stopped()
+
+    def test_standalone_hf_evaluation_can_download_an_absent_local_run(self):
+        self.assertFalse(self.args.output_dir.exists())
+        os.environ['PROTOSS_TEST_MODE'] = 'remote_only'
+        api = Mock()
+        with patch('src.robolab_results.process_results', side_effect=lambda *a, **kw: process_results(*a, **kw, api=api)):
+            pipeline.evaluate_trained_run(self.args, 'account/remote-model')
+        self.assertEqual((self.args.output_dir / 'adapter/adapter_model.safetensors').read_text(), 'downloaded')
+        self.assertFalse((self.args.output_dir / 'training.pid').exists())
+        status = json.loads((self.args.output_dir / 'evaluation_status.json').read_text())
+        self.assertEqual(status['status'], 'complete')
+        api.upload_folder.assert_called_once()
+        self.assertEqual(api.upload_folder.call_args.kwargs['repo_id'], 'account/remote-model')
+        self.assert_server_stopped()
+
+    def test_local_only_evaluation_still_rejects_an_absent_run_before_starting_server(self):
+        with patch.object(pipeline.subprocess, 'Popen') as start:
+            with self.assertRaisesRegex(ValueError, 'requires an adapter run'):
+                pipeline.evaluate_trained_run(self.args, None)
+        start.assert_not_called()
+        self.assertFalse(self.args.output_dir.exists())
 
     def test_preflight_failure_prevents_training(self):
         with self.assertRaises(subprocess.CalledProcessError):

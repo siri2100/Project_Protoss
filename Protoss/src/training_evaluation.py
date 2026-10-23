@@ -166,7 +166,13 @@ def evaluate_trained_run(args, destination):
     from .robolab_results import process_results
 
     output = args.output_dir.expanduser().resolve()
-    resolve_inference_paths(output, args.base_model.resolve())
+    if destination:
+        # serve.py downloads and validates the HF run/base before loading them.
+        # A standalone evaluation may have no local model yet; create only the
+        # directory needed for its server log instead of rejecting that run.
+        output.mkdir(parents=True, exist_ok=True)
+    else:
+        resolve_inference_paths(output, args.base_model.resolve())
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     label = re.sub(r"[^A-Za-z0-9._-]", "_", output.name)
     run_name = f"eval-{label}-{stamp}"
