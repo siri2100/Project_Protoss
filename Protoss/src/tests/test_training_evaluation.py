@@ -132,11 +132,11 @@ rows = [{"task_name": task, "success": True, "score": 1,
         self.assertTrue((metrics / "evaluation_config.json").is_file())
         self.assertEqual(status['tasks'], list(TEST_TASKS))
         self.assertEqual((status['num_envs'], status['num_runs']), (1, 10))
-        self.assertEqual(len(summary['tasks']), 10)
+        self.assertEqual(len(summary['tasks']), 5)
         self.assertEqual([task['task_name'] for task in summary['tasks']], list(TEST_TASKS))
         self.assertTrue(all(task['records'] == 10 for task in summary['tasks']))
-        self.assertEqual(summary['overall']['records'], 100)
-        self.assertEqual(len((metrics / 'episode_results.jsonl').read_text().splitlines()), 100)
+        self.assertEqual(summary['overall']['records'], 50)
+        self.assertEqual(len((metrics / 'episode_results.jsonl').read_text().splitlines()), 50)
         self.assert_server_stopped()
 
     def test_hf_destination_download_and_metric_publication_are_same(self):

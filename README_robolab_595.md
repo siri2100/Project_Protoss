@@ -31,7 +31,7 @@ bash /workspace/Project_Protoss2/Protoss/debug_robolab_595.sh check
 
 기존 output 이름으로 다시 평가했을 때 `Loaded ... existing results` / `already done. Skipping.`이 나오던 동작은 `robolab_fresh_results.patch`로 차단한다. 업데이트 후 setup을 한 번 실행하면 `robolab/protoss_fresh_results.py`와 실행 진입점 패치를 설치한다. 같은 이름의 이전 JSONL·HDF5·metric은 `output/_previous/<이름>/<실행ID>/`로 보관하고, 원래 output 경로에서 처음부터 평가한다. 평가 중에는 프로세스 잠금을 유지하므로 다른 테스트가 그 폴더를 옮길 수 없다. Kit native 종료 때도 잠금은 OS가 해제한다. 수동 Client와 `setup_robolab_595.sh eval`, 직접 `policies/gr00t/run.py` 실행에 모두 적용된다.
 
-자동 학습·평가 통합은 [학습 문서 6.6절](readme_train.md#66-학습--robolab-테스트--평가점수-자동-계산)을 따른다. 업데이트 후 setup을 한 번 실행하면 `robolab_eval_completion.patch`도 적용한다. 평가 루프 정상 반환 직후, Kit cleanup 전에 완료 표시를 출력하므로 일부 결과가 존재해도 중간 종료된 평가의 점수를 업로드하지 않는다. `train.py`는 설치된 595 stack을 검사한 뒤 학습 → HF 업로드·다운로드 → 서버·Client → metric 업로드를 자동 실행한다.
+자동 학습·평가 통합은 [학습 문서 6.5절](readme_train.md#65-학습--robolab-테스트--평가점수-자동-계산)을 따른다. 업데이트 후 setup을 한 번 실행하면 `robolab_eval_completion.patch`도 적용한다. 평가 루프 정상 반환 직후, Kit cleanup 전에 완료 표시를 출력하므로 일부 결과가 존재해도 중간 종료된 평가의 점수를 업로드하지 않는다. `train.py`는 설치된 595 stack을 검사한 뒤 학습 → HF 업로드·다운로드 → 서버·Client → metric 업로드를 자동 실행한다.
 
 153 step에서 `Simulator observation 'joint_position' contains NaN/Inf`가 나온 로그는 모델 요청 전에 시뮬레이터 관절 상태가 이미 비정상임을 보여준다. 앞선 16 step smoke는 이 구간을 검사하지 않았다. 새 기본 smoke는 2개 환경·600 step으로 늘렸으며 그리퍼 구동도 포함한다.
 

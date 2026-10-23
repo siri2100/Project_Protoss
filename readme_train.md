@@ -4,7 +4,6 @@ RunPod Linux x86_64, CUDA/RTX GPU 기준이다. 아래 순서로 설치한 뒤 �
 
 | 모델 | Loss |
 |---|---|
-| Model-FMD | flow matching distillation (FMD) |
 | Model-S | weighted FMD + joint SPARC loss |
 | Model-E | weighted FMD + FK EE path length |
 
@@ -81,29 +80,19 @@ python3 run.py prepare-data
 
 데이터는 `<프로젝트>/Protoss/data`, pretrained와 학습 모델은 **프로젝트 바로 상위의 `checkpoint/`**에 저장한다. 예: `/workspace/Project_Protoss` → `/workspace/checkpoint`. `cd Protoss` 여부는 저장 경로에 영향을 주지 않는다.
 
-## 6. Model-FMD/S/E LoRA 학습
+## 6. Model-S/E LoRA 학습
 
-v1.7.13은 세 모델 모두 같은 원본 데이터와 pretrained 모델에서 **DiT 짝수 인덱스 block(0, 2, 4, …)**의 QKV + FFN에만 LoRA를 학습한다. GR00T에서는 cross-attention block에 해당한다. 원본 weight와 홀수 인덱스 block은 동결한다. 명령 인자는 [run_config.py](Protoss/run_config.py) 기본값보다 우선한다.
+v1.7.13은 두 모델 모두 같은 원본 데이터와 pretrained 모델에서 **DiT 짝수 인덱스 block(0, 2, 4, …)**의 QKV + FFN에만 LoRA를 학습한다. GR00T에서는 cross-attention block에 해당한다. 원본 weight와 홀수 인덱스 block은 동결한다. 명령 인자는 [run_config.py](Protoss/run_config.py) 기본값보다 우선한다.
 
 | 설정 | 위치 |
 |---|---|
 | 모델 이름·학습/save step·LR | `--name`, `--steps`, `--save-steps`, `--lr` |
 | rank·alpha·batch·gradient accumulation·workers | `TRAIN_COMMON` |
-| 모델별 기본값·loss weight | `TRAIN["FMD"/"S"/"E"]` |
+| 모델별 기본값·loss weight | `TRAIN["S"/"E"]` |
 | 평가 task·환경 수·반복 수·horizon·seed | `EVALUATION` |
 | HF 업로드 계정 | `HF_ACCOUNT` (기본: 로그인 계정) |
 
-### 6.1 Model-FMD
-
-```bash
-python3 run.py train-fmd --name v1.7.13_model_fmd_step500 --steps 500 --save-steps 500 --lr 1e-5
-```
-
-`loss = masked_mean((v_LoRA - stopgrad(v_pretrained))²)`인 **FMD(flow matching distillation)**만 가중치 1로 사용한다. S/E와 같은 관측·noise·timestep을 공유하며, teacher는 adapter를 끄고 gradient 없이 실행한다. 별도 loss weight 옵션은 없다. 구현은 [model_fmd_loss.py](Protoss/src/model_fmd_loss.py)에 있다.
-
-기본 LoRA 초기화는 pretrained와 출력이 같아 FMD와 gradient가 0이다. FMD 단독 학습에서는 출력이 그대로 유지되는 대조군이 되며, S/E는 보조 loss가 모델을 변화시킨다. 기존 FM checkpoint는 새 FMD로 재개할 수 없으므로 새 이름으로 학습한다.
-
-### 6.2 Model-S
+### 6.1 Model-S
 
 ```bash
 python3 run.py train-s --name v1.7.13_model_s_step500 --steps 500 --save-steps 500 --lr 1e-5 --s-fmd-weight 1 --s-sparc-weight 0.001
@@ -113,7 +102,7 @@ python3 run.py train-s --name v1.7.13_model_s_step500 --steps 500 --save-steps 5
 
 `--s-fmd-weight`, `--s-sparc-weight`로 두 항을 조절한다. SPARC는 속도 크기 자체를 낮추는 항은 아니다. 구현은 [model_s_loss.py](Protoss/src/model_s_loss.py), [sparc_loss.py](Protoss/src/sparc_loss.py)에 있다.
 
-### 6.3 Model-E
+### 6.2 Model-E
 
 ```bash
 python3 run.py train-e --name v1.7.13_model_e_step500 --steps 500 --save-steps 500 --lr 1e-5 --e-fmd-weight 1 --e-path-length-weight 0.01
@@ -123,21 +112,21 @@ python3 run.py train-e --name v1.7.13_model_e_step500 --steps 500 --save-steps 5
 
 `--e-fmd-weight`, `--e-path-length-weight`로 두 항을 조절한다. 구현은 [model_e_loss.py](Protoss/src/model_e_loss.py), [droid_kinematics.py](Protoss/src/droid_kinematics.py)에 있다.
 
-### 6.4 학습 재개
+### 6.3 학습 재개
 
 ```bash
 python3 run.py resume-s --name v1.7.13_model_s_step500 --steps 500 --s-fmd-weight 1 --s-sparc-weight 0.001
 ```
 
-FMD/E는 `resume-fmd`, `resume-e`를 사용한다. 같은 run 이름과 loss 설정을 유지한다. 생략한 옵션은 저장된 실행 인자를 복원한다. 새 실험에는 새 `--name`을 사용한다. 이전 전체 layer LoRA checkpoint는 짝수 layer 학습으로 재개할 수 없다. 기존 jerk·관절 path length 목적 함수의 checkpoint는 새 SPARC·EE loss로 재개할 수 없다.
+Model-E는 `resume-e`를 사용한다. 같은 run 이름과 loss 설정을 유지한다. Loss·LR 등 학습 옵션은 저장된 실행 인자를 복원하고, 평가 task·반복 수는 현재 `EVALUATION` 설정을 사용한다. 새 실험에는 새 `--name`을 사용한다. 이전 전체 layer LoRA checkpoint는 짝수 layer 학습으로 재개할 수 없다. 기존 jerk·관절 path length 목적 함수의 checkpoint는 새 SPARC·EE loss로 재개할 수 없다.
 
-### 6.5 학습 로그와 저장 파일
+### 6.4 학습 로그와 저장 파일
 
-콘솔에 FMD·보조 loss·total을 출력하고 `training_loss.csv`, `training_loss.png`에 기록한다. 그래프는 각 loss와 total의 세 패널이다(Model-FMD는 FMD 하나). 모델 폴더에는 `checkpoint-*/`, `adapter/`, `processor/`, loss 설정과 학습 그래프를 저장한다.
+콘솔에 FMD·보조 loss·total을 출력하고 `training_loss.csv`, `training_loss.png`에 기록한다. 그래프는 각 loss와 total의 세 패널이다. 모델 폴더에는 `checkpoint-*/`, `adapter/`, `processor/`, loss 설정과 학습 그래프를 저장한다.
 
-### 6.6 학습 → RoboLab 테스트 → 평가점수 자동 계산
+### 6.5 학습 → RoboLab 테스트 → 평가점수 자동 계산
 
-기본 학습 명령은 **학습 → 그래프 저장 → HF 모델 업로드 → HF 다운로드·추론 서버 → RoboLab 평가 → 점수 계산·HF 업로드**까지 실행한다. 평가 testset은 [robolab_testset.py](Protoss/src/robolab_testset.py)의 지정된 10개 task이며, **각 task를 환경 1개 × 10회 = 총 100 episode** 실행한다. Task별·전체 metric과 성공률을 같은 모델 저장소에 업로드한다. HF 모델 저장소는 기본 `로그인계정/모델이름`이다. 3절의 RoboLab 설치를 먼저 완료해야 하며, 학습 전 사전 검사에서 실패하면 학습을 시작하지 않는다.
+기본 학습 명령은 **학습 → 그래프 저장 → HF 모델 업로드 → HF 다운로드·추론 서버 → RoboLab 평가 → 점수 계산·HF 업로드**까지 실행한다. 평가 testset은 [robolab_testset.py](Protoss/src/robolab_testset.py)의 지정된 5개 task이며, **각 task를 환경 1개 × 10회 = 총 50 episode** 실행한다. Task별·전체 metric과 성공률을 같은 모델 저장소에 업로드한다. HF 모델 저장소는 기본 `로그인계정/모델이름`이다. 3절의 RoboLab 설치를 먼저 완료해야 하며, 학습 전 사전 검사에서 실패하면 학습을 시작하지 않는다.
 
 | 추가 옵션 | 동작 |
 |---|---|

@@ -139,11 +139,14 @@ class CommonTests(unittest.TestCase):
                 args = argparse.Namespace(styles_dir=root, style=style, base_model=root / "original",
                          output_dir=root / ("model_" + style), seed=42, batch_size=2,
                          gradient_accumulation=16, lr=1e-5, max_steps=2000, save_steps=500,
-                         workers=2, resume=False, variant="FMD", lora_rank=32,
-                         lora_alpha=64, state_dropout_prob=0.0)
+                         workers=2, resume=False, variant="S", lora_rank=32,
+                         lora_alpha=64, state_dropout_prob=0.0,
+                         s_fm_weight=1., s_sparc_weight=.001, s_dt=1/15,
+                         s_sparc_padlevel=4, s_sparc_cutoff_hz=10.,
+                         s_sparc_amplitude_threshold=.05, s_gradient_diagnostics=False)
                 config, settings = training.prepare_training(args)
-                self.assertEqual(settings['variant'], 'FMD')
-                self.assertEqual(settings['loss'], 'pretrained_flow_distillation-v1')
+                self.assertEqual(settings['variant'], 'S')
+                self.assertEqual(settings['loss'], 'pretrained_flow_preservation+joint_sparc-v1')
                 captured.append(config)
                 # Refuse accidental rerun/overwrite, before calling the trainer.
                 with self.assertRaises(ValueError):
@@ -153,7 +156,7 @@ class CommonTests(unittest.TestCase):
                 original_style = (args.output_dir / "style_run.json").read_bytes()
                 settings_path.write_text(json.dumps({**legacy_settings, 'variant': 'FM', 'loss': 'FM'}))
                 args.resume = True
-                with self.assertRaisesRegex(ValueError, 'Old FM runs'):
+                with self.assertRaisesRegex(ValueError, 'resume settings differ'):
                     training.prepare_training(args)
                 self.assertEqual((args.output_dir / "style_run.json").read_bytes(), original_style)
                 old_policy = dict(legacy_settings)

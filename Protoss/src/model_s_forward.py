@@ -1,4 +1,4 @@
-"""Model-FMD/S/E forward: pretrained flow distillation and clean endpoint inputs.
+"""Model-S/E forward: pretrained flow distillation and clean endpoint inputs.
 
 The noise/time/DiT prediction is shared by FMD and the motion objectives.
 """

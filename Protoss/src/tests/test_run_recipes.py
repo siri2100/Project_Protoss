@@ -49,32 +49,10 @@ path.write_text(json.dumps({"args": sys.argv[1:], "root": os.environ["PROTOSS_RO
     def captured(self):
         return json.loads((self.root / "captured.json").read_text())
 
-    def test_fmd_command_generates_fmd_identity_and_new_output_name(self):
-        self.assertEqual(main(['train-fmd', '--project-root', str(self.root), '--steps', '750', '--no-eval']), 0)
-        arguments = self.captured()['args']
-        self.assertEqual(arguments[arguments.index('--model') + 1], 'FMD')
-        self.assertEqual(Path(arguments[arguments.index('--output-dir') + 1]).name, 'v1.7.13_model_fmd_step750')
-        self.assertIn('train-fmd', COMMANDS)
-        self.assertIn('resume-fmd', COMMANDS)
-        self.assertNotIn('train-fm', COMMANDS)
-
-    def test_fmd_refuses_legacy_fm_resume_and_restores_fmd_settings(self):
-        self.args.name = 'my_distillation'
-        output = self.ctx.model()
-        output.mkdir(parents=True)
-        (output / 'style_run.json').write_text(json.dumps(dict(batch_size=2, lr=2e-6,
-            max_steps=500, gradient_accumulation=16, seed=42)))
-        settings = dict(variant='FM', rank=32, alpha=64, loss='FM')
-        (output / 'lora_settings.json').write_text(json.dumps(settings))
-        with self.assertRaisesRegex(ValueError, 'Old FM runs'):
-            experiments.resume(self.ctx, 'FMD', [])
-        settings.update(variant='FMD', loss='pretrained_flow_distillation-v1')
-        (output / 'lora_settings.json').write_text(json.dumps(settings))
-        experiments.resume(self.ctx, 'FMD', [])
-        arguments = self.captured()['args']
-        self.assertEqual(arguments[arguments.index('--model') + 1], 'FMD')
-        self.assertEqual(arguments[arguments.index('--lr') + 1], '2e-06')
-        self.assertIn('--resume', arguments)
+    def test_removed_fmd_training_commands_are_unavailable(self):
+        self.assertNotIn('train-fmd', COMMANDS)
+        self.assertNotIn('resume-fmd', COMMANDS)
+        self.assertEqual(set(self.config.TRAIN), {'S', 'E'})
 
     def test_actual_child_uses_checkout_paths_environment_and_s_loss_settings(self):
         with patch.dict(os.environ, {"PROTOSS_ROOT": "/wrong/project", "VIRTUAL_ENV": "/wrong/venv",
@@ -103,6 +81,19 @@ path.write_text(json.dumps({"args": sys.argv[1:], "root": os.environ["PROTOSS_RO
         self.assertEqual(arguments[arguments.index("--lr") + 1], "1e-06")
         self.assertEqual(arguments[arguments.index("--s-sparc-weight") + 1], "0.001")
         self.assertIn("--resume", arguments)
+
+    def test_resume_replaces_old_task_selection_with_current_testset(self):
+        import argparse
+        from src.training_evaluation import add_evaluation_args
+        self.config.EVALUATION['tasks'] = [*TEST_TASKS, 'AnimalsInBinTask']
+        experiments.train(self.ctx, 'S', [])
+        self.config.EVALUATION['tasks'] = list(TEST_TASKS)
+        experiments.resume(self.ctx, 'S', [])
+        parser = argparse.ArgumentParser()
+        add_evaluation_args(parser)
+        args, _ = parser.parse_known_args(self.captured()['args'])
+        self.assertEqual(args.eval_tasks, list(TEST_TASKS))
+        self.assertEqual((args.eval_num_envs, args.eval_num_runs), (1, 10))
 
     def test_step_override_also_changes_generated_output_name(self):
         experiments.train(self.ctx, "E", ["--max-steps", "1000"])
@@ -133,7 +124,7 @@ path.write_text(json.dumps({"args": sys.argv[1:], "root": os.environ["PROTOSS_RO
         self.assertIn("--resume", arguments)
 
     def test_cli_still_accepts_explicit_separator(self):
-        self.assertEqual(main(["train-fmd", "--project-root", str(self.root),
+        self.assertEqual(main(["train-s", "--project-root", str(self.root),
                                "--", "--max-steps", "600", "--no-eval"]), 0)
         self.assertIn("--no-eval", self.captured()["args"])
 
@@ -151,8 +142,8 @@ path.write_text(json.dumps({"args": sys.argv[1:], "root": os.environ["PROTOSS_RO
         self.assertNotIn("--hf-repo-id", arguments)
         self.assertIn("--no-hf-upload", arguments)
 
-    def test_all_training_variants_and_standalone_evaluation_pass_the_same_ten_tasks(self):
-        for variant in ('FMD', 'S', 'E'):
+    def test_all_training_variants_and_standalone_evaluation_pass_the_same_five_tasks(self):
+        for variant in ('S', 'E'):
             experiments.train(self.ctx, variant, [])
             arguments = self.captured()['args']
             start = arguments.index('--eval-tasks') + 1

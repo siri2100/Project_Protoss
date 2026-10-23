@@ -1,4 +1,4 @@
-"""Train the controlled GR00T Model-FMD/S/E LoRA experiments."""
+"""Train the controlled GR00T Model-S/E LoRA experiments."""
 import argparse
 import json
 import sys
@@ -37,7 +37,7 @@ def configure_training(config, args):
 def parse_args():
     """Parse and validate training command-line arguments."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model", dest="variant", choices=["FMD", "S", "E"], required=True)
+    parser.add_argument("--model", dest="variant", choices=["S", "E"], required=True)
     parser.add_argument("--groot-root", type=Path, required=True)
     parser.add_argument("--dataset-root", dest="styles_dir", type=Path, required=True)
     parser.add_argument("--base-model", type=Path, required=True)
@@ -97,6 +97,8 @@ def parse_args():
 
 
 def prepare_training(args):
+    if args.variant not in ("S", "E"):
+        raise ValueError("Supported training models are S and E")
     import torch
     from gr00t.configs.base_config import get_default_config
     from gr00t.data.embodiment_tags import EmbodimentTag
@@ -140,7 +142,7 @@ def prepare_training(args):
     lora_settings = {"backend": "peft", "variant": args.variant, "rank": args.lora_rank, "alpha": args.lora_alpha,
                         "target_scope": LORA_TARGET_SCOPE,
                         "base_model": str(args.base_model.resolve()), "dataset": str(dataset),
-                        "seed": args.seed, "loss": "pretrained_flow_distillation-v1",
+                        "seed": args.seed,
                         "processor_policy": "pretrained-v1", "processor_sha256": processor_contract(args.base_model),
                         "video_delta_indices": video_indices, "override_pretraining_statistics": False}
     if args.variant == "S":
@@ -162,8 +164,6 @@ def prepare_training(args):
     settings_path = args.output_dir / "lora_settings.json"
     if args.resume:
         previous = json.loads(settings_path.read_text()) if settings_path.exists() else None
-        if args.variant == "FMD" and previous is not None and previous.get("variant") in ("FM", "1"):
-            raise ValueError("Old FM runs cannot resume as Model-FMD; start a new distillation run")
         if previous is not None and previous.get("backend") != "peft":
             raise ValueError("PEFT training cannot resume legacy custom-LoRA checkpoints; use a new output directory")
         if args.variant == "S" and previous is not None and "model_s" in previous:
@@ -211,9 +211,6 @@ def main(args):
             print(f"Model-E objective=fm_weight*pretrained_flow_MSE+path_length_weight*FK_ee_path_length; "
                   f"fm_weight={training.efficiency.config.fm_weight:.8g}; "
                   f"path_length_weight={training.efficiency.config.path_length_weight:.8g}", flush=True)
-        else:
-            print("Model-FMD objective=masked_MSE(v_LoRA, stopgrad(v_pretrained)); weight=1", flush=True)
-            print("Default zero-output LoRA matches the teacher: pure FMD starts at zero loss/gradient.", flush=True)
         for step in range(training.step + 1, args.max_steps + 1):
             step_loss = 0.0
             step_metrics = {}
@@ -233,18 +230,14 @@ def main(args):
             update_weights(training)
             training.step = step
             record_training_loss(training, step_loss, **step_metrics)
-            if training.smoothness is not None or training.efficiency is not None:
-                motion = (f"sparc_loss={step_metrics['sparc_loss']:.6f} "
-                          if training.smoothness is not None else
-                          f"path_length_loss={step_metrics['path_length_loss']:.6f} ")
-                print(f"step={step}/{args.max_steps} "
-                      f"fmd_loss={step_metrics['fmd_loss']:.6f} "
-                      f"weighted_fmd_loss={step_metrics['weighted_fmd_loss']:.6f} "
-                      f"{motion}"
-                      f"total_loss={step_loss:.6f}", flush=True)
-            else:
-                print(f"step={step}/{args.max_steps} fmd_loss={step_metrics['fmd_loss']:.6f} "
-                      f"total_loss={step_loss:.6f}", flush=True)
+            motion = (f"sparc_loss={step_metrics['sparc_loss']:.6f} "
+                      if training.smoothness is not None else
+                      f"path_length_loss={step_metrics['path_length_loss']:.6f} ")
+            print(f"step={step}/{args.max_steps} "
+                  f"fmd_loss={step_metrics['fmd_loss']:.6f} "
+                  f"weighted_fmd_loss={step_metrics['weighted_fmd_loss']:.6f} "
+                  f"{motion}"
+                  f"total_loss={step_loss:.6f}", flush=True)
             if step % args.save_steps == 0 or step == args.max_steps:
                 save_checkpoint(training)
 

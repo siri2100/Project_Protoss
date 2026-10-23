@@ -20,11 +20,10 @@ class TrainingSession:
     iterator: object = None
     smoothness: object = None
     efficiency: object = None
-    distillation: object = None
 
     @property
     def objective(self):
-        return self.smoothness or self.efficiency or self.distillation
+        return self.smoothness or self.efficiency
 
     @property
     def model(self):
@@ -164,16 +163,7 @@ def setup_training(config, args, lora_settings):
             trainer.model.train()
             trainer.optimizer.zero_grad(set_to_none=True)
             session = TrainingSession(trainer, pipeline, config, args, lora_settings, holder["targets"])
-            if args.variant == "FMD":
-                import json
-                from .model_fmd_loss import ModelFMDLoss
-                session.distillation = ModelFMDLoss()
-                if checkpoint is not None:
-                    state_path = Path(checkpoint) / "model_fmd_loss.json"
-                    if not state_path.is_file():
-                        raise ValueError("Model-FMD resume requires model_fmd_loss.json; old FM runs cannot resume")
-                    session.distillation.load_state_dict(json.loads(state_path.read_text()))
-            elif args.variant == "S":
+            if args.variant == "S":
                 import json
                 from .groot_common import TAG
                 from .model_s_loss import ModelSLoss, config_from_args
@@ -244,9 +234,6 @@ def save_checkpoint(training):
     trainer._save_optimizer_and_scheduler(str(checkpoint))
     trainer._save_rng_state(str(checkpoint))
     trainer.state.save_to_json(str(checkpoint / "trainer_state.json"))
-    if training.distillation is not None:
-        from .groot_common import write_json
-        write_json(checkpoint / "model_fmd_loss.json", training.distillation.state_dict())
     if training.smoothness is not None:
         from .groot_common import write_json
         write_json(checkpoint / "model_s_loss.json", training.smoothness.state_dict())
@@ -284,8 +271,6 @@ def save_training_loss_plot(training):
                   if "step" in row and motion_key in row and row["step"] <= training.step}
     compound = training.smoothness is not None or model_e or bool(components)
     output = training.args.output_dir
-    distillation = getattr(training, "distillation", None) is not None or any(
-        "fmd_loss" in row for row in training.trainer.state.log_history)
     with (output / "training_loss.csv").open("w", newline="") as stream:
         writer = csv.writer(stream)
         if model_e:
@@ -295,15 +280,11 @@ def save_training_loss_plot(training):
             keys = ["fmd_loss", "sparc", "sparc_loss", "total_loss",
                     "fm_weight", "weighted_fmd_loss",
                     "weighted_sparc_loss", "sparc_weight", "fmd_grad_norm", "sparc_grad_norm"]
-        elif distillation:
-            keys = ["fmd_loss", "total_loss"]
         else:
             keys = []
         writer.writerow(["step", "loss", *keys])
         for step in steps:
             row = {**components.get(step, {}), "total_loss": losses[step]}
-            if distillation and not compound:
-                row["fmd_loss"] = losses[step]
             writer.writerow([step, losses[step], *(row.get(key, "") for key in keys)])
 
     figure = Figure(figsize=(9, 10) if compound else (9, 5), layout="constrained")
@@ -319,7 +300,7 @@ def save_training_loss_plot(training):
                   ("total_loss", "Weighted flow preservation + weighted SPARC loss")]
     else:
         axes = [figure.subplots()]
-        series = [("loss", "Flow matching distillation MSE" if distillation else "Mean training objective")]
+        series = [("loss", "Mean training objective")]
     for axis, (key, label) in zip(axes, series):
         values = losses if key in ("loss", "total_loss") else {
             step: row[key] for step, row in components.items() if key in row}
@@ -329,7 +310,7 @@ def save_training_loss_plot(training):
         else:
             axis.text(0.5, 0.5, "No recorded losses in this checkpoint",
                       ha="center", va="center", transform=axis.transAxes)
-        axis.set(title=key if compound else "fmd_loss" if distillation else "Training loss", ylabel=label)
+        axis.set(title=key if compound else "Training loss", ylabel=label)
         axis.xaxis.set_major_locator(MaxNLocator(integer=True))
         axis.grid(True, alpha=0.3)
     axes[-1].set_xlabel("Optimizer step")
@@ -344,8 +325,6 @@ def export_model(training):
     from .groot_common import write_json
 
     output = training.args.output_dir
-    if training.distillation is not None:
-        write_json(output / "model_fmd_loss.json", training.distillation.state_dict())
     if training.smoothness is not None:
         write_json(output / "model_s_loss.json", training.smoothness.state_dict())
     if getattr(training, "efficiency", None) is not None:

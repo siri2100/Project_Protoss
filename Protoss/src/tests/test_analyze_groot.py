@@ -29,7 +29,7 @@ class AnalysisTests(unittest.TestCase):
             (training/'trainer_state.json').write_text('{"log_history": [{"step":500,"loss":0.1}]}')
             run = root/'eval/checkpoint-500'
             run.mkdir(parents=True)
-            config = {'model':'FMD', 'model_path':'/exports/checkpoint-500/inference',
+            config = {'model':'S', 'model_path':'/exports/checkpoint-500/inference',
                       'seeds':[42], 'traj_ids':[0,1], 'dataset_manifest_sha256':'same',
                       'execution_horizon':8, 'steps':1000, 'denoising_steps':4}
             (run/'evaluation.json').write_text(json.dumps(config))

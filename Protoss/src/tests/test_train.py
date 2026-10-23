@@ -10,13 +10,13 @@ from src.robolab_testset import TEST_TASKS
 
 
 class ModelTrainingTests(unittest.TestCase):
-    def test_three_variants_parse_same_settings_with_distinct_identity(self):
+    def test_two_variants_parse_same_settings_with_distinct_identity(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "styles.json").write_text(json.dumps({"style_method": "original",
                 "synthetic": False, "splits": {"train": [1]}}))
             settings = []
-            for variant in ("FMD", "S", "E"):
+            for variant in ("S", "E"):
                 argv = ["train", "--model", variant, "--groot-root", str(root),
                     "--dataset-root", str(root), "--base-model", str(root / "base"),
                     "--output-dir", str(root / ("model_" + variant))]
@@ -37,7 +37,6 @@ class ModelTrainingTests(unittest.TestCase):
                         args.lora_alpha, args.seed, args.lr, args.max_steps,
                         args.batch_size, args.gradient_accumulation))
             self.assertEqual(settings[0], settings[1])
-            self.assertEqual(settings[1], settings[2])
 
             with patch.object(sys, "argv", [*argv, "--model", "S", "--s-sparc-weight", "0.25", "--s-fm-weight", "1000"]), \
                  patch.object(sys, "path", list(sys.path)):
@@ -56,6 +55,10 @@ class ModelTrainingTests(unittest.TestCase):
                 args = training.parse_args()
                 self.assertTrue(args.no_eval)
                 self.assertEqual(args.eval_num_runs, 1)
+
+            with patch.object(sys, 'argv', [*argv, '--model', 'FMD']), self.assertRaises(SystemExit) as caught:
+                training.parse_args()
+            self.assertEqual(caught.exception.code, 2)
 
 
 if __name__ == "__main__":

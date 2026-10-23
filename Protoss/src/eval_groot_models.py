@@ -1,4 +1,4 @@
-"""Evaluate baseline / Model-FMD/S/E on the same original training data and seeds."""
+"""Evaluate baseline / Model-S/E on the same original training data and seeds."""
 import argparse
 import hashlib
 import json
@@ -10,12 +10,12 @@ from .dataset_paths import split_path, require_unsplit
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model", choices=["baseline", "FMD", "S", "E", "FM"], required=True,
+    parser.add_argument("--model", choices=["baseline", "S", "E", "FM"], required=True,
                         help="Current model identity; FM is accepted for historical evaluation runs only")
     parser.add_argument("--groot-root", type=Path, required=True)
     parser.add_argument("--dataset-root", type=Path, required=True)
     parser.add_argument("--model-path", type=Path, required=True,
-                        help="Pretrained model for baseline; adapter run or inference manifest for FMD/S/E")
+                        help="Pretrained model for baseline; adapter run or inference manifest for S/E")
     parser.add_argument("--base-model-path", type=Path, help="Override adapter pretrained model path")
     parser.add_argument("--lora-mode", choices=["pretrained", "disabled", "unmerged", "merged"], default="unmerged")
     parser.add_argument("--output-dir", type=Path, required=True)
