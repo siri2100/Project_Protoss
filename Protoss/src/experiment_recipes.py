@@ -123,14 +123,8 @@ def evaluate(ctx, extra):
 def client(ctx, extra):
     _reject_managed(extra, ("--output-folder-name", "--output_folder_name"))
     cfg = ctx.config.EVALUATION
-    stack = ctx.args.stack or ctx.config.ROBOLAB_STACK
-    if stack == "595":
-        root = ctx.stack / "RoboLab"
-        command = ["bash", ctx.tools / "setup_robolab_595.sh", "eval"]
-    else:
-        root = Path(ctx.config.ROBOLAB_51_ROOT)
-        command = [root / ".venv-51/bin/python", "-u", root / "policies/gr00t/run.py"]
-        ctx.run(["git", "apply", "--reverse", "--check", ctx.tools / "patches/robolab_fresh_results.patch"], cwd=root)
+    root = ctx.stack / "RoboLab"
+    command = ["bash", ctx.tools / "setup_robolab_595.sh", "eval"]
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     name = ctx.args.result_name or ctx.config.RESULT_NAME or f"{ctx.name()}-{stamp}"
     if Path(name).name != name or name in (".", ".."):
@@ -146,7 +140,7 @@ def client(ctx, extra):
                  "--instruction-type", "default", "--video-mode", "none", "--output-folder-name", name]
     ctx.run([*command, *arguments, *extra], cwd=root)
     # An exception above prevents both metric calculation and publication.
-    ctx.groot_run("process_robolab_results.py", ["--results-dir", results,
+    ctx.groot_run("robolab_results", ["--results-dir", results,
         "--start-number", str(ctx.config.METRIC_START_NUMBER), "--hf-repo-id", repo])
 
 
@@ -159,25 +153,24 @@ def _reject_managed(extra, names):
 def metrics(ctx, extra):
     status = ctx.model() / "evaluation_status.json"
     if ctx.args.result_name:
-        root = ctx.stack / "RoboLab" if (ctx.args.stack or ctx.config.ROBOLAB_STACK) == "595" else Path(ctx.config.ROBOLAB_51_ROOT)
-        results = root / "output" / ctx.args.result_name
+        results = ctx.stack / "RoboLab/output" / ctx.args.result_name
     elif status.is_file():
         results = Path(json.loads(status.read_text())["results_dir"])
     elif ctx.args.dry_run:
         results = ctx.stack / "RoboLab/output/RESULT_NAME"
     else:
         raise FileNotFoundError("Pass --result-name or select a model with evaluation_status.json")
-    ctx.groot_run("process_robolab_results.py", ["--results-dir", results,
+    ctx.groot_run("robolab_results", ["--results-dir", results,
         "--start-number", str(ctx.config.METRIC_START_NUMBER), "--hf-repo-id", ctx.repo(ctx.name()), *extra])
 
 
 def upload_model(ctx, extra):
-    ctx.groot_run("upload_checkpoint_hf.py", ["--folder", ctx.model(),
+    ctx.groot_run("upload_checkpoint_hf", ["--folder", ctx.model(),
         "--repo-id", ctx.repo(ctx.name()), "--workers", "2", *extra])
 
 
 def upload_data(ctx, extra):
-    ctx.groot_run("upload_dataset_hf.py", ["--folder", ctx.data,
+    ctx.groot_run("upload_dataset_hf", ["--folder", ctx.data,
         "--repo-id", ctx.repo(ctx.config.DATASET_REPO), "--workers", "2", *extra])
 
 
@@ -193,5 +186,5 @@ def check(ctx, extra):
 
 
 def plot_distribution(ctx, extra):
-    ctx.groot_run("plot_distribution.py", ["--groot-root", ctx.groot, "--base-model", ctx.base,
+    ctx.groot_run("action_distribution", ["--groot-root", ctx.groot, "--base-model", ctx.base,
         "--model-path", ctx.model(), "--dataset-root", ctx.data, "--output-dir", ctx.model(), *extra])

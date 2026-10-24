@@ -44,7 +44,7 @@ def update_project(ctx, extra):
     ctx.run(command)
     ctx.run(["git", "merge", "--ff-only", "origin/v1.7"])
     if not ctx.args.dry_run:
-        for name in ("train.py", "prepare_droid.py", "src/prepare_droid.py"):
+        for name in ("run.py", "train.py", "src/prepare_droid.py"):
             if not (ctx.tools / name).is_file():
                 raise FileNotFoundError(ctx.tools / name)
 
@@ -137,12 +137,12 @@ def setup_data(ctx, extra):
 
 
 def download_droid(ctx, extra):
-    ctx.groot_run("prepare_droid.py", ["download", "--dataset-dir", ctx.data / "source",
+    ctx.groot_run("prepare_droid", ["download", "--dataset-dir", ctx.data / "source",
                                       "--num-episodes", str(ctx.config.DOWNLOAD_EPISODES), *extra])
 
 
 def prepare_data(ctx, extra):
-    ctx.groot_run("prepare_groot_dataset.py", ["--groot-root", ctx.groot,
+    ctx.groot_run("prepare_groot_dataset", ["--groot-root", ctx.groot,
         "--dataset-dir", ctx.data / "source", "--output-dir", ctx.data,
         "--style-method", "original", "--seed", "42", *extra])
 
@@ -153,38 +153,3 @@ def setup_robolab(ctx, extra):
 
 def smoke_robolab(ctx, extra):
     ctx.run(["bash", ctx.tools / "setup_robolab_595.sh", "smoke", *extra])
-
-
-def setup_robolab51(ctx, extra):
-    root = Path(ctx.config.ROBOLAB_51_ROOT)
-    env = {**ctx.env, "OMNI_KIT_ACCEPT_EULA": "Y", "UV_PROJECT_ENVIRONMENT": ".venv-51"}
-    if not root.exists():
-        ctx.run(["git", "clone", "https://github.com/NVlabs/RoboLab.git", root])
-    revision = ctx.run(["git", "rev-parse", "HEAD"], cwd=root, capture=True)
-    ctx.write(root / "protoss_v12_robolab_revision.txt", revision + "\n")
-    ctx.run(["uv", "sync", "--python", "3.11", "--extra", "isaac51"], cwd=root, env=env)
-    ctx.run([root / ".venv-51/bin/python", "-c",
-             'import isaaclab; from isaaclab.app import AppLauncher; print("Isaac Lab import OK")'], cwd=root, env=env)
-    patch_client51(ctx, extra)
-
-
-def patch_client51(ctx, extra):
-    target = Path(ctx.config.ROBOLAB_51_ROOT) / "policies/gr00t/client.py"
-    if ctx.args.dry_run:
-        print(f"Would back up once and copy {ctx.tools / 'src/robolab_gr00t_client.py'} to {target}")
-    else:
-        if not target.is_file():
-            raise FileNotFoundError(target)
-        backup = target.with_name(target.name + ".before_protoss_history")
-        if not backup.exists():
-            shutil.copyfile(target, backup)
-        shutil.copyfile(ctx.tools / "src/robolab_gr00t_client.py", target)
-    root = Path(ctx.config.ROBOLAB_51_ROOT)
-    patch = ctx.tools / "patches/robolab_fresh_results.patch"
-    try:
-        ctx.run(["git", "apply", "--reverse", "--check", patch], cwd=root)
-    except subprocess.CalledProcessError:
-        ctx.run(["git", "apply", "--check", patch], cwd=root)
-        ctx.run(["git", "apply", patch], cwd=root)
-    if not ctx.args.dry_run:
-        shutil.copyfile(ctx.tools / "src/robolab_fresh_results.py", root / "robolab/protoss_fresh_results.py")

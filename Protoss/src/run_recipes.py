@@ -20,8 +20,6 @@ COMMANDS = {
     "prepare-data": setup.prepare_data,
     "setup-robolab": setup.setup_robolab,
     "smoke-robolab": setup.smoke_robolab,
-    "setup-robolab51": setup.setup_robolab51,
-    "patch-client51": setup.patch_client51,
     "server": experiments.server,
     "server-baseline": experiments.server_baseline,
     "client": experiments.client,
@@ -58,7 +56,6 @@ Explicit arguments override run_config.py defaults. The '--' separator is option
                         help="Training/resume optimizer steps; overrides config and generated step suffix")
     parser.add_argument("--repo-id", help="HF destination/owner override: ACCOUNT/REPO")
     parser.add_argument("--port", type=int)
-    parser.add_argument("--stack", choices=("595", "51"))
     parser.add_argument("--result-name", help="Manual evaluation result folder; default: timestamped")
     parser.add_argument("--dry-run", action="store_true", help="Print commands without login, downloads or writes")
     args, extra = parser.parse_known_args(argv)
@@ -74,7 +71,7 @@ Explicit arguments override run_config.py defaults. The '--' separator is option
         extra = ["--max-steps", str(args.steps), *extra]
     # Commands with no downstream argument parser must not silently ignore typos.
     no_extra = {"setup-system", "update-project", "folders", "setup-groot", "login", "setup-data",
-                "setup-robolab", "setup-robolab51", "patch-client51"}
+                "setup-robolab"}
     if extra and args.command in no_extra:
         parser.error(f"Unsupported arguments for {args.command}: {' '.join(extra)}")
     config_path = (args.config or Path(__file__).resolve().parents[1] / "run_config.py").resolve()

@@ -23,7 +23,7 @@ cd Protoss
 | `LORA_MODE` | unmerged / merged / disabled / pretrained |
 | `SERVER_HOST`, `SERVER_PORT` | Server/Client 연결 주소 |
 | `EVALUATION` | task, num_envs, num_runs, horizon, seed, device |
-| `ROBOLAB_STACK_ROOT`, `ROBOLAB_STACK` | 595 stack 경로 및 수동 Client의 595/51 선택 |
+| `ROBOLAB_STACK_ROOT` | 현재 RoboLab / Isaac Sim 6.0.1 stack 경로 |
 | `RESULT_NAME` | 기본 `None`: 실행마다 시각을 붙인 새 결과 이름 |
 | `HF_ACCOUNT` | 기본 로그인 계정 또는 organization |
 
@@ -45,18 +45,6 @@ python3 run.py setup-robolab
 
 ```bash
 python3 run.py smoke-robolab
-```
-
-기존 5.1 환경을 유지할 때만 아래 명령을 사용한다. 595 환경과 섞지 않는다.
-
-```bash
-python3 run.py setup-robolab51
-```
-
-595 setup은 수정 Client를 자동 적용한다. 기존 5.1 checkout을 업데이트한 뒤 Client만 다시 적용하려면 다음 명령을 쓴다. 원본은 한 번 백업한다.
-
-```bash
-python3 run.py patch-client51
 ```
 
 Client는 서버의 영상 `[0]` 또는 `[-15, 0]` 설정에 맞춰 환경별 이력을 구성한다. State는 `[0]`을 지원한다. `horizon`은 실행할 action 수이며 영상 이력 길이와 별개다.
@@ -124,9 +112,9 @@ python3 run.py client --name baseline
 python3 run.py client --name v1713_model_s_step500 --task BananaOnPlateTask --num-envs 1 --num-runs 1
 ```
 
-`--stack 51`은 기존 5.1 checkout을 사용한다. `--result-name 이름`으로 결과 폴더를 직접 지정할 수 있다. 같은 이름의 폴더가 있으면 기존 JSONL·HDF5·metric 전체를 `output/_previous/<이름>/<실행ID>/`에 보관하고 원래 경로를 비운 뒤 **처음부터 새로 평가**한다. 이전 완료 episode를 건너뛰거나 기존 HDF5를 이어 쓰지 않는다. 같은 이름의 평가가 실행 중이면 중단하고 다른 이름을 요구한다. Baseline 점수를 보관할 때도 `--repo-id OWNER/EXISTING_MODEL`로 기존 업로드 저장소를 명시한다. 추론 서버와 simulator는 동시에 VRAM을 사용하며 기본 환경 수는 1개다.
+`--result-name 이름`으로 결과 폴더를 직접 지정할 수 있다. 같은 이름의 폴더가 있으면 기존 JSONL·HDF5·metric 전체를 `output/_previous/<이름>/<실행ID>/`에 보관하고 원래 경로를 비운 뒤 **처음부터 새로 평가**한다. 이전 완료 episode를 건너뛰거나 기존 HDF5를 이어 쓰지 않는다. 같은 이름의 평가가 실행 중이면 중단하고 다른 이름을 요구한다. Baseline 점수를 보관할 때도 `--repo-id OWNER/EXISTING_MODEL`로 기존 업로드 저장소를 명시한다. 추론 서버와 simulator는 동시에 VRAM을 사용하며 기본 환경 수는 2개다.
 
-이 수정은 RoboLab 실행 진입점에도 적용된다. 업데이트 후 `python3 run.py setup-robolab`을 한 번 실행한다. 기존 5.1 stack은 `python3 run.py patch-client51`을 실행한다. 이후 같은 명령을 반복해도 매번 새 평가를 수행한다.
+이 수정은 RoboLab 실행 진입점에도 적용된다. 업데이트 후 `python3 run.py setup-robolab`을 한 번 실행한다. 이후 같은 명령을 반복해도 매번 새 평가를 수행한다.
 
 ```bash
 python3 run.py client --name v1713_model_s_step500 --result-name repeated_test --num-runs 1

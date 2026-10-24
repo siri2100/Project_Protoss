@@ -33,7 +33,7 @@ class RecipeTests(unittest.TestCase):
         self.config.ROBOLAB_STACK_ROOT = str(self.root / "simulator")
         self.config.HF_ACCOUNT = "test-owner"
         self.args = SimpleNamespace(project_root=self.root, dry_run=False, repo_id=None,
-                                    name=None, port=None, stack=None, result_name=None)
+                                    name=None, port=None, result_name=None)
         self.ctx = Recipe(self.args, self.config)
         self.ctx.tools.mkdir()
         self.ctx.python.parent.mkdir(parents=True)
@@ -48,6 +48,18 @@ path.write_text(json.dumps({"args": sys.argv[1:], "root": os.environ["PROTOSS_RO
 
     def captured(self):
         return json.loads((self.root / "captured.json").read_text())
+
+    def test_internal_module_runs_from_groot_without_wrapper_script(self):
+        source = self.ctx.tools / 'src'
+        source.mkdir()
+        (source / '__init__.py').touch()
+        (source / 'probe.py').write_text('''
+import json, os, sys
+print(json.dumps({'arguments': sys.argv[1:], 'cwd': os.getcwd(), 'project': os.environ['PROTOSS_ROOT']}))
+''')
+        result = json.loads(self.ctx.groot_run('probe', ['--value', '42'], capture=True))
+        self.assertEqual(result, {'arguments': ['--value', '42'], 'cwd': str(self.ctx.groot),
+                                  'project': str(self.root)})
 
     def test_removed_fmd_training_commands_are_unavailable(self):
         self.assertNotIn('train-fmd', COMMANDS)
@@ -189,6 +201,7 @@ path.write_text(json.dumps({"args": sys.argv[1:], "root": os.environ["PROTOSS_RO
         results = calls[1][calls[1].index("--results-dir") + 1]
         self.assertEqual(results, str(self.ctx.stack / "RoboLab/output" / name))
         self.assertEqual(calls[1][calls[1].index("--hf-repo-id") + 1], "test-owner/" + self.config.MODEL_NAME)
+        self.assertIn('src.robolab_results', calls[1])
         self.assertEqual(calls[0][calls[0].index('--task') + 1:calls[0].index('--num-envs')], list(TEST_TASKS))
         self.assertEqual(calls[0][calls[0].index('--num-envs') + 1], '2')
         self.assertEqual(calls[0][calls[0].index('--num-runs') + 1], '5')

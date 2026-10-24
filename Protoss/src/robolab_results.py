@@ -1,14 +1,81 @@
-"""Server-side equivalent of experiment/README_exp.md, for every evaluated task."""
+"""Group RoboLab episodes, calculate metrics and upload evaluation reports."""
 
 import argparse
+from collections import OrderedDict, defaultdict
 import json
+import math
 from pathlib import Path
 import re
 import shutil
 import tempfile
+from typing import Any
 
-from .calculate_metric_averages import METRIC_ORDER, calculate_metric_averages, is_finite_number
-from .split_episode_results import group_lines_by_task
+METRIC_ORDER = [
+    "ee_sparc",
+    "joint_sparc_mean",
+    "ee_isj",
+    "joint_isj",
+    "ee_path_length",
+    "joint_rmse_mean",
+    "ee_speed_max",
+    "ee_speed_mean",
+]
+
+
+def is_finite_number(value: Any) -> bool:
+    """Return True for finite int/float values, excluding booleans."""
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and math.isfinite(value)
+    )
+
+
+def calculate_metric_averages(
+    records: list[dict[str, Any]],
+) -> tuple[dict[str, float], dict[str, int]]:
+    values: dict[str, list[float]] = defaultdict(list)
+
+    for record in records:
+        metrics = record.get("metrics", {})
+        if not isinstance(metrics, dict):
+            continue
+        for name, value in metrics.items():
+            if is_finite_number(value):
+                values[name].append(float(value))
+
+    averages = {name: sum(items) / len(items) for name, items in values.items()}
+    counts = {name: len(items) for name, items in values.items()}
+    return averages, counts
+
+
+def group_lines_by_task(input_file: Path) -> OrderedDict[str, list[str]]:
+    groups: OrderedDict[str, list[str]] = OrderedDict()
+
+    with input_file.open(encoding="utf-8") as file:
+        for line_number, line in enumerate(file, start=1):
+            if not line.strip():
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"Invalid JSON at {input_file}:{line_number}: {exc}") from exc
+
+            if not isinstance(record, dict):
+                raise ValueError(f"Expected a JSON object at {input_file}:{line_number}")
+
+            task_name = record.get("task_name") or record.get("env_name")
+            if not isinstance(task_name, str) or not task_name:
+                raise ValueError(
+                    f"Missing task_name and env_name at {input_file}:{line_number}"
+                )
+
+            # Preserve the original JSON line rather than serializing it again.
+            groups.setdefault(task_name, []).append(line.rstrip("\r\n"))
+
+    if not groups:
+        raise ValueError(f"No records found in {input_file}")
+    return groups
 
 
 def summarize(records):

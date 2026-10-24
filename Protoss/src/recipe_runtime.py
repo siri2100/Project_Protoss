@@ -40,11 +40,16 @@ class Recipe:
                                 check=True, text=True, stdout=subprocess.PIPE if capture else None)
         return result.stdout.strip() if capture else ""
 
-    def groot_run(self, script, arguments=(), capture=False):
+    def groot_run(self, entrypoint, arguments=(), capture=False):
         if not self.args.dry_run and not self.python.is_file():
             raise FileNotFoundError(f"GR00T Python not found: {self.python}. Run setup-groot first.")
-        return self.run([self.python, "-u", self.tools / script, *arguments],
-                        cwd=self.groot, capture=capture)
+        if entrypoint.endswith('.py'):
+            target, env = [self.tools / entrypoint], self.env
+        else:
+            target = ['-m', f'src.{entrypoint}']
+            env = {**self.env, 'PYTHONPATH': str(self.tools)}
+        return self.run([self.python, "-u", *target, *arguments], cwd=self.groot,
+                        env=env, capture=capture)
 
     def python_code(self, code, capture=False):
         return self.run([self.python, "-c", code], cwd=self.groot, capture=capture)

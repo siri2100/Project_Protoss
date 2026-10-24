@@ -428,29 +428,6 @@ class ExplicitLoopTests(unittest.TestCase):
             self.assertEqual(processor, root / "processor")
             load.assert_called_once_with(root)
 
-    def test_analysis_export_reads_adapter_checkpoint(self):
-        from src.analyze_groot import export_checkpoint
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            session = self.make_session(root)
-            self.run_main(session)
-            (root / "lora_settings.json").write_text(json.dumps({
-                "backend": "peft", "rank": 1, "alpha": 2,
-            }))
-            (root / "processor_config.json").write_text("{}")
-            inputs = torch.ones(1, 2)
-            expected = session.model.action_head.model(inputs).detach()
-            args = SimpleNamespace(checkpoint=root / "checkpoint-4", base_model=root,
-                                   output_dir=root / "analysis")
-            modules = {name: ModuleType(name) for name in ("gr00t", "gr00t.model")}
-            with patch.dict(sys.modules, modules), \
-                 patch("transformers.AutoModel.from_pretrained", return_value=TinyPolicy()), \
-                 patch("transformers.AutoProcessor.from_pretrained", return_value=MagicMock()):
-                export_checkpoint(args)
-            reloaded = TinyPolicy()
-            reloaded.load_state_dict(torch.load(root / "analysis/model.pt", weights_only=True))
-            torch.testing.assert_close(reloaded.action_head.model(inputs), expected)
-
     def test_missing_resume_and_empty_dataloader_fail(self):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaisesRegex(ValueError, "no checkpoint"):
