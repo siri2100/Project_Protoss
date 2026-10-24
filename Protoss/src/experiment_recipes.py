@@ -79,10 +79,11 @@ def _legacy_resume(ctx, output, variant):
         if key.startswith(("s_", "e_")):
             del settings[key]
     if variant == "S":
-        if "sparc_weight" not in lora["model_s"]:
-            raise ValueError("Old Model-S jerk runs cannot resume as SPARC; start a new run")
+        if lora.get("loss") != "pretrained_flow_preservation+normalized_joint_jerk-v1":
+            raise ValueError("Model-S requires the FMD + normalized jerk objective; start a new run for SPARC checkpoints")
         for key, value in lora["model_s"].items():
-            settings["s_" + key] = value
+            if key != "jerk_reference_floor":
+                settings["s_" + key] = value
     if variant == "E":
         if lora.get("loss") != "pretrained_flow_preservation+fast_trajectory-v1":
             raise ValueError("Old Model-E path-length runs cannot resume as fast trajectories; start a new run")

@@ -26,8 +26,10 @@ class ModelTrainingTests(unittest.TestCase):
                     self.assertEqual(args.style, variant)
                     self.assertEqual(args.output_dir, root / ("model_" + variant))
                     self.assertEqual(args.s_fm_weight, 1.0)
-                    self.assertFalse(hasattr(args, "s_jerk_weight"))
-                    self.assertEqual(args.s_sparc_weight, .01)
+                    self.assertFalse(hasattr(args, "s_sparc_weight"))
+                    self.assertEqual(args.s_jerk_lambda, .01)
+                    self.assertEqual(args.s_calibration_batches, 10)
+                    self.assertIsNone(args.s_jerk_reference)
                     self.assertEqual(args.e_fm_weight, 1.)
                     self.assertEqual(args.e_fast_weight, 1.)
                     self.assertEqual(args.e_limit_weight, .01)
@@ -40,11 +42,11 @@ class ModelTrainingTests(unittest.TestCase):
                         args.batch_size, args.gradient_accumulation))
             self.assertEqual(settings[0], settings[1])
 
-            with patch.object(sys, "argv", [*argv, "--model", "S", "--s-sparc-weight", "0.25", "--s-fm-weight", "1000"]), \
+            with patch.object(sys, "argv", [*argv, "--model", "S", "--s-jerk-weight", "0.25", "--s-fm-weight", "1000"]), \
                  patch.object(sys, "path", list(sys.path)):
                 args = training.parse_args()
                 from src.model_s_loss import config_from_args
-                self.assertEqual(config_from_args(args).sparc_weight, .25)
+                self.assertEqual(config_from_args(args).jerk_lambda, .25)
                 self.assertEqual(config_from_args(args).fm_weight, 1000)
             with patch.object(sys, "argv", [*argv, "--e-fmd-weight", "2000", "--e-fast-weight", ".2", "--e-limit-weight", ".03", "--e-speedup", "1.5", "--e-velocity-limit", "1.8", "--e-acceleration-limit", "8"]), \
                  patch.object(sys, "path", list(sys.path)):

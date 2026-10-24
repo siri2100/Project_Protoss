@@ -1,5 +1,5 @@
-"""FMD + joint SPARC numerical, gradient, normalization and PEFT integration checks."""
-from contextlib import contextmanager
+"""FMD + normalized joint jerk: numerical, calibration and gradient regression tests."""
+from contextlib import contextmanager, nullcontext
 from enum import Enum
 from types import SimpleNamespace
 import unittest
@@ -9,8 +9,7 @@ import torch
 from torch import nn
 
 from src.model_s_loss import (ModelSConfig, ModelSLoss, clean_action_endpoint,
-                             joint_affine, unnormalize_joints)
-from src.sparc_loss import masked_joint_sparc, spectral_arc_length
+                             joint_affine, masked_jerk_loss, unnormalize_joints)
 from src.model_s_forward import model_s_forward
 
 
@@ -94,90 +93,6 @@ class TinyPolicy(nn.Module):
 
 
 class ModelSLossTests(unittest.TestCase):
-    def test_sparc_agrees_with_independent_numpy_reference_and_scale_invariance(self):
-        import numpy as np
-        t = np.arange(200) / 100.
-        speed = np.exp(-5 * (t - 1)**2)
-        nfft = 2 ** (int(np.ceil(np.log2(len(speed)))) + 4)
-        frequency = np.fft.rfftfreq(nfft, d=.01)
-        magnitude = np.abs(np.fft.rfft(speed, nfft))
-        magnitude /= magnitude.max()
-        indices = np.flatnonzero((frequency <= 10) & (magnitude >= .05))
-        last = indices[-1]
-        expected = -np.sqrt((np.diff(frequency[:last+1]) / frequency[last])**2
-                            + np.diff(magnitude[:last+1])**2).sum()
-        values = torch.tensor(speed, dtype=torch.float64, requires_grad=True)
-        score = spectral_arc_length(values, .01)
-        self.assertAlmostEqual(score.item(), expected, places=10)
-        torch.testing.assert_close(spectral_arc_length(values * 7, .01), score)
-        (-score).backward()
-        self.assertTrue(torch.isfinite(values.grad).all())
-        self.assertGreater(values.grad.abs().sum().item(), 0)
-        self.assertTrue(torch.autograd.gradcheck(lambda x: spectral_arc_length(x, .01),
-                                                (values.detach().requires_grad_(),), atol=1e-5))
-
-    def test_sparc_prefers_smooth_profile_over_multiple_bursts(self):
-        t = torch.linspace(0, 2, 201)
-        smooth = torch.exp(-5 * (t-1).square())
-        bursts = smooth * (1 + .8 * torch.cos(2 * torch.pi * 7 * t))
-        self.assertGreater(spectral_arc_length(smooth, .01).item(),
-                           spectral_arc_length(bursts, .01).item())
-
-    def test_stationary_padding_and_gaps_have_finite_gradients(self):
-        positions = torch.ones(1, 8, 7, requires_grad=True)
-        score = masked_joint_sparc(positions, torch.ones_like(positions), 1/15)
-        self.assertEqual(score.item(), 0.)
-        score.backward()
-        self.assertTrue(torch.isfinite(positions.grad).all())
-        values = torch.zeros(1, 9, 7)
-        values[:, :4] = torch.tensor([0., 1., 3., 4.])[None, :, None]
-        values[:, 4] = float('nan')
-        values[:, 5:] = torch.tensor([100., 101., 103., 104.])[None, :, None]
-        mask = torch.ones_like(values)
-        mask[:, 4] = 0
-        values.requires_grad_()
-        actual = masked_joint_sparc(values, mask, 1/15)
-        expected = masked_joint_sparc(values[:, :4], mask[:, :4], 1/15)
-        torch.testing.assert_close(actual, expected)
-        actual.backward()
-        self.assertTrue(torch.isfinite(values.grad).all())
-        self.assertEqual(values.grad[:, 4].abs().sum().item(), 0.)
-        with self.assertRaisesRegex(ValueError, 'no valid'):
-            masked_joint_sparc(values[:, :3], mask[:, :3], 1/15)
-
-    def test_sparc_weight_scales_loss_and_lora_gradient_and_logs_components(self):
-        torch.manual_seed(9)
-        model = TinyPolicy()
-        inputs = {'inputs': {'action': torch.randn(2, 8, 20), 'action_mask': torch.ones(2, 8, 20)}}
-        rng = torch.get_rng_state()
-        values, gradients = [], []
-        for weight in (1., 10.):
-            torch.set_rng_state(rng)
-            objective = ModelSLoss(ModelSConfig(fm_weight=0, sparc_weight=weight, gradient_diagnostics=True),
-                                  torch.ones(7), torch.zeros(7))
-            total, metrics = objective.forward(model, inputs, diagnostics=True)
-            values.append(total.detach())
-            gradients.append(torch.autograd.grad(total, model.action_head.lora)[0])
-            self.assertEqual(metrics['sparc_loss'], -metrics['sparc'])
-            self.assertAlmostEqual(total.item(), metrics['weighted_fmd_loss'] + metrics['weighted_sparc_loss'])
-            self.assertGreater(metrics['sparc_grad_norm'], 0)
-        self.assertGreater(gradients[0].abs().item(), 0)
-        torch.testing.assert_close(values[1], values[0] * 10)
-        torch.testing.assert_close(gradients[1], gradients[0] * 10)
-
-    def test_new_checkpoint_rejects_jerk_and_changed_settings(self):
-        objective = ModelSLoss(ModelSConfig(), torch.ones(7), torch.zeros(7))
-        state = objective.state_dict()
-        objective.load_state_dict(state)
-        with self.assertRaisesRegex(ValueError, 'old jerk'):
-            objective.load_state_dict({'format': 'model-s-flow-preservation-jerk-v1'})
-        with self.assertRaisesRegex(ValueError, 'configuration differs'):
-            ModelSLoss(ModelSConfig(sparc_weight=99), torch.ones(7), torch.zeros(7)).load_state_dict(state)
-        for kwargs in ({'sparc_weight': -1}, {'sparc_weight': float('nan')}, {'dt': 0},
-                       {'sparc_padlevel': -1}, {'sparc_cutoff_hz': 0}, {'sparc_amplitude_threshold': 1}):
-            with self.assertRaises(ValueError):
-                ModelSConfig(**kwargs)
-
     def test_fm_weight_scales_preservation_loss_and_gradient(self):
         model = TinyPolicy()
         inputs = {'inputs': {'action': torch.randn(1, 8, 20), 'action_mask': torch.ones(1, 8, 20)}}
@@ -185,7 +100,8 @@ class ModelSLossTests(unittest.TestCase):
         values, grads, raw = [], [], []
         for weight in (1., 1000.):
             torch.set_rng_state(rng)
-            objective = ModelSLoss(ModelSConfig(fm_weight=weight, sparc_weight=0), torch.ones(7), torch.zeros(7))
+            objective = ModelSLoss(ModelSConfig(fm_weight=weight, jerk_lambda=0,
+                                               jerk_reference=1), torch.ones(7), torch.zeros(7))
             total, metrics = objective.forward(model, inputs)
             values.append(total.detach())
             grads.append(torch.autograd.grad(total, model.action_head.lora)[0])
@@ -196,9 +112,21 @@ class ModelSLossTests(unittest.TestCase):
         torch.testing.assert_close(values[1], values[0]*1000)
         torch.testing.assert_close(grads[1], grads[0]*1000)
 
+    def test_fm_weight_validation_and_legacy_state_default(self):
+        for weight in (-1, float('nan'), float('inf')):
+            with self.assertRaisesRegex(ValueError, 'FM weight'):
+                ModelSConfig(fm_weight=weight)
+        objective = ModelSLoss(ModelSConfig(jerk_reference=1), torch.ones(7), torch.zeros(7))
+        state = objective.state_dict()
+        del state['config']['fm_weight']
+        objective.load_state_dict(state)
+        changed = ModelSLoss(ModelSConfig(fm_weight=1000, jerk_reference=1), torch.ones(7), torch.zeros(7))
+        with self.assertRaisesRegex(ValueError, 'configuration differs'):
+            changed.load_state_dict(state)
+
     def test_teacher_failure_restores_adapter_training_flags_and_forward(self):
         model = TinyPolicy()
-        objective = ModelSLoss(ModelSConfig(sparc_weight=.01), torch.ones(7), torch.zeros(7))
+        objective = ModelSLoss(ModelSConfig(jerk_reference=1), torch.ones(7), torch.zeros(7))
         inputs = {'inputs': {'action': torch.randn(1, 8, 20), 'action_mask': torch.ones(1, 8, 20)}}
         with patch.object(model.action_head.model, 'forward', side_effect=RuntimeError('teacher failed')):
             with self.assertRaisesRegex(RuntimeError, 'teacher failed'):
@@ -225,7 +153,7 @@ class ModelSLossTests(unittest.TestCase):
         model.action_head.model = get_peft_model(LinearDiT(), LoraConfig(
             r=2, lora_alpha=2, target_modules=['proj'], lora_dropout=0.))
         inputs = {'inputs': {'action': torch.randn(1, 8, 20), 'action_mask': torch.ones(1, 8, 20)}}
-        objective = ModelSLoss(ModelSConfig(sparc_weight=.01), torch.ones(7), torch.zeros(7))
+        objective = ModelSLoss(ModelSConfig(jerk_reference=1), torch.ones(7), torch.zeros(7))
         captured = []
         handle = model.action_head.register_forward_hook(lambda module, args, output: captured.append(output))
         rng = torch.get_rng_state()
@@ -255,10 +183,11 @@ class ModelSLossTests(unittest.TestCase):
         noisy = (1 - t[:, None, None]) * noise + t[:, None, None] * action
         torch.testing.assert_close(clean_action_endpoint(noisy, t, action - noise), action)
 
+
     def test_excludes_gripper_eef_and_padded_dimensions(self):
         torch.manual_seed(8)
         model = TinyPolicy()
-        objective = ModelSLoss(ModelSConfig(dt=1, sparc_weight=.01), torch.ones(7), torch.zeros(7))
+        objective = ModelSLoss(ModelSConfig(dt=1, jerk_reference=1), torch.ones(7), torch.zeros(7))
         inputs = {"action": torch.randn(1, 8, 20), "action_mask": torch.ones(1, 8, 20)}
         # Diagonal decoder: excluded dimensions cannot affect joint predictions.
         with torch.no_grad():
@@ -269,7 +198,8 @@ class ModelSLossTests(unittest.TestCase):
         inputs["action"][..., 17:] += 1000
         torch.set_rng_state(rng)
         _, second = objective.forward(model, {"inputs": inputs})
-        self.assertEqual(first["sparc_loss"], second["sparc_loss"])
+        self.assertEqual(first["normalized_jerk_loss"], second["normalized_jerk_loss"])
+
 
     def test_joint_inverse_uses_active_stats_and_rejects_delta(self):
         class Rep(Enum):
@@ -295,6 +225,7 @@ class ModelSLossTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "POSITION"):
             joint_affine(processor, "droid")
 
+
     def test_horizon_normalization_recovers_physical_trajectory_and_gradient(self):
         t = torch.arange(8.).reshape(8, 1)
         scale = (1 + t).expand(8, 7)
@@ -305,9 +236,10 @@ class ModelSLossTests(unittest.TestCase):
         mask = torch.ones_like(normalized)
         physical = unnormalize_joints(normalized, mask, scale, offset)
         torch.testing.assert_close(physical, expected)
-        torch.testing.assert_close(masked_joint_sparc(physical, mask, 1.), torch.tensor(0.), atol=1e-8, rtol=0)
+        torch.testing.assert_close(masked_jerk_loss(physical, mask, 1.), torch.tensor(0.), atol=1e-8, rtol=0)
         physical.sum().backward()
         torch.testing.assert_close(normalized.grad, scale.expand_as(normalized))
+
 
     def test_singleton_and_longer_stats_broadcast_and_slice(self):
         values = torch.randn(2, 8, 7)
@@ -317,5 +249,134 @@ class ModelSLossTests(unittest.TestCase):
             torch.testing.assert_close(physical, 2 * values + 1)
 
 
-if __name__ == "__main__":
-    unittest.main()
+    def test_jerk_polynomial_dt_mask_and_padding(self):
+        t = torch.arange(8.).reshape(1, 8, 1)
+        for degree in (0, 1, 2):
+            self.assertEqual(masked_jerk_loss(t**degree, torch.ones_like(t), .5).item(), 0.)
+        self.assertEqual(masked_jerk_loss(t**3, torch.ones_like(t), .5).item(), 36 * 64)
+        values = t**3
+        values[:, -1] = float('nan')
+        mask = torch.ones_like(t); mask[:, -1] = 0
+        self.assertEqual(masked_jerk_loss(values, mask, 1).item(), 36.)
+        # A hole invalidates every four-point window touching that point.
+        mask[:, 1] = 0
+        self.assertEqual(masked_jerk_loss(values, mask, 1).item(), 36.)
+        with self.assertRaisesRegex(ValueError, 'no valid four-point'):
+            masked_jerk_loss(values, mask*0, 1)
+        with self.assertRaisesRegex(ValueError, 'at least four'):
+            masked_jerk_loss(values[:, :3], mask[:, :3], 1)
+
+    def test_shared_forward_matches_teacher_flow_and_combines_normalized_jerk(self):
+        model = TinyPolicy()
+        actions = torch.randn(2, 8, 20)
+        mask = torch.ones_like(actions); mask[..., 17:] = 0
+        inputs = {'inputs': {'action': actions, 'action_mask': mask}}
+        for alternate in (False, True):
+            model.action_head.config.use_alternate_vl_dit = alternate
+            captured = {}
+            handle = model.action_head.register_forward_hook(lambda module, args, output: captured.update(output))
+            objective = ModelSLoss(ModelSConfig(jerk_reference=2, jerk_lambda=.3,
+                                               gradient_diagnostics=True), torch.ones(7), torch.zeros(7))
+            try:
+                total, metrics = objective.forward(model, inputs, diagnostics=True)
+            finally:
+                handle.remove()
+            expected = ((captured['velocity'].float()-captured['teacher_velocity'].float()).square()*mask).sum()/(mask.sum()+1e-6)
+            torch.testing.assert_close(captured['loss'], expected)
+            self.assertFalse(captured['teacher_velocity'].requires_grad)
+            teacher, student = model.action_head.model.calls[-2:]
+            torch.testing.assert_close(teacher[0], student[0])
+            torch.testing.assert_close(teacher[1], student[1])
+            self.assertEqual(teacher[2:], (True, False, False))
+            self.assertEqual(student[2:], (False, True, False))
+            self.assertFalse(model.action_head.model.adapter_disabled)
+            self.assertTrue(model.action_head.model.training)
+            self.assertAlmostEqual(metrics['normalized_jerk_loss'], metrics['raw_jerk_loss']/4, places=5)
+            torch.testing.assert_close(total.detach(), torch.tensor(metrics['fmd_loss']+.3*metrics['normalized_jerk_loss']))
+            self.assertGreater(metrics['fmd_grad_norm'], 0)
+            self.assertGreater(metrics['jerk_grad_norm'], 0)
+            total.backward()
+            self.assertIsNone(model.action_head.action_decoder.weight.grad)
+            self.assertTrue(torch.isfinite(model.action_head.lora.grad))
+            self.assertNotIn('forward', model.action_head.__dict__)
+
+    def test_lambda_zero_is_exact_fmd_and_changes_gradient_for_positive_lambda(self):
+        model = TinyPolicy()
+        inputs = {'inputs': {'action': torch.randn(1, 8, 20), 'action_mask': torch.ones(1, 8, 20)}}
+        rng = torch.get_rng_state(); grads = []
+        for weight in (0., .1):
+            torch.set_rng_state(rng)
+            objective = ModelSLoss(ModelSConfig(jerk_reference=1, jerk_lambda=weight), torch.ones(7), torch.zeros(7))
+            total, metrics = objective.forward(model, inputs)
+            if weight == 0:
+                self.assertEqual(total.item(), metrics['fmd_loss'])
+                self.assertEqual(metrics['weighted_jerk_loss'], 0)
+            grads.append(torch.autograd.grad(total, model.action_head.lora)[0])
+        self.assertFalse(torch.allclose(grads[0], grads[1]))
+
+    def test_target_reference_freezes_with_valid_pair_weighting_and_resumes(self):
+        config = ModelSConfig(dt=1, calibration_batches=2)
+        first = ModelSLoss(config, torch.ones(7), torch.zeros(7))
+        t = (torch.arange(6.)**3).reshape(1, 6, 1).expand(1, 6, 20)
+        first.calibrate({'inputs': {'action': t, 'action_mask': torch.ones_like(t)}})
+        resumed = ModelSLoss(config, torch.ones(7), torch.zeros(7))
+        resumed.load_state_dict(first.state_dict())
+        mask = torch.ones_like(t); mask[:, 4:] = 0
+        for objective in (first, resumed):
+            objective.calibrate({'inputs': {'action': 3*t, 'action_mask': mask}})
+            # 3 valid jerk windows at jerk 6, 1 at jerk 18, across 7 joints.
+            self.assertAlmostEqual(objective.reference**2, 108.)
+            state = objective.state_dict()
+            objective.calibrate({})
+            self.assertEqual(objective.state_dict(), state)
+        self.assertEqual(first.state_dict(), resumed.state_dict())
+        with self.assertRaisesRegex(ValueError, 'new flow-preservation'):
+            resumed.load_state_dict({'format': 'model-s-physical-jerk-only-v1'})
+        changed = ModelSLoss(ModelSConfig(jerk_reference=2), torch.ones(7), torch.zeros(7))
+        with self.assertRaisesRegex(ValueError, 'configuration differs'):
+            changed.load_state_dict(first.state_dict())
+
+    def test_stationary_reference_floor_and_config_validation(self):
+        objective = ModelSLoss(ModelSConfig(calibration_batches=1), torch.ones(7), torch.zeros(7))
+        action = torch.zeros(1, 4, 20)
+        objective.calibrate({'inputs': {'action': action, 'action_mask': torch.ones_like(action)}})
+        self.assertEqual(objective.reference, 1.)
+        for kwargs in ({'jerk_lambda': -1}, {'jerk_lambda': float('nan')},
+                       {'jerk_reference': 0}, {'dt': 0}, {'calibration_batches': 0}):
+            with self.assertRaises(ValueError):
+                ModelSConfig(**kwargs)
+
+    def test_training_loop_calibrates_without_optimizer_steps_and_logs_single_line(self):
+        import train as entry
+        from src import training_runtime as runtime
+        from io import StringIO
+        from contextlib import redirect_stdout
+        model = TinyPolicy()
+        objective = ModelSLoss(ModelSConfig(dt=1, calibration_batches=2), torch.ones(7), torch.zeros(7))
+        args = SimpleNamespace(max_steps=2, gradient_accumulation=2, save_steps=2, no_hf_upload=True)
+        inputs = {'inputs': {'action': torch.randn(1, 8, 20), 'action_mask': torch.ones(1, 8, 20)}}
+        session = SimpleNamespace(model=model, step=0, smoothness=objective, objective=objective,
+            batches=lambda count: [inputs]*count, autocast=nullcontext,
+            trainer=SimpleNamespace(state=SimpleNamespace(log_history=[])))
+        @contextmanager
+        def setup(*args): yield session
+        log = StringIO()
+        with patch.object(entry, 'prepare_training', return_value=(None, {})), \
+             patch.object(runtime, 'setup_training', setup), \
+             patch.object(runtime, 'preprocess', side_effect=lambda batch, _: batch), \
+             patch.object(runtime, 'update_weights') as update, \
+             patch.object(runtime, 'save_checkpoint'), patch.object(runtime, 'export_model'), \
+             patch.object(runtime, 'save_training_loss_plot'), \
+             patch.object(runtime, 'save_training_distribution_plot'), redirect_stdout(log):
+            entry.main(args)
+        self.assertEqual(update.call_count, 2)
+        self.assertEqual(objective.calibration_count, 2)
+        self.assertEqual(sum(line.startswith('step=') for line in log.getvalue().splitlines()), 2)
+        lines = [line for line in log.getvalue().splitlines() if line.startswith('step=')]
+        for line, row in zip(lines, session.trainer.state.log_history):
+            self.assertIn(f"fmd_loss={row['fmd_loss']:.6f}", line)
+            self.assertIn(f"jerk_loss={row['normalized_jerk_loss']:.6f}", line)
+            self.assertIn(f"total_loss={row['loss']:.6f}", line)
+        for row in session.trainer.state.log_history:
+            self.assertAlmostEqual(row['loss'], row['fmd_loss']+row['weighted_jerk_loss'], places=5)
+            self.assertNotIn('normalized_velocity_loss', row)

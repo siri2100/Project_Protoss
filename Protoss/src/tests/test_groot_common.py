@@ -141,12 +141,11 @@ class CommonTests(unittest.TestCase):
                          gradient_accumulation=16, lr=1e-5, max_steps=2000, save_steps=500,
                          workers=2, resume=False, variant="S", lora_rank=32,
                          lora_alpha=64, state_dropout_prob=0.0,
-                         s_fm_weight=1., s_sparc_weight=.001, s_dt=1/15,
-                         s_sparc_padlevel=4, s_sparc_cutoff_hz=10.,
-                         s_sparc_amplitude_threshold=.05, s_gradient_diagnostics=False)
+                         s_fm_weight=1., s_jerk_lambda=.001, s_dt=1/15,
+                         s_jerk_reference=None, s_calibration_batches=10, s_gradient_diagnostics=False)
                 config, settings = training.prepare_training(args)
                 self.assertEqual(settings['variant'], 'S')
-                self.assertEqual(settings['loss'], 'pretrained_flow_preservation+joint_sparc-v1')
+                self.assertEqual(settings['loss'], 'pretrained_flow_preservation+normalized_joint_jerk-v1')
                 captured.append(config)
                 # Refuse accidental rerun/overwrite, before calling the trainer.
                 with self.assertRaises(ValueError):

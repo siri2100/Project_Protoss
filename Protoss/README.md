@@ -5,7 +5,7 @@ GR00T-N1.7-DROID의 pretrained baseline과 Model-S/E를 비교한다. 설치·�
 | 모델 | Loss |
 |---|---|
 | baseline | 학습 없이 pretrained 평가 |
-| Model-S | `fm_weight × FMD + sparc_weight × (-mean joint SPARC)` |
+| Model-S | `fm_weight × FMD + jerk_lambda × (raw_jerk_loss / reference²)` |
 | Model-E | `fm_weight × FMD + fast_weight × fast_loss + limit_weight × limit_loss` |
 
 `run.py`가 공통 진입점이며, 모델 이름·step·loss weight 등은 CLI 인자로, 기본값은 `run_config.py`로 조절한다. 현재 v1.7.13은 0부터 세는 DiT 짝수 block(0, 2, 4, …)의 QKV·FFN Linear에 LoRA를 적용한다.
@@ -14,7 +14,7 @@ GR00T-N1.7-DROID의 pretrained baseline과 Model-S/E를 비교한다. 설치·�
 |---|---|
 | `train.py`, `src/training_runtime.py` | S/E 학습 루프, checkpoint 저장·재개 |
 | `src/model_s_forward.py` | 같은 관측·noise·timestep에서 teacher/student FMD |
-| `src/model_s_loss.py`, `src/sparc_loss.py` | 관절 속도 프로파일의 SPARC loss |
+| `src/model_s_loss.py` | 관절 3차 차분 jerk MSE, 고정 target RMS 기준 정규화 |
 | `src/model_e_loss.py` | teacher 관절·그리퍼 궤적의 시간 압축 추종, 관절 속도·가속도 초과 penalty |
 | `serve.py`, `src/inference_loading.py` | pretrained·adapter·processor 로딩 |
 | `evaluate_robolab.py`, `src/training_evaluation.py` | 학습 종료 후 서버·평가·점수 업로드 |
@@ -32,3 +32,5 @@ Model-E는 같은 noise·timestep에서 얻은 teacher의 clean endpoint 추정 
 관절·그리퍼를 각자의 pretrained 통계로 역정규화한 뒤 보간하고, horizon 전체에서 고정된 채널별 scale로 나눈 MSE를 계산한다. 관절 평균 MSE와 그리퍼 평균 MSE의 합이 `fast_loss`다. Padding·결측을 넘어서 보간하지 않으며 연속 위치가 최소 3개인 구간만 사용한다. Teacher에는 gradient를 전달하지 않는다.
 
 `limit_loss`는 `mean(relu(abs(velocity)/v_limit - 1)^2) + mean(relu(abs(acceleration)/a_limit - 1)^2)`다. 관절 7개에 적용하고 현재 raw 관절 위치 → 첫 action의 속도도 포함한다. 기본 상한 2 rad/s·10 rad/s²는 조절 가능한 실험용 soft bound이며 실제 controller 제한을 대신하지 않는다. 기존 path-length checkpoint는 새 목적함수로 재개할 수 없다. Model-E 콘솔·CSV·그래프에는 FMD, fast, limit, total을 기록한다.
+
+Model-S는 SPARC 직전의 FMD + normalized jerk 목적함수를 사용한다. 역정규화한 관절 7개의 `j = (q[t+3] - 3q[t+2] + 3q[t+1] - q[t]) / dt³` 제곱 평균이 raw jerk loss다. 결측·padding을 포함한 4점 구간은 제외한다. 초기 target batch들에서 고정한 `reference = max(sqrt(sum(j_target²)/count), 1 rad/s³)`로 나누며, 학습 중 reference를 갱신하지 않는다. `--s-fmd-weight`, `--s-jerk-lambda`(별칭 `--s-jerk-weight`), `--s-jerk-reference`, `--s-calibration-batches`, `--s-dt`로 조절한다. Reference와 calibration 상태는 checkpoint에 저장해 재개 시 재사용한다. SPARC checkpoint와 loss 설정이 다른 run은 재개할 수 없다.

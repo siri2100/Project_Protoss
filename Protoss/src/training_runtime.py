@@ -214,6 +214,16 @@ def preprocess(batch, training):
     return training.trainer._prepare_inputs(batch)
 
 
+def calibrate_s_reference(training):
+    """Read target batches before optimization; skip a restored/fixed reference."""
+    objective = training.smoothness
+    if objective is None or objective.reference is not None:
+        return
+    remaining = objective.config.calibration_batches - objective.calibration_count
+    for batch in training.batches(remaining):
+        objective.calibrate(preprocess(batch, training))
+
+
 def update_weights(training):
     import torch
     trainer = training.trainer
@@ -269,7 +279,7 @@ def save_training_loss_plot(training):
     steps = sorted(losses)
     model_e = getattr(training, "efficiency", None) is not None or any(
         "fast_loss" in row for row in training.trainer.state.log_history)
-    motion_key = "fast_loss" if model_e else "sparc_loss"
+    motion_key = "fast_loss" if model_e else "normalized_jerk_loss"
     components = {row["step"]: row for row in training.trainer.state.log_history
                   if "step" in row and motion_key in row and row["step"] <= training.step}
     compound = training.smoothness is not None or model_e or bool(components)
@@ -281,9 +291,9 @@ def save_training_loss_plot(training):
                     "limit_weight", "speedup", "weighted_fmd_loss", "weighted_fast_loss", "weighted_limit_loss",
                     "joint_fast_loss", "gripper_fast_loss", "velocity_limit_loss", "acceleration_limit_loss"]
         elif compound:
-            keys = ["fmd_loss", "sparc", "sparc_loss", "total_loss",
+            keys = ["fmd_loss", "raw_jerk_loss", "normalized_jerk_loss", "total_loss",
                     "fm_weight", "weighted_fmd_loss",
-                    "weighted_sparc_loss", "sparc_weight", "fmd_grad_norm", "sparc_grad_norm"]
+                    "weighted_jerk_loss", "jerk_lambda", "jerk_reference", "fmd_grad_norm", "jerk_grad_norm"]
         else:
             keys = []
         writer.writerow(["step", "loss", *keys])
@@ -301,8 +311,8 @@ def save_training_loss_plot(training):
     elif compound:
         axes = figure.subplots(3, 1, sharex=True)
         series = [("fmd_loss", "Pretrained flow preservation MSE"),
-                  ("sparc_loss", "Negative mean joint-speed SPARC"),
-                  ("total_loss", "Weighted flow preservation + weighted SPARC loss")]
+                  ("normalized_jerk_loss", "Physical joint jerk MSE / fixed reference squared"),
+                  ("total_loss", "Weighted FMD + lambda * normalized jerk")]
     else:
         axes = [figure.subplots()]
         series = [("loss", "Mean training objective")]

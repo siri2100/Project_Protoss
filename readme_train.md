@@ -49,8 +49,13 @@ python3 run.py prepare-data
 
 ### Model-S
 ```bash
-python3 run.py train-s --name v1.7.13_model_s_step500 --steps 500 --save-steps 500 --lr 1e-5 --s-fmd-weight 1 --s-sparc-weight 0.001
+python3 run.py train-s --name v1.7.13_model_s_jerk_step500 --steps 500 --save-steps 500 --lr 1e-5 --s-fmd-weight 1 --s-jerk-lambda 0.001 --s-calibration-batches 10 --s-dt 0.06666666666666667
 ```
+
+Model-S: `loss = s_fmd_weight × FMD + s_jerk_lambda × (raw_jerk_loss / reference²)`.
+
+Jerk는 역정규화한 7개 관절 위치의 3차 차분을 `dt³`으로 나눈 값이며, 유효한 연속 4개 위치에서 제곱 평균을 계산한다. Reference는 학습 전 target 10개 batch의 jerk RMS로 고정하고 checkpoint에 저장한다. `--s-jerk-reference 값`으로 직접 지정하면 calibration을 생략한다. 자동 추정하는 reference의 최솟값은 1 rad/s³다. Raw jerk·정규화 jerk·FMD·total을 CSV에 기록하고, 그래프에는 FMD·정규화 jerk·total을 그린다. SPARC checkpoint는 새로운 이름으로 다시 학습한다.
+
 ### Model-E
 ```bash
 python3 run.py train-e --name v1.7.13_model_e_fast_step500 --steps 500 --save-steps 500 --lr 1e-5 --e-fmd-weight 1 --e-fast-weight 1 --e-limit-weight 0.01 --e-speedup 1.2 --e-dt 0.06666666666666667 --e-velocity-limit 2 --e-acceleration-limit 10
