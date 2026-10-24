@@ -68,6 +68,14 @@ def hf(ctx, arguments, env=None):
     ctx.run(["uv", "run", "--no-sync", "hf", *arguments], cwd=ctx.groot, env=env)
 
 
+def verify_hf_login(ctx, env=None):
+    # Older `hf auth whoami` exits 0 even when it prints "Not logged in".
+    # The API raises on missing/invalid credentials, so check=True is reliable.
+    ctx.run(["uv", "run", "--no-sync", "python", "-c",
+             'from huggingface_hub import HfApi; print(HfApi().whoami()["name"])'],
+            cwd=ctx.groot, env=env)
+
+
 def download_base(ctx, env=None):
     ctx.mkdir(ctx.checkpoints)
     hf(ctx, ["download", "nvidia/Cosmos-Reason2-2B", "config.json", "--local-dir",
@@ -102,9 +110,10 @@ def setup_groot(ctx, extra):
     ctx.run([*PUBLIC_GIT, "lfs", "pull", "--include=scripts/deployment/dgpu/wheels/**"], cwd=ctx.groot, env=env)
     ctx.run(["uv", "sync", "--locked", "--python", "3.12"], cwd=ctx.groot)
     try:
-        hf(ctx, ["auth", "whoami"])
+        verify_hf_login(ctx)
     except subprocess.CalledProcessError:
         hf(ctx, ["auth", "login"])
+        verify_hf_login(ctx)
     download_base(ctx)
 
 
@@ -114,7 +123,7 @@ def login(ctx, extra):
     for key in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN", "HF_HUB_DISABLE_IMPLICIT_TOKEN"):
         env.pop(key, None)
     hf(ctx, ["auth", "login"], env)
-    hf(ctx, ["auth", "whoami"], env)
+    verify_hf_login(ctx, env)
     download_base(ctx, env)
 
 

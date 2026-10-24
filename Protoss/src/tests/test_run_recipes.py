@@ -222,6 +222,72 @@ path.write_text(json.dumps({"args": sys.argv[1:], "root": os.environ["PROTOSS_RO
         self.assertEqual(kwargs["env"]["GIT_CONFIG_GLOBAL"], "/dev/null")
         self.assertTrue(any("nvidia/Cosmos-Reason2-2B" in cmd for cmd, _ in calls))
 
+    def hf_setup_fixture(self, logged_in=False, login_mode="ok"):
+        """Run authentication checks in real children without network/tokens."""
+        (self.ctx.groot / '.git').mkdir()
+        if logged_in:
+            (self.ctx.groot / 'logged_in').touch()
+        (self.ctx.groot / 'huggingface_hub.py').write_text('''
+from pathlib import Path
+class HfApi:
+    def whoami(self):
+        with Path('auth_calls').open('a') as file: file.write('verify\\n')
+        if not Path('logged_in').exists(): raise RuntimeError('Not logged in')
+        return {'name': 'test-owner'}
+''')
+        stub = self.ctx.groot / 'uv_stub.py'
+        stub.write_text('''
+import os, sys
+from pathlib import Path
+command = sys.argv[1:]
+assert command[:2] == ['run', '--no-sync']
+command = command[2:]
+if command[0] == 'python': os.execv(sys.executable, [sys.executable, *command[1:]])
+assert command[0] == 'hf'
+if command[1:] == ['auth', 'whoami']:
+    print('test-owner' if Path('logged_in').exists() else 'Not logged in')
+    sys.exit(0)  # Reproduce the old HF CLI's misleading success status.
+with Path('auth_calls').open('a') as file: file.write(command[1] + '\\n')
+if command[1:] == ['auth', 'login']:
+    if LOGIN_MODE == 'failure': sys.exit(7)
+    if LOGIN_MODE != 'unverified': Path('logged_in').touch()
+elif command[1] == 'download':
+    assert Path('logged_in').exists(), 'download attempted before login'
+'''.replace('LOGIN_MODE', repr(login_mode)))
+        original_run = self.ctx.run
+        def run(command, **kwargs):
+            if command[0] == 'uv' and command[1:3] == ['run', '--no-sync']:
+                return original_run([sys.executable, stub, *command[1:]], **kwargs)
+            return setup.GROOT_REVISION if command == ['git', 'rev-parse', 'HEAD'] else ''
+        self.ctx.run = run
+
+    def auth_calls(self):
+        return (self.ctx.groot / 'auth_calls').read_text().splitlines()
+
+    def test_setup_logs_in_when_old_cli_reports_not_logged_in_with_exit_zero(self):
+        self.hf_setup_fixture()
+        setup.hf(self.ctx, ['auth', 'whoami'])  # Returns successfully while logged out.
+        setup.setup_groot(self.ctx, [])
+        self.assertEqual(self.auth_calls(), ['verify', 'auth', 'verify', 'download', 'download'])
+
+    def test_setup_reuses_valid_login_without_prompt(self):
+        self.hf_setup_fixture(logged_in=True)
+        setup.setup_groot(self.ctx, [])
+        self.assertEqual(self.auth_calls(), ['verify', 'download', 'download'])
+
+    def test_setup_does_not_download_if_login_fails_or_cannot_be_verified(self):
+        self.hf_setup_fixture(login_mode='unverified')
+        with self.assertRaises(subprocess.CalledProcessError):
+            setup.setup_groot(self.ctx, [])
+        self.assertEqual(self.auth_calls(), ['verify', 'auth', 'verify'])
+
+    def test_failed_login_stops_setup_before_download(self):
+        self.hf_setup_fixture(login_mode='failure')
+        with self.assertRaises(subprocess.CalledProcessError) as caught:
+            setup.setup_groot(self.ctx, [])
+        self.assertEqual(caught.exception.returncode, 7)
+        self.assertEqual(self.auth_calls(), ['verify', 'auth'])
+
     def test_all_dry_runs_have_no_subprocess_or_file_mutations(self):
         self.args.dry_run = True
         self.config.HF_ACCOUNT = None

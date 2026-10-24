@@ -42,6 +42,12 @@ python3 run.py setup-groot
 
 고정 버전의 GR00T와 Python 환경을 설치하고, **HF 로그인 → Cosmos 접근 확인 → pretrained 다운로드**를 진행한다. [Cosmos 모델](https://huggingface.co/nvidia/Cosmos-Reason2-2B) 접근 승인을 받은 계정과 모델 읽기·쓰기 권한이 있는 토큰을 사용한다. 이후 학습·평가는 저장된 로그인을 재사용한다.
 
+다운로드 중 `Not logged in` 또는 401 오류가 나면 같은 `Protoss` 폴더에서 아래 명령을 실행한다. 다시 로그인하고 계정을 확인한 뒤 Cosmos 접근 확인과 pretrained 다운로드를 재시도한다. 로그인 후에도 접근이 거부되면 위 Cosmos 모델 페이지에서 해당 계정의 접근 승인 상태를 확인한다.
+
+```bash
+python3 run.py login
+```
+
 ## 3. RoboLab 설치
 
 학습 후 자동 평가에 사용할 RoboLab·IsaacLab·Isaac Sim 6.0.1과 전용 Python 환경을 설치한다. 기존 설치가 있다면 같은 명령으로 최신 호환 패치를 적용한다.
