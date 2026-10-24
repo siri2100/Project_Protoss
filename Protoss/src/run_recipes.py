@@ -42,7 +42,7 @@ def main(argv=None):
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""Examples:
   python3 Protoss/run.py train-s --name my_model_s --steps 2000 --lr 1e-6
-  python3 Protoss/run.py train-e --steps 1000 --save-steps 250 --e-path-length-weight 0.02
+  python3 Protoss/run.py train-e --steps 1000 --save-steps 250 --e-fast-weight 1 --e-limit-weight 0.01 --e-speedup 1.2
   python3 Protoss/run.py server --model-name my_model_s --checkpoint-step 500
   python3 Protoss/run.py client --name my_model_s --num-runs 1
 

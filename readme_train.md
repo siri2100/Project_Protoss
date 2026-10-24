@@ -53,5 +53,13 @@ python3 run.py train-s --name v1.7.13_model_s_step500 --steps 500 --save-steps 5
 ```
 ### Model-E
 ```bash
-python3 run.py train-e --name v1.7.13_model_e_step500 --steps 500 --save-steps 500 --lr 1e-5 --e-fmd-weight 1 --e-path-length-weight 0.01
+python3 run.py train-e --name v1.7.13_model_e_fast_step500 --steps 500 --save-steps 500 --lr 1e-5 --e-fmd-weight 1 --e-fast-weight 1 --e-limit-weight 0.01 --e-speedup 1.2 --e-dt 0.06666666666666667 --e-velocity-limit 2 --e-acceleration-limit 10
 ```
+
+Model-E: `loss = e_fmd_weight × FMD + e_fast_weight × fast_loss + e_limit_weight × limit_loss`.
+
+- `fast_loss`: pretrained가 예측한 관절·그리퍼 궤적의 시간을 `e_speedup`배 압축해 추종. 기본 1.2이며 마지막 위치를 유지한다. 원본 데이터는 배속하지 않는다.
+- `limit_loss`: 관절 속도·가속도의 상한 초과에 대한 정규화된 penalty. 상한 단위는 rad/s·rad/s²이며 모든 관절에 공통 적용하는 실험용 soft bound다.
+- 콘솔·CSV·그래프에 `fmd_loss`, `fast_loss`, `limit_loss`, `total_loss`를 기록한다. 설정은 `run_config.py`의 `TRAIN["E"]`에서도 변경할 수 있다.
+
+기존 EE path length loss의 checkpoint는 새 목적함수로 재개할 수 없다. 새로운 `--name`으로 학습하고, 성공률·성공 episode 완료 시간·SPARC를 함께 비교한다. 실제 속도 향상은 RoboLab 평가로 확인한다.

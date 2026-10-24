@@ -5,7 +5,7 @@ import math
 
 import torch
 
-from .joint_actions import clean_action_endpoint, joint_affine, unnormalize_joints
+from .joint_actions import clean_action_endpoint, joint_affine, unnormalize_actions as unnormalize_joints
 from .model_s_forward import flow_preservation_forward
 from .sparc_loss import masked_joint_sparc
 

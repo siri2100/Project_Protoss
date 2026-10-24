@@ -69,11 +69,15 @@ def parse_args():
     smooth.add_argument("--s-sparc-amplitude-threshold", type=float, default=.05)
     smooth.add_argument("--s-dt", type=float, default=1 / 15, help="Action interval in seconds")
     smooth.add_argument("--s-gradient-diagnostics", action="store_true")
-    efficiency = parser.add_argument_group("Model-E FK end-effector path length experiment")
+    efficiency = parser.add_argument_group("Model-E faster teacher trajectory experiment")
     efficiency.add_argument("--e-fmd-weight", "--e-fm-weight", dest="e_fm_weight", type=float, default=1.0,
                             help="Weight for the pretrained flow preservation MSE")
-    efficiency.add_argument("--e-path-length-weight", "--e-ee-path-length-weight", type=float, default=0.01,
-                            help="Weight for mean FK end-effector path length in meters")
+    efficiency.add_argument("--e-fast-weight", type=float, default=1., help="Weight for time-compressed joint/gripper tracking")
+    efficiency.add_argument("--e-limit-weight", type=float, default=.01, help="Weight for joint speed/acceleration excess")
+    efficiency.add_argument("--e-speedup", type=float, default=1.2, help="Teacher time compression factor (>=1)")
+    efficiency.add_argument("--e-dt", type=float, default=1/15, help="Action interval in seconds")
+    efficiency.add_argument("--e-velocity-limit", type=float, default=2., help="Soft bound for each joint in rad/s")
+    efficiency.add_argument("--e-acceleration-limit", type=float, default=10., help="Soft bound for each joint in rad/s^2")
     args = parser.parse_args()
     if min(args.lora_rank, args.max_steps, args.save_steps, args.batch_size, args.gradient_accumulation) < 1 or args.lr <= 0 or args.lora_alpha <= 0 or args.workers < 0:
         parser.error("Invalid positive training/LoRA parameters")
@@ -159,7 +163,7 @@ def prepare_training(args):
             from .src.model_e_loss import config_from_args
         else:
             from src.model_e_loss import config_from_args
-        lora_settings["loss"] = "pretrained_flow_preservation+fk_ee_path_length-v1"
+        lora_settings["loss"] = "pretrained_flow_preservation+fast_trajectory-v1"
         lora_settings["model_e"] = asdict(config_from_args(args))
     settings_path = args.output_dir / "lora_settings.json"
     if args.resume:
@@ -208,9 +212,11 @@ def main(args):
                   f"fm_weight={training.smoothness.config.fm_weight:.8g}; "
                   f"sparc_weight={training.smoothness.config.sparc_weight:.8g}", flush=True)
         elif getattr(training, "efficiency", None) is not None:
-            print(f"Model-E objective=fm_weight*pretrained_flow_MSE+path_length_weight*FK_ee_path_length; "
+            print(f"Model-E objective=fm_weight*FMD+fast_weight*fast_loss+limit_weight*limit_loss; "
                   f"fm_weight={training.efficiency.config.fm_weight:.8g}; "
-                  f"path_length_weight={training.efficiency.config.path_length_weight:.8g}", flush=True)
+                  f"fast_weight={training.efficiency.config.fast_weight:.8g}; "
+                  f"limit_weight={training.efficiency.config.limit_weight:.8g}; "
+                  f"speedup={training.efficiency.config.speedup:.8g}", flush=True)
         for step in range(training.step + 1, args.max_steps + 1):
             step_loss = 0.0
             step_metrics = {}
@@ -232,7 +238,7 @@ def main(args):
             record_training_loss(training, step_loss, **step_metrics)
             motion = (f"sparc_loss={step_metrics['sparc_loss']:.6f} "
                       if training.smoothness is not None else
-                      f"path_length_loss={step_metrics['path_length_loss']:.6f} ")
+                      f"fast_loss={step_metrics['fast_loss']:.6f} limit_loss={step_metrics['limit_loss']:.6f} ")
             print(f"step={step}/{args.max_steps} "
                   f"fmd_loss={step_metrics['fmd_loss']:.6f} "
                   f"weighted_fmd_loss={step_metrics['weighted_fmd_loss']:.6f} "

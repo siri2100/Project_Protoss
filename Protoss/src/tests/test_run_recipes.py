@@ -130,10 +130,13 @@ print(json.dumps({'arguments': sys.argv[1:], 'cwd': os.getcwd(), 'project': os.e
         self.assertIn("--no-eval", arguments)
 
     def test_cli_steps_alias_updates_generated_name_and_resume(self):
-        self.assertEqual(main(["train-e", "--project-root", str(self.root), "--step", "800"]), 0)
+        self.assertEqual(main(["train-e", "--project-root", str(self.root), "--step", "800",
+                               "--e-speedup", "1.4", "--e-fast-weight", "3", "--e-limit-weight", ".2"]), 0)
         arguments = self.captured()["args"]
         self.assertEqual(Path(arguments[arguments.index("--output-dir") + 1]).name,
                          "v1.7.13_model_e_step800")
+        for flag, expected in (("--e-speedup", "1.4"), ("--e-fast-weight", "3"), ("--e-limit-weight", ".2")):
+            self.assertEqual([arguments[i+1] for i, token in enumerate(arguments) if token == flag][-1], expected)
         self.assertEqual(main(["resume-e", "--project-root", str(self.root), "--max-steps", "1200"]), 0)
         arguments = self.captured()["args"]
         self.assertEqual([arguments[i + 1] for i, token in enumerate(arguments) if token == "--max-steps"][-1], "1200")
@@ -220,6 +223,28 @@ print(json.dumps({'arguments': sys.argv[1:], 'cwd': os.getcwd(), 'project': os.e
         self.assertEqual(arguments[arguments.index("--s-fm-weight") + 1], "25.0")
         self.assertEqual(arguments[arguments.index("--s-sparc-weight") + 1], "0.4")
         self.assertEqual(arguments[arguments.index("--lr") + 1], "2e-06")
+
+    def test_model_e_resume_without_launch_restores_fast_settings_and_rejects_old_path_loss(self):
+        self.args.name = 'fast_e'
+        output = self.ctx.model()
+        output.mkdir(parents=True)
+        (output / 'style_run.json').write_text(json.dumps(dict(batch_size=2, lr=2e-6,
+            max_steps=1200, gradient_accumulation=16, seed=42)))
+        settings = dict(variant='E', rank=32, alpha=64,
+            loss='pretrained_flow_preservation+fast_trajectory-v1',
+            model_e=dict(fm_weight=25., fast_weight=.4, limit_weight=.2, speedup=1.5,
+                         dt=1/15, velocity_limit=1.8, acceleration_limit=8.))
+        path = output / 'lora_settings.json'
+        path.write_text(json.dumps(settings))
+        experiments.resume(self.ctx, 'E', [])
+        arguments = self.captured()['args']
+        for flag, value in (('--e-fmd-weight', '25.0'), ('--e-fast-weight', '0.4'),
+                            ('--e-speedup', '1.5'), ('--e-limit-weight', '0.2')):
+            self.assertEqual(arguments[arguments.index(flag)+1], value)
+        settings['loss'] = 'pretrained_flow_preservation+fk_ee_path_length-v1'
+        path.write_text(json.dumps(settings))
+        with self.assertRaisesRegex(ValueError, 'start a new run'):
+            experiments.resume(self.ctx, 'E', [])
 
     def test_groot_setup_keeps_fixed_revision_and_submodule_http_options(self):
         (self.ctx.groot / ".git").mkdir()

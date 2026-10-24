@@ -29,7 +29,9 @@ class ModelTrainingTests(unittest.TestCase):
                     self.assertFalse(hasattr(args, "s_jerk_weight"))
                     self.assertEqual(args.s_sparc_weight, .01)
                     self.assertEqual(args.e_fm_weight, 1.)
-                    self.assertEqual(args.e_path_length_weight, .01)
+                    self.assertEqual(args.e_fast_weight, 1.)
+                    self.assertEqual(args.e_limit_weight, .01)
+                    self.assertEqual(args.e_speedup, 1.2)
                     self.assertFalse(args.no_eval)
                     self.assertEqual(args.eval_tasks, list(TEST_TASKS))
                     self.assertEqual((args.eval_num_envs, args.eval_num_runs, args.eval_horizon), (2, 5, 8))
@@ -44,12 +46,16 @@ class ModelTrainingTests(unittest.TestCase):
                 from src.model_s_loss import config_from_args
                 self.assertEqual(config_from_args(args).sparc_weight, .25)
                 self.assertEqual(config_from_args(args).fm_weight, 1000)
-            with patch.object(sys, "argv", [*argv, "--e-fmd-weight", "2000", "--e-path-length-weight", ".2"]), \
+            with patch.object(sys, "argv", [*argv, "--e-fmd-weight", "2000", "--e-fast-weight", ".2", "--e-limit-weight", ".03", "--e-speedup", "1.5", "--e-velocity-limit", "1.8", "--e-acceleration-limit", "8"]), \
                  patch.object(sys, "path", list(sys.path)):
                 args = training.parse_args()
                 from src.model_e_loss import config_from_args
                 self.assertEqual(config_from_args(args).fm_weight, 2000)
-                self.assertEqual(config_from_args(args).path_length_weight, .2)
+                self.assertEqual(config_from_args(args).fast_weight, .2)
+                self.assertEqual(config_from_args(args).limit_weight, .03)
+                self.assertEqual(config_from_args(args).speedup, 1.5)
+                self.assertEqual(config_from_args(args).velocity_limit, 1.8)
+                self.assertEqual(config_from_args(args).acceleration_limit, 8.)
             with patch.object(sys, "argv", [*argv, "--no-eval", "--eval-num-runs", "1"]), \
                  patch.object(sys, "path", list(sys.path)):
                 args = training.parse_args()

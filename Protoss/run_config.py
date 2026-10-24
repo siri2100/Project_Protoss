@@ -29,7 +29,8 @@ TRAIN = {
     ),
     "E": dict(
         version="v1.7.13", max_steps=500, save_steps=500, lr=1e-5,
-        e_fmd_weight=1, e_path_length_weight=0.01,
+        e_fmd_weight=1, e_fast_weight=1, e_limit_weight=0.01, e_speedup=1.2,
+        e_dt=1/15, e_velocity_limit=2., e_acceleration_limit=10.,
     ),
 }
 

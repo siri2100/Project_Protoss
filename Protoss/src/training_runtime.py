@@ -179,11 +179,14 @@ def setup_training(config, args, lora_settings):
             elif args.variant == "E":
                 import json
                 from .groot_common import TAG
-                from .joint_actions import JointActionDecoder
+                from .joint_actions import JointActionDecoder, action_affine
                 from .model_e_loss import ModelELoss, config_from_args
                 from gr00t.data.embodiment_tags import EmbodimentTag
-                decoder = JointActionDecoder.from_processor(pipeline.processor, EmbodimentTag.resolve(TAG).value)
-                session.efficiency = ModelELoss(config_from_args(args), decoder.scale, decoder.offset, decoder=decoder)
+                tag = EmbodimentTag.resolve(TAG).value
+                decoder = JointActionDecoder.from_processor(pipeline.processor, tag)
+                grip_scale, grip_offset = action_affine(pipeline.processor, tag, "gripper_position", 1)
+                session.efficiency = ModelELoss(config_from_args(args), decoder.scale, decoder.offset,
+                                               decoder=decoder, gripper_scale=grip_scale, gripper_offset=grip_offset)
                 if checkpoint is not None:
                     state_path = Path(checkpoint) / "model_e_loss.json"
                     if not state_path.is_file():
@@ -265,8 +268,8 @@ def save_training_loss_plot(training):
               if "step" in row and "loss" in row and row["step"] <= training.step}
     steps = sorted(losses)
     model_e = getattr(training, "efficiency", None) is not None or any(
-        "path_length_loss" in row for row in training.trainer.state.log_history)
-    motion_key = "path_length_loss" if model_e else "sparc_loss"
+        "fast_loss" in row for row in training.trainer.state.log_history)
+    motion_key = "fast_loss" if model_e else "sparc_loss"
     components = {row["step"]: row for row in training.trainer.state.log_history
                   if "step" in row and motion_key in row and row["step"] <= training.step}
     compound = training.smoothness is not None or model_e or bool(components)
@@ -274,8 +277,9 @@ def save_training_loss_plot(training):
     with (output / "training_loss.csv").open("w", newline="") as stream:
         writer = csv.writer(stream)
         if model_e:
-            keys = ["fmd_loss", "path_length_loss", "total_loss", "fm_weight", "weighted_fmd_loss",
-                    "weighted_path_length_loss", "path_length_weight"]
+            keys = ["fmd_loss", "fast_loss", "limit_loss", "total_loss", "fm_weight", "fast_weight",
+                    "limit_weight", "speedup", "weighted_fmd_loss", "weighted_fast_loss", "weighted_limit_loss",
+                    "joint_fast_loss", "gripper_fast_loss", "velocity_limit_loss", "acceleration_limit_loss"]
         elif compound:
             keys = ["fmd_loss", "sparc", "sparc_loss", "total_loss",
                     "fm_weight", "weighted_fmd_loss",
@@ -287,12 +291,13 @@ def save_training_loss_plot(training):
             row = {**components.get(step, {}), "total_loss": losses[step]}
             writer.writerow([step, losses[step], *(row.get(key, "") for key in keys)])
 
-    figure = Figure(figsize=(9, 10) if compound else (9, 5), layout="constrained")
+    figure = Figure(figsize=(9, 13) if model_e else (9, 10) if compound else (9, 5), layout="constrained")
     if model_e:
-        axes = figure.subplots(3, 1, sharex=True)
+        axes = figure.subplots(4, 1, sharex=True)
         series = [("fmd_loss", "Pretrained flow preservation MSE"),
-                  ("path_length_loss", "Mean FK end-effector path length (m)"),
-                  ("total_loss", "Weighted flow preservation + weighted path length")]
+                  ("fast_loss", "Normalized time-compressed joint/gripper tracking"),
+                  ("limit_loss", "Normalized joint velocity + acceleration excess"),
+                  ("total_loss", "Weighted FMD + fast tracking + motion limits")]
     elif compound:
         axes = figure.subplots(3, 1, sharex=True)
         series = [("fmd_loss", "Pretrained flow preservation MSE"),

@@ -26,29 +26,33 @@ def joint_affine(processor, tag):
     params = groups["joint_position"]
     if int(params["dim"]) != 7:
         raise ValueError("Model-S/E expects seven DROID joints")
-    if "joint_position" in (modality.mean_std_embedding_keys or []):
-        std = torch.as_tensor(params["std"])
-        mean = torch.as_tensor(params["mean"])
-        # Match upstream's identity inverse for constant (std=0) dimensions.
+    return action_affine(processor, tag, "joint_position", 7)
+
+
+def action_affine(processor, tag, key, dimension):
+    """Read one action field's active inverse normalization, including horizon stats."""
+    sap = processor.state_action_processor
+    modality = sap.modality_configs[tag]["action"]
+    params = sap.norm_params[tag]["action"][key]
+    if int(params["dim"]) != dimension:
+        raise ValueError(f"Expected {dimension} dimensions for {key}")
+    if key in (modality.mean_std_embedding_keys or []):
+        std, mean = torch.as_tensor(params["std"]), torch.as_tensor(params["mean"])
         scale, offset = torch.where(std != 0, std, 1), torch.where(std != 0, mean, 0)
     else:
-        # Active relative-action stats use min/max even when percentile mode is on.
         low, high = torch.as_tensor(params["min"]), torch.as_tensor(params["max"])
         scale, offset = (high - low) / 2, (high + low) / 2
-    scale, offset = torch.as_tensor(scale).float(), torch.as_tensor(offset).float()
-    # GR00T relative stats reduce over chunks, retaining the horizon axis.
-    # Keep each timestep's own scale AND offset before taking differences.
+    scale, offset = scale.float(), offset.float()
     if (scale.shape != offset.shape or scale.ndim not in (1, 2)
-            or scale.shape[-1] != 7 or scale.numel() == 0):
-        raise ValueError(f"Model-S/E normalization must be (7,) or (H, 7); "
-                         f"got scale={tuple(scale.shape)}, offset={tuple(offset.shape)}")
+            or scale.shape[-1] != dimension or scale.numel() == 0):
+        raise ValueError(f"Invalid {key} normalization shape: {tuple(scale.shape)}, {tuple(offset.shape)}")
     if not torch.isfinite(scale).all() or not torch.isfinite(offset).all() or (scale < 0).any():
-        raise ValueError("Invalid pretrained joint normalization")
+        raise ValueError(f"Invalid pretrained {key} normalization")
     return scale, offset
 
 
-def unnormalize_joints(normalized, mask, scale, offset):
-    """Apply per-joint or per-horizon affine stats, respecting padded horizons."""
+def unnormalize_actions(normalized, mask, scale, offset):
+    """Apply per-channel or per-horizon affine stats, respecting padded horizons."""
     scale, offset = scale.to(normalized), offset.to(normalized)
     if scale.ndim == 1 or scale.shape[0] == 1:
         return normalized * scale + offset
@@ -56,7 +60,7 @@ def unnormalize_joints(normalized, mask, scale, offset):
     covered = min(horizon, scale.shape[0])
     if covered < horizon and mask[:, covered:].bool().any():
         raise ValueError(f"Model-S/E has {scale.shape[0]} normalization timesteps "
-                         f"but valid joints extend into the {horizon}-step horizon")
+                         f"but valid actions extend into the {horizon}-step horizon")
     physical = normalized[:, :covered] * scale[:covered] + offset[:covered]
     if covered < horizon:
         # No valid actions here; don't invent normalization for padded timesteps.
@@ -85,13 +89,13 @@ class JointActionDecoder:
         return cls(scale, offset, relative)
 
     def absolute(self, normalized, mask, inputs):
-        joints = unnormalize_joints(normalized, mask, self.scale, self.offset)
+        joints = unnormalize_actions(normalized, mask, self.scale, self.offset)
         if not self.relative:
             return joints
         reference = inputs["inputs"].get("raw_joint_reference")
         if reference is None or reference.shape != (joints.shape[0], 7):
-            raise ValueError("FK requires raw_joint_reference (B, 7); normalized/clipped state is not an exact inverse")
+            raise ValueError("Model-E requires raw_joint_reference (B, 7); normalized/clipped state is not an exact inverse")
         reference = reference.detach().to(joints)
         if not torch.isfinite(reference).all():
-            raise ValueError("FK reference joints are non-finite")
+            raise ValueError("Model-E reference joints are non-finite")
         return joints + reference[:, None, :]

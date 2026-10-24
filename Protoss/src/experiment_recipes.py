@@ -84,10 +84,10 @@ def _legacy_resume(ctx, output, variant):
         for key, value in lora["model_s"].items():
             settings["s_" + key] = value
     if variant == "E":
-        if lora.get("loss") != "pretrained_flow_preservation+fk_ee_path_length-v1":
-            raise ValueError("Old Model-E joint-path runs cannot resume as FK EE paths; start a new run")
-        settings.update(e_fmd_weight=lora["model_e"]["fm_weight"],
-                        e_path_length_weight=lora["model_e"]["path_length_weight"])
+        if lora.get("loss") != "pretrained_flow_preservation+fast_trajectory-v1":
+            raise ValueError("Old Model-E path-length runs cannot resume as fast trajectories; start a new run")
+        for key, value in lora["model_e"].items():
+            settings["e_" + ("fmd_weight" if key == "fm_weight" else key)] = value
     return ["--model", variant, "--groot-root", str(ctx.groot), "--dataset-root", str(ctx.data),
             "--base-model", str(ctx.base), "--output-dir", str(output),
             *options(settings), *ctx.evaluation_args()]
