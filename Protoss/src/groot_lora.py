@@ -27,7 +27,19 @@ def install_lora(model, rank=8, alpha=16):
         # Zero-based block indices: 0, 2, 4, ... (cross-attention in GR00T).
         # Within those blocks, keep Q/K/V and every Linear inside the FFN.
         match = LORA_TARGET_PATTERN.fullmatch(name)
-        if match is not None and int(match["layer"]) % 2 == 0:
+
+        # odd blocks
+        # if match is not None and int(match["layer"]) % 2 == 1:
+        #     names.append(name)
+        #     print(name)
+
+        # even blocks
+        #if match is not None and int(match["layer"]) % 2 == 0:
+        #     names.append(name)
+        #     print(name)
+
+        # all blocks
+        if match is not None:
             names.append(name)
             print(name)
 
